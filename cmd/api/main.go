@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -65,9 +67,29 @@ func main() {
 	slog.Info("connected to postgres")
 
 	// ── Redis ──────────────────────────────────────────────────────────────────
+	redisAddr := cfg.RedisURL
+	redisPassword := cfg.RedisPassword
+
+	// Parse full redis:// URLs (for providers like Railway).
+	if strings.HasPrefix(cfg.RedisURL, "redis://") {
+		parsedURL, err := url.Parse(cfg.RedisURL)
+		if err != nil {
+			slog.Error("parse redis url", "error", err)
+			os.Exit(1)
+		}
+
+		redisAddr = parsedURL.Host
+
+		if parsedURL.User != nil {
+			if pass, ok := parsedURL.User.Password(); ok {
+				redisPassword = pass
+			}
+		}
+	}
+
 	redisOpts := &redis.Options{
-		Addr:     cfg.RedisURL,
-		Password: cfg.RedisPassword,
+		Addr:     redisAddr,
+		Password: redisPassword,
 	}
 	redisClient := redis.NewClient(redisOpts)
 	defer redisClient.Close()
