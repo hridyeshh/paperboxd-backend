@@ -21,6 +21,38 @@ type Book struct {
 	LikeCount     pgtype.Int4        `json:"like_count"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Description   pgtype.Text        `json:"description"`
+	PublishedDate pgtype.Date        `json:"published_date"`
+	PageCount     pgtype.Int4        `json:"page_count"`
+	Language      pgtype.Text        `json:"language"`
+	CoverUrl      pgtype.Text        `json:"cover_url"`
+	Categories    []string           `json:"categories"`
+}
+
+type Bookshelf struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	BookID     uuid.UUID          `json:"book_id"`
+	Status     string             `json:"status"`
+	Rating     pgtype.Int4        `json:"rating"`
+	StartedAt  pgtype.Timestamptz `json:"started_at"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Follow struct {
+	ID          uuid.UUID          `json:"id"`
+	FollowerID  uuid.UUID          `json:"follower_id"`
+	FollowingID uuid.UUID          `json:"following_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Like struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	BookID    uuid.UUID          `json:"book_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type RefreshToken struct {

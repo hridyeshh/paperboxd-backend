@@ -21,6 +21,8 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/external"
+	"github.com/hridyesh/paperboxd-backend/internal/handler"
 	appMiddleware "github.com/hridyesh/paperboxd-backend/internal/middleware"
 )
 
@@ -107,6 +109,18 @@ func main() {
 	authHandler := auth.NewHandler(queries, cfg)
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
 
+	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
+
+	bookHandler := &handler.BookHandler{
+		Queries:     queries,
+		Config:      cfg,
+		GoogleBooks: googleBooksClient,
+	}
+	userHandler := &handler.UserHandler{
+		Queries: queries,
+		Config:  cfg,
+	}
+
 	// ── Router ─────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
 
@@ -153,6 +167,50 @@ func main() {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 
 			r.Get("/users/me", authHandler.Me)
+		})
+
+		// Books
+		r.Route("/books", func(r chi.Router) {
+			r.Get("/search", bookHandler.Search)
+
+			r.Group(func(r chi.Router) {
+				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+				r.Post("/", bookHandler.Create)
+			})
+
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", bookHandler.GetByID)
+
+				r.Group(func(r chi.Router) {
+					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+					r.Post("/like", bookHandler.Like)
+					r.Delete("/like", bookHandler.Unlike)
+				})
+			})
+		})
+
+		// Users
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/search", userHandler.Search)
+
+			r.Route("/{username}", func(r chi.Router) {
+				// Public routes
+				r.Get("/", userHandler.GetByUsername)
+				r.Get("/bookshelf", userHandler.GetBookshelf)
+				r.Get("/likes", userHandler.GetLikes)
+				r.Get("/followers", userHandler.GetFollowers)
+				r.Get("/following", userHandler.GetFollowing)
+
+				// Auth-protected routes
+				r.Group(func(r chi.Router) {
+					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+					r.Put("/", userHandler.Update)
+					r.Post("/bookshelf", userHandler.AddToBookshelf)
+					r.Delete("/bookshelf/{bookId}", userHandler.RemoveFromBookshelf)
+					r.Post("/follow", userHandler.Follow)
+					r.Delete("/follow", userHandler.Unfollow)
+				})
+			})
 		})
 	})
 

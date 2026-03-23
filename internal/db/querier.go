@@ -8,18 +8,43 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
+	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
+	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
+	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
+	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
+	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
+	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
+	GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error)
+	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
+	GetBookBySlug(ctx context.Context, slug string) (Book, error)
+	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
+	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
+	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
+	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
+	IncrementBookViews(ctx context.Context, id uuid.UUID) error
+	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
+	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
 	RevokeAllUserTokens(ctx context.Context, userID uuid.UUID) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
+	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
+	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
+	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
+	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error
 }
 

@@ -23,6 +23,9 @@ type Config struct {
 	JWTSecret          string
 	AccessTokenExpiry  time.Duration
 	RefreshTokenExpiry time.Duration
+
+	GoogleBooksAPIKey string
+	ISBNdbAPIKey      string
 }
 
 func Load() (*Config, error) {
@@ -43,6 +46,9 @@ func Load() (*Config, error) {
 		JWTSecret:          getEnv("JWT_SECRET", ""),
 		AccessTokenExpiry:  15 * time.Minute,
 		RefreshTokenExpiry: 30 * 24 * time.Hour,
+
+		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
+		ISBNdbAPIKey:      getEnv("ISBNDB_API_KEY", ""),
 	}, nil
 }
 

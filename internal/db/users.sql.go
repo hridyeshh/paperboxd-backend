@@ -158,6 +158,113 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const searchUsers = `-- name: SearchUsers :many
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id FROM users
+WHERE (username ILIKE '%' || $1 || '%'
+   OR name ILIKE '%' || $1 || '%')
+   AND deleted_at IS NULL
+ORDER BY followers_count DESC
+LIMIT $2 OFFSET $3
+`
+
+type SearchUsersParams struct {
+	Column1 pgtype.Text `json:"column_1"`
+	Limit   int32       `json:"limit"`
+	Offset  int32       `json:"offset"`
+}
+
+func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, searchUsers, arg.Column1, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.PasswordHash,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.Bio,
+			&i.Pronouns,
+			&i.IsPublic,
+			&i.FavoriteGenres,
+			&i.Settings,
+			&i.FollowersCount,
+			&i.FollowingCount,
+			&i.BooksReadCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastActive,
+			&i.DeletedAt,
+			&i.MongoID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateUser = `-- name: UpdateUser :one
+UPDATE users SET
+    name = COALESCE($2, name),
+    bio = COALESCE($3, bio),
+    pronouns = COALESCE($4, pronouns),
+    avatar_url = COALESCE($5, avatar_url),
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id
+`
+
+type UpdateUserParams struct {
+	ID        uuid.UUID   `json:"id"`
+	Name      pgtype.Text `json:"name"`
+	Bio       pgtype.Text `json:"bio"`
+	Pronouns  pgtype.Text `json:"pronouns"`
+	AvatarUrl pgtype.Text `json:"avatar_url"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.ID,
+		arg.Name,
+		arg.Bio,
+		arg.Pronouns,
+		arg.AvatarUrl,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.Pronouns,
+		&i.IsPublic,
+		&i.FavoriteGenres,
+		&i.Settings,
+		&i.FollowersCount,
+		&i.FollowingCount,
+		&i.BooksReadCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActive,
+		&i.DeletedAt,
+		&i.MongoID,
+	)
+	return i, err
+}
+
 const updateUserLastActive = `-- name: UpdateUserLastActive :exec
 UPDATE users
 SET last_active = NOW()

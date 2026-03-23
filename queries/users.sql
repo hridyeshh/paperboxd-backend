@@ -22,3 +22,21 @@ RETURNING *;
 UPDATE users
 SET last_active = NOW()
 WHERE id = $1;
+
+-- name: UpdateUser :one
+UPDATE users SET
+    name = COALESCE($2, name),
+    bio = COALESCE($3, bio),
+    pronouns = COALESCE($4, pronouns),
+    avatar_url = COALESCE($5, avatar_url),
+    updated_at = NOW()
+WHERE id = $1
+RETURNING *;
+
+-- name: SearchUsers :many
+SELECT * FROM users
+WHERE (username ILIKE '%' || $1 || '%'
+   OR name ILIKE '%' || $1 || '%')
+   AND deleted_at IS NULL
+ORDER BY followers_count DESC
+LIMIT $2 OFFSET $3;

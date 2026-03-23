@@ -44,6 +44,71 @@ type SuccessResponse struct {
 	Message string `json:"message"`
 }
 
+// BookResponse is the public-facing book object.
+type BookResponse struct {
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Slug          string   `json:"slug"`
+	Authors       []string `json:"authors"`
+	Description   string   `json:"description"`
+	CoverURL      string   `json:"cover_url"`
+	ISBN13        string   `json:"isbn_13"`
+	GoogleBooksID string   `json:"google_books_id"`
+	PublishedDate string   `json:"published_date"`
+	PageCount     int      `json:"page_count"`
+	Language      string   `json:"language"`
+	Categories    []string `json:"categories"`
+	ViewCount     int      `json:"view_count"`
+	LikeCount     int      `json:"like_count"`
+}
+
+// BookWithStatus extends BookResponse with bookshelf-specific fields.
+type BookWithStatus struct {
+	BookResponse
+	Status     string  `json:"status"`
+	Rating     *int    `json:"rating"`
+	FinishedAt *string `json:"finished_at"`
+	AddedAt    string  `json:"added_at"`
+}
+
+// BookWithLikedAt extends BookResponse with a liked_at timestamp.
+type BookWithLikedAt struct {
+	BookResponse
+	LikedAt string `json:"liked_at"`
+}
+
+// BookshelfResponse is returned from GET /api/v1/users/:username/bookshelf.
+type BookshelfResponse struct {
+	Books      []BookWithStatus `json:"books"`
+	TotalCount int64            `json:"total_count"`
+	Page       int              `json:"page"`
+	PageSize   int              `json:"page_size"`
+}
+
+// LikesResponse is returned from GET /api/v1/users/:username/likes.
+type LikesResponse struct {
+	Books      []BookWithLikedAt `json:"books"`
+	TotalCount int64             `json:"total_count"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"page_size"`
+}
+
+// UserListResponse is returned from user list endpoints (followers, following, search).
+type UserListResponse struct {
+	Users      []UserResponse `json:"users"`
+	TotalCount int64          `json:"total_count"`
+	Page       int            `json:"page"`
+	PageSize   int            `json:"page_size"`
+}
+
+// BookListResponse is returned from book search endpoints.
+type BookListResponse struct {
+	Books    []BookResponse `json:"books"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"page_size"`
+	Source   string         `json:"source"`
+}
+
 // WriteJSON writes a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, statusCode int, v any) {
 	w.Header().Set("Content-Type", "application/json")
