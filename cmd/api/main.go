@@ -109,13 +109,10 @@ func main() {
 	authHandler := auth.NewHandler(queries, cfg)
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
 
+	isbndbClient := external.NewISBNdbClient(cfg.ISBNdbAPIKey)
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
 
-	bookHandler := &handler.BookHandler{
-		Queries:     queries,
-		Config:      cfg,
-		GoogleBooks: googleBooksClient,
-	}
+	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	userHandler := &handler.UserHandler{
 		Queries: queries,
 		Config:  cfg,

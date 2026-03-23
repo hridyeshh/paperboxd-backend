@@ -26,10 +26,22 @@ import (
 type BookHandler struct {
 	Queries     *db.Queries
 	Config      *config.Config
+	ISBNdb      *external.ISBNdbClient
 	GoogleBooks *external.GoogleBooksClient
 }
 
-// Search handles GET /api/v1/books/search?query=...&page=...&page_size=...&source=...
+// NewBookHandler creates a BookHandler with the given clients.
+func NewBookHandler(queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient, googleBooks *external.GoogleBooksClient) *BookHandler {
+	return &BookHandler{
+		Queries:     queries,
+		Config:      cfg,
+		ISBNdb:      isbndb,
+		GoogleBooks: googleBooks,
+	}
+}
+
+// Search handles GET /api/v1/books/search?query=...&page=...&page_size=...
+// Priority: DB cache → ISBNdb → Google Books
 func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	if query == "" {
@@ -38,19 +50,13 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, pageSize := parsePagination(r)
-	source := r.URL.Query().Get("source") // "db", "google", "all" — default "all"
-	if source == "" {
-		source = "all"
-	}
+	ctx := r.Context()
 
+	// 1. DB cache first
 	offset := int32((page - 1) * pageSize)
 	limit := int32(pageSize)
 
-	var books []types.BookResponse
-	resultSource := "db"
-
-	// Always search DB first
-	dbBooks, err := h.Queries.SearchBooksInDB(r.Context(), db.SearchBooksInDBParams{
+	dbBooks, err := h.Queries.SearchBooksInDB(ctx, db.SearchBooksInDBParams{
 		Column1: pgtype.Text{String: query, Valid: true},
 		Limit:   limit,
 		Offset:  offset,
@@ -60,34 +66,66 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
-
-	for _, b := range dbBooks {
-		books = append(books, bookToResponse(b))
+	if len(dbBooks) > 0 {
+		books := make([]types.BookResponse, len(dbBooks))
+		for i, b := range dbBooks {
+			books[i] = bookToResponse(b)
+		}
+		types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+			Books:    books,
+			Page:     page,
+			PageSize: pageSize,
+			Source:   "db",
+		})
+		return
 	}
 
-	// Fall through to Google Books if no DB results (or source forced to "google"/"all")
-	if (source == "all" || source == "google") && (len(books) == 0 || source == "google") {
-		googleBooks, err := h.GoogleBooks.Search(r.Context(), query, pageSize)
+	// 2. ISBNdb (primary external source)
+	if h.ISBNdb != nil {
+		isbndbBooks, err := h.ISBNdb.Search(ctx, query, page, pageSize)
 		if err != nil {
-			slog.Warn("google books search failed", "error", err)
-			// Non-fatal: return DB results if any
-		} else {
-			resultSource = "google"
-			for _, gb := range googleBooks {
-				books = append(books, googleBookToResponse(gb))
+			slog.Warn("isbndb search failed", "error", err)
+		} else if len(isbndbBooks) > 0 {
+			books := make([]types.BookResponse, len(isbndbBooks))
+			for i, b := range isbndbBooks {
+				books[i] = isbndbBookToResponse(b)
 			}
+			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+				Books:    books,
+				Page:     page,
+				PageSize: pageSize,
+				Source:   "isbndb",
+			})
+			return
 		}
 	}
 
-	if books == nil {
-		books = []types.BookResponse{}
+	// 3. Google Books fallback
+	if h.GoogleBooks != nil {
+		googleBooks, err := h.GoogleBooks.Search(ctx, query, pageSize)
+		if err != nil {
+			slog.Warn("google books search failed", "error", err)
+		} else if len(googleBooks) > 0 {
+			books := make([]types.BookResponse, len(googleBooks))
+			for i, b := range googleBooks {
+				books[i] = googleBookToResponse(b)
+			}
+			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+				Books:    books,
+				Page:     page,
+				PageSize: pageSize,
+				Source:   "google",
+			})
+			return
+		}
 	}
 
+	// No results from any source
 	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-		Books:    books,
+		Books:    []types.BookResponse{},
 		Page:     page,
 		PageSize: pageSize,
-		Source:   resultSource,
+		Source:   "none",
 	})
 }
 
@@ -387,6 +425,35 @@ func googleBookToResponse(gb external.GoogleBook) types.BookResponse {
 	}
 
 	return resp
+}
+
+func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
+	authors := b.Authors
+	if authors == nil {
+		authors = []string{}
+	}
+	subjects := b.Subjects
+	if subjects == nil {
+		subjects = []string{}
+	}
+
+	isbn13 := b.ISBN13
+	if isbn13 == "" {
+		isbn13 = b.ISBN
+	}
+
+	return types.BookResponse{
+		Title:         b.Title,
+		Slug:          generateSlug(b.Title, isbn13),
+		Authors:       authors,
+		Description:   b.Synopsis,
+		CoverURL:      b.Image,
+		ISBN13:        isbn13,
+		PublishedDate: b.DatePublished,
+		PageCount:     b.Pages,
+		Language:      b.Language,
+		Categories:    subjects,
+	}
 }
 
 func parsePagination(r *http.Request) (page, pageSize int) {
