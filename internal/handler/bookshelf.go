@@ -278,89 +278,181 @@ func (h *UserHandler) resolveOwner(w http.ResponseWriter, r *http.Request) (uuid
 }
 
 func bookRowToResponse(row db.GetUserBookshelfRow) types.BookResponse {
-	resp := types.BookResponse{
-		ID:      row.ID.String(),
-		Title:   row.Title,
-		Slug:    row.Slug,
-		Authors: row.Authors,
+	vi := types.VolumeInfo{
+		Title:      row.Title,
+		Authors:    row.Authors,
+		Categories: row.Categories,
+	}
+	if vi.Authors == nil {
+		vi.Authors = []string{}
+	}
+	if vi.Categories == nil {
+		vi.Categories = []string{}
 	}
 	if row.Description.Valid {
-		resp.Description = row.Description.String
+		vi.Description = row.Description.String
 	}
 	if row.CoverUrl.Valid {
-		resp.CoverURL = row.CoverUrl.String
+		vi.ImageLinks = types.ImageLinks{
+			Thumbnail: row.CoverUrl.String,
+			Small:     row.CoverUrl.String,
+			Medium:    row.CoverUrl.String,
+		}
 	}
-	if row.Isbn13.Valid {
-		resp.ISBN13 = row.Isbn13.String
+	if row.PublishedDate.Valid {
+		vi.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	}
+	if row.PageCount.Valid {
+		vi.PageCount = int(row.PageCount.Int32)
+	}
+	if row.Language.Valid {
+		vi.Language = row.Language.String
+	}
+	if row.Subtitle.Valid {
+		vi.Subtitle = row.Subtitle.String
+	}
+	if row.Publisher.Valid {
+		vi.Publisher = row.Publisher.String
+	}
+	if row.PreviewLink.Valid {
+		vi.PreviewLink = row.PreviewLink.String
+	}
+	if row.AverageRating.Valid {
+		v := row.AverageRating.Float64
+		vi.AverageRating = &v
+	}
+	if row.RatingsCount.Valid {
+		v := int(row.RatingsCount.Int32)
+		vi.RatingsCount = &v
+	}
+	if row.Isbn13.Valid && row.Isbn13.String != "" {
+		vi.IndustryIdentifiers = append(vi.IndustryIdentifiers, types.IndustryIdentifier{
+			Type:       "ISBN_13",
+			Identifier: row.Isbn13.String,
+		})
+	}
+
+	stats := types.PaperboxdStats{}
+	if row.LikeCount.Valid {
+		v := int(row.LikeCount.Int32)
+		stats.TotalLikes = &v
+	}
+	if row.TotalReadsCount.Valid {
+		v := int(row.TotalReadsCount.Int32)
+		stats.TotalReads = &v
+	}
+	if row.TotalTbrCount.Valid {
+		v := int(row.TotalTbrCount.Int32)
+		stats.TotalTBR = &v
+	}
+
+	resp := types.BookResponse{
+		ID:             row.ID.String(),
+		MongoID:        row.ID.String(),
+		VolumeInfo:     vi,
+		PaperboxdStats: stats,
+		APISource:      "db",
+		FromCache:      true,
+		Slug:           row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String
 	}
-	if row.PublishedDate.Valid {
-		resp.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	if row.IsbndbID.Valid {
+		resp.ISBNdbID = row.IsbndbID.String
 	}
-	if row.PageCount.Valid {
-		resp.PageCount = int(row.PageCount.Int32)
-	}
-	if row.Language.Valid {
-		resp.Language = row.Language.String
-	}
-	if row.ViewCount.Valid {
-		resp.ViewCount = int(row.ViewCount.Int32)
-	}
-	if row.LikeCount.Valid {
-		resp.LikeCount = int(row.LikeCount.Int32)
-	}
-	resp.Categories = row.Categories
-	if resp.Categories == nil {
-		resp.Categories = []string{}
-	}
-	if resp.Authors == nil {
-		resp.Authors = []string{}
+	if row.OpenLibraryID.Valid {
+		resp.OpenLibraryID = row.OpenLibraryID.String
 	}
 	return resp
 }
 
 func likesRowToResponse(row db.GetUserLikesRow) types.BookResponse {
-	resp := types.BookResponse{
-		ID:      row.ID.String(),
-		Title:   row.Title,
-		Slug:    row.Slug,
-		Authors: row.Authors,
+	vi := types.VolumeInfo{
+		Title:      row.Title,
+		Authors:    row.Authors,
+		Categories: row.Categories,
+	}
+	if vi.Authors == nil {
+		vi.Authors = []string{}
+	}
+	if vi.Categories == nil {
+		vi.Categories = []string{}
 	}
 	if row.Description.Valid {
-		resp.Description = row.Description.String
+		vi.Description = row.Description.String
 	}
 	if row.CoverUrl.Valid {
-		resp.CoverURL = row.CoverUrl.String
+		vi.ImageLinks = types.ImageLinks{
+			Thumbnail: row.CoverUrl.String,
+			Small:     row.CoverUrl.String,
+			Medium:    row.CoverUrl.String,
+		}
 	}
-	if row.Isbn13.Valid {
-		resp.ISBN13 = row.Isbn13.String
+	if row.PublishedDate.Valid {
+		vi.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	}
+	if row.PageCount.Valid {
+		vi.PageCount = int(row.PageCount.Int32)
+	}
+	if row.Language.Valid {
+		vi.Language = row.Language.String
+	}
+	if row.Subtitle.Valid {
+		vi.Subtitle = row.Subtitle.String
+	}
+	if row.Publisher.Valid {
+		vi.Publisher = row.Publisher.String
+	}
+	if row.PreviewLink.Valid {
+		vi.PreviewLink = row.PreviewLink.String
+	}
+	if row.AverageRating.Valid {
+		v := row.AverageRating.Float64
+		vi.AverageRating = &v
+	}
+	if row.RatingsCount.Valid {
+		v := int(row.RatingsCount.Int32)
+		vi.RatingsCount = &v
+	}
+	if row.Isbn13.Valid && row.Isbn13.String != "" {
+		vi.IndustryIdentifiers = append(vi.IndustryIdentifiers, types.IndustryIdentifier{
+			Type:       "ISBN_13",
+			Identifier: row.Isbn13.String,
+		})
+	}
+
+	stats := types.PaperboxdStats{}
+	if row.LikeCount.Valid {
+		v := int(row.LikeCount.Int32)
+		stats.TotalLikes = &v
+	}
+	if row.TotalReadsCount.Valid {
+		v := int(row.TotalReadsCount.Int32)
+		stats.TotalReads = &v
+	}
+	if row.TotalTbrCount.Valid {
+		v := int(row.TotalTbrCount.Int32)
+		stats.TotalTBR = &v
+	}
+
+	resp := types.BookResponse{
+		ID:             row.ID.String(),
+		MongoID:        row.ID.String(),
+		VolumeInfo:     vi,
+		PaperboxdStats: stats,
+		APISource:      "db",
+		FromCache:      true,
+		Slug:           row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String
 	}
-	if row.PublishedDate.Valid {
-		resp.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	if row.IsbndbID.Valid {
+		resp.ISBNdbID = row.IsbndbID.String
 	}
-	if row.PageCount.Valid {
-		resp.PageCount = int(row.PageCount.Int32)
-	}
-	if row.Language.Valid {
-		resp.Language = row.Language.String
-	}
-	if row.ViewCount.Valid {
-		resp.ViewCount = int(row.ViewCount.Int32)
-	}
-	if row.LikeCount.Valid {
-		resp.LikeCount = int(row.LikeCount.Int32)
-	}
-	resp.Categories = row.Categories
-	if resp.Categories == nil {
-		resp.Categories = []string{}
-	}
-	if resp.Authors == nil {
-		resp.Authors = []string{}
+	if row.OpenLibraryID.Valid {
+		resp.OpenLibraryID = row.OpenLibraryID.String
 	}
 	return resp
 }

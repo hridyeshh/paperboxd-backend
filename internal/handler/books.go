@@ -67,15 +67,17 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(dbBooks) > 0 {
-		books := make([]types.BookResponse, len(dbBooks))
+		items := make([]types.BookResponse, len(dbBooks))
 		for i, b := range dbBooks {
-			books[i] = bookToResponse(b)
+			items[i] = bookToResponse(b)
 		}
 		types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-			Books:    books,
-			Page:     page,
-			PageSize: pageSize,
-			Source:   "db",
+			Kind:       "books#volumes",
+			TotalItems: len(items),
+			Items:      items,
+			Page:       page,
+			PageSize:   pageSize,
+			Source:     "db",
 		})
 		return
 	}
@@ -86,15 +88,17 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("isbndb search failed", "error", err)
 		} else if len(isbndbBooks) > 0 {
-			books := make([]types.BookResponse, len(isbndbBooks))
+			items := make([]types.BookResponse, len(isbndbBooks))
 			for i, b := range isbndbBooks {
-				books[i] = isbndbBookToResponse(b)
+				items[i] = isbndbBookToResponse(b)
 			}
 			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-				Books:    books,
-				Page:     page,
-				PageSize: pageSize,
-				Source:   "isbndb",
+				Kind:       "books#volumes",
+				TotalItems: len(items),
+				Items:      items,
+				Page:       page,
+				PageSize:   pageSize,
+				Source:     "isbndb",
 			})
 			return
 		}
@@ -106,15 +110,17 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("google books search failed", "error", err)
 		} else if len(googleBooks) > 0 {
-			books := make([]types.BookResponse, len(googleBooks))
+			items := make([]types.BookResponse, len(googleBooks))
 			for i, b := range googleBooks {
-				books[i] = googleBookToResponse(b)
+				items[i] = googleBookToResponse(b)
 			}
 			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-				Books:    books,
-				Page:     page,
-				PageSize: pageSize,
-				Source:   "google",
+				Kind:       "books#volumes",
+				TotalItems: len(items),
+				Items:      items,
+				Page:       page,
+				PageSize:   pageSize,
+				Source:     "google",
 			})
 			return
 		}
@@ -122,10 +128,12 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	// No results from any source
 	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-		Books:    []types.BookResponse{},
-		Page:     page,
-		PageSize: pageSize,
-		Source:   "none",
+		Kind:       "books#volumes",
+		TotalItems: 0,
+		Items:      []types.BookResponse{},
+		Page:       page,
+		PageSize:   pageSize,
+		Source:     "none",
 	})
 }
 
@@ -349,50 +357,98 @@ func parsePublishedDate(s string) *time.Time {
 	return nil
 }
 
+// bookToResponse converts a db.Book to the frontend-compatible BookResponse.
 func bookToResponse(b db.Book) types.BookResponse {
-	resp := types.BookResponse{
-		ID:         b.ID.String(),
+	vi := types.VolumeInfo{
 		Title:      b.Title,
-		Slug:       b.Slug,
 		Authors:    b.Authors,
 		Categories: b.Categories,
 	}
+	if vi.Authors == nil {
+		vi.Authors = []string{}
+	}
+	if vi.Categories == nil {
+		vi.Categories = []string{}
+	}
 	if b.Description.Valid {
-		resp.Description = b.Description.String
+		vi.Description = b.Description.String
 	}
 	if b.CoverUrl.Valid {
-		resp.CoverURL = b.CoverUrl.String
+		vi.ImageLinks = types.ImageLinks{
+			Thumbnail: b.CoverUrl.String,
+			Small:     b.CoverUrl.String,
+			Medium:    b.CoverUrl.String,
+		}
 	}
-	if b.Isbn13.Valid {
-		resp.ISBN13 = b.Isbn13.String
+	if b.PublishedDate.Valid {
+		vi.PublishedDate = b.PublishedDate.Time.Format("2006-01-02")
+	}
+	if b.PageCount.Valid {
+		vi.PageCount = int(b.PageCount.Int32)
+	}
+	if b.Language.Valid {
+		vi.Language = b.Language.String
+	}
+	if b.Subtitle.Valid {
+		vi.Subtitle = b.Subtitle.String
+	}
+	if b.Publisher.Valid {
+		vi.Publisher = b.Publisher.String
+	}
+	if b.PreviewLink.Valid {
+		vi.PreviewLink = b.PreviewLink.String
+	}
+	if b.AverageRating.Valid {
+		v := b.AverageRating.Float64
+		vi.AverageRating = &v
+	}
+	if b.RatingsCount.Valid {
+		v := int(b.RatingsCount.Int32)
+		vi.RatingsCount = &v
+	}
+	if b.Isbn13.Valid && b.Isbn13.String != "" {
+		vi.IndustryIdentifiers = append(vi.IndustryIdentifiers, types.IndustryIdentifier{
+			Type:       "ISBN_13",
+			Identifier: b.Isbn13.String,
+		})
+	}
+
+	stats := types.PaperboxdStats{}
+	if b.LikeCount.Valid {
+		v := int(b.LikeCount.Int32)
+		stats.TotalLikes = &v
+	}
+	if b.TotalReadsCount.Valid {
+		v := int(b.TotalReadsCount.Int32)
+		stats.TotalReads = &v
+	}
+	if b.TotalTbrCount.Valid {
+		v := int(b.TotalTbrCount.Int32)
+		stats.TotalTBR = &v
+	}
+
+	resp := types.BookResponse{
+		ID:             b.ID.String(),
+		MongoID:        b.ID.String(),
+		VolumeInfo:     vi,
+		PaperboxdStats: stats,
+		APISource:      "db",
+		FromCache:      true,
+		Slug:           b.Slug,
 	}
 	if b.GoogleBooksID.Valid {
 		resp.GoogleBooksID = b.GoogleBooksID.String
 	}
-	if b.PublishedDate.Valid {
-		resp.PublishedDate = b.PublishedDate.Time.Format("2006-01-02")
+	if b.IsbndbID.Valid {
+		resp.ISBNdbID = b.IsbndbID.String
 	}
-	if b.PageCount.Valid {
-		resp.PageCount = int(b.PageCount.Int32)
-	}
-	if b.Language.Valid {
-		resp.Language = b.Language.String
-	}
-	if b.ViewCount.Valid {
-		resp.ViewCount = int(b.ViewCount.Int32)
-	}
-	if b.LikeCount.Valid {
-		resp.LikeCount = int(b.LikeCount.Int32)
-	}
-	if resp.Categories == nil {
-		resp.Categories = []string{}
-	}
-	if resp.Authors == nil {
-		resp.Authors = []string{}
+	if b.OpenLibraryID.Valid {
+		resp.OpenLibraryID = b.OpenLibraryID.String
 	}
 	return resp
 }
 
+// googleBookToResponse converts a Google Books API result to BookResponse.
 func googleBookToResponse(gb external.GoogleBook) types.BookResponse {
 	vi := gb.VolumeInfo
 	authors := vi.Authors
@@ -404,29 +460,38 @@ func googleBookToResponse(gb external.GoogleBook) types.BookResponse {
 		categories = []string{}
 	}
 
-	resp := types.BookResponse{
-		GoogleBooksID: gb.ID,
+	volumeInfo := types.VolumeInfo{
 		Title:         vi.Title,
-		Slug:          generateSlug(vi.Title, gb.ID),
 		Authors:       authors,
 		Description:   vi.Description,
-		CoverURL:      vi.ImageLinks.Thumbnail,
 		PublishedDate: vi.PublishedDate,
 		PageCount:     vi.PageCount,
 		Language:      vi.Language,
 		Categories:    categories,
+		ImageLinks: types.ImageLinks{
+			Thumbnail: vi.ImageLinks.Thumbnail,
+		},
 	}
 
 	for _, id := range vi.IndustryIdentifiers {
-		if id.Type == "ISBN_13" {
-			resp.ISBN13 = id.Identifier
-			break
-		}
+		volumeInfo.IndustryIdentifiers = append(volumeInfo.IndustryIdentifiers, types.IndustryIdentifier{
+			Type:       id.Type,
+			Identifier: id.Identifier,
+		})
 	}
 
-	return resp
+	return types.BookResponse{
+		ID:            gb.ID,
+		MongoID:       gb.ID,
+		VolumeInfo:    volumeInfo,
+		APISource:     "google",
+		FromCache:     false,
+		GoogleBooksID: gb.ID,
+		Slug:          generateSlug(vi.Title, gb.ID),
+	}
 }
 
+// isbndbBookToResponse converts an ISBNdb result to BookResponse.
 func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
 	authors := b.Authors
 	if authors == nil {
@@ -442,17 +507,33 @@ func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
 		isbn13 = b.ISBN
 	}
 
-	return types.BookResponse{
+	volumeInfo := types.VolumeInfo{
 		Title:         b.Title,
-		Slug:          generateSlug(b.Title, isbn13),
 		Authors:       authors,
-		Description:   b.Synopsis,
-		CoverURL:      b.Image,
-		ISBN13:        isbn13,
+		Publisher:     b.Publisher,
 		PublishedDate: b.DatePublished,
+		Description:   b.Synopsis,
 		PageCount:     b.Pages,
 		Language:      b.Language,
 		Categories:    subjects,
+		ImageLinks: types.ImageLinks{
+			Thumbnail: b.Image,
+			Small:     b.Image,
+			Medium:    b.Image,
+		},
+		IndustryIdentifiers: []types.IndustryIdentifier{
+			{Type: "ISBN_13", Identifier: isbn13},
+		},
+	}
+
+	return types.BookResponse{
+		ID:        isbn13,
+		MongoID:   isbn13,
+		VolumeInfo: volumeInfo,
+		APISource: "isbndb",
+		FromCache: false,
+		ISBNdbID:  isbn13,
+		Slug:      generateSlug(b.Title, isbn13),
 	}
 }
 

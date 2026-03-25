@@ -10,23 +10,32 @@ import (
 )
 
 type Book struct {
-	ID            uuid.UUID          `json:"id"`
-	Title         string             `json:"title"`
-	Slug          string             `json:"slug"`
-	Authors       []string           `json:"authors"`
-	Isbn13        pgtype.Text        `json:"isbn_13"`
-	GoogleBooksID pgtype.Text        `json:"google_books_id"`
-	Metadata      []byte             `json:"metadata"`
-	ViewCount     pgtype.Int4        `json:"view_count"`
-	LikeCount     pgtype.Int4        `json:"like_count"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	Description   pgtype.Text        `json:"description"`
-	PublishedDate pgtype.Date        `json:"published_date"`
-	PageCount     pgtype.Int4        `json:"page_count"`
-	Language      pgtype.Text        `json:"language"`
-	CoverUrl      pgtype.Text        `json:"cover_url"`
-	Categories    []string           `json:"categories"`
+	ID              uuid.UUID          `json:"id"`
+	Title           string             `json:"title"`
+	Slug            string             `json:"slug"`
+	Authors         []string           `json:"authors"`
+	Isbn13          pgtype.Text        `json:"isbn_13"`
+	GoogleBooksID   pgtype.Text        `json:"google_books_id"`
+	Metadata        []byte             `json:"metadata"`
+	ViewCount       pgtype.Int4        `json:"view_count"`
+	LikeCount       pgtype.Int4        `json:"like_count"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	Description     pgtype.Text        `json:"description"`
+	PublishedDate   pgtype.Date        `json:"published_date"`
+	PageCount       pgtype.Int4        `json:"page_count"`
+	Language        pgtype.Text        `json:"language"`
+	CoverUrl        pgtype.Text        `json:"cover_url"`
+	Categories      []string           `json:"categories"`
+	Subtitle        pgtype.Text        `json:"subtitle"`
+	Publisher       pgtype.Text        `json:"publisher"`
+	IsbndbID        pgtype.Text        `json:"isbndb_id"`
+	OpenLibraryID   pgtype.Text        `json:"open_library_id"`
+	AverageRating   pgtype.Float8      `json:"average_rating"`
+	RatingsCount    pgtype.Int4        `json:"ratings_count"`
+	PreviewLink     pgtype.Text        `json:"preview_link"`
+	TotalReadsCount pgtype.Int4        `json:"total_reads_count"`
+	TotalTbrCount   pgtype.Int4        `json:"total_tbr_count"`
 }
 
 type Bookshelf struct {
@@ -74,7 +83,7 @@ type User struct {
 	Name           pgtype.Text        `json:"name"`
 	AvatarUrl      pgtype.Text        `json:"avatar_url"`
 	Bio            pgtype.Text        `json:"bio"`
-	Pronouns       pgtype.Text        `json:"pronouns"`
+	Pronouns       []string           `json:"pronouns"`
 	IsPublic       pgtype.Bool        `json:"is_public"`
 	FavoriteGenres []string           `json:"favorite_genres"`
 	Settings       []byte             `json:"settings"`
@@ -86,4 +95,8 @@ type User struct {
 	LastActive     pgtype.Timestamptz `json:"last_active"`
 	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
 	MongoID        pgtype.Text        `json:"mongo_id"`
+	Birthday       pgtype.Date        `json:"birthday"`
+	Gender         pgtype.Text        `json:"gender"`
+	Links          []string           `json:"links"`
+	TotalPagesRead pgtype.Int4        `json:"total_pages_read"`
 }

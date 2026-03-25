@@ -74,7 +74,7 @@ func (q *Queries) FollowUser(ctx context.Context, arg FollowUserParams) (Follow,
 }
 
 const getFollowers = `-- name: GetFollowers :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read FROM follows f
 JOIN users u ON f.follower_id = u.id
 WHERE f.following_id = $1
 ORDER BY f.created_at DESC
@@ -116,6 +116,10 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 			&i.LastActive,
 			&i.DeletedAt,
 			&i.MongoID,
+			&i.Birthday,
+			&i.Gender,
+			&i.Links,
+			&i.TotalPagesRead,
 		); err != nil {
 			return nil, err
 		}
@@ -128,7 +132,7 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 }
 
 const getFollowing = `-- name: GetFollowing :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read FROM follows f
 JOIN users u ON f.following_id = u.id
 WHERE f.follower_id = $1
 ORDER BY f.created_at DESC
@@ -170,6 +174,10 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]U
 			&i.LastActive,
 			&i.DeletedAt,
 			&i.MongoID,
+			&i.Birthday,
+			&i.Gender,
+			&i.Links,
+			&i.TotalPagesRead,
 		); err != nil {
 			return nil, err
 		}

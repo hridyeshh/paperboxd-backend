@@ -55,7 +55,15 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Following " + username})
+	followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
+	followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)
+
+	types.WriteJSON(w, http.StatusOK, types.FollowResponse{
+		Message:        "Following " + username,
+		IsFollowing:    true,
+		FollowersCount: int32(followersCount),
+		FollowingCount: int32(followingCount),
+	})
 }
 
 // Unfollow handles DELETE /api/v1/users/:username/follow
@@ -93,7 +101,15 @@ func (h *UserHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Unfollowed " + username})
+	followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
+	followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)
+
+	types.WriteJSON(w, http.StatusOK, types.FollowResponse{
+		Message:        "Unfollowed " + username,
+		IsFollowing:    false,
+		FollowersCount: int32(followersCount),
+		FollowingCount: int32(followingCount),
+	})
 }
 
 // GetFollowers handles GET /api/v1/users/:username/followers

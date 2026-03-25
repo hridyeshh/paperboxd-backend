@@ -15,32 +15,44 @@ import (
 const createBook = `-- name: CreateBook :one
 INSERT INTO books (
     title, slug, authors, isbn_13, google_books_id,
-    description, published_date, page_count, language, cover_url, categories, metadata
+    description, published_date, page_count, language, cover_url, categories,
+    subtitle, publisher, isbndb_id, open_library_id, average_rating, preview_link,
+    metadata
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
 ON CONFLICT (google_books_id) DO UPDATE SET
     title = EXCLUDED.title,
     authors = EXCLUDED.authors,
     description = EXCLUDED.description,
     cover_url = EXCLUDED.cover_url,
+    subtitle = EXCLUDED.subtitle,
+    publisher = EXCLUDED.publisher,
+    isbndb_id = EXCLUDED.isbndb_id,
+    average_rating = EXCLUDED.average_rating,
     updated_at = NOW()
-RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories
+RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count
 `
 
 type CreateBookParams struct {
-	Title         string      `json:"title"`
-	Slug          string      `json:"slug"`
-	Authors       []string    `json:"authors"`
-	Isbn13        pgtype.Text `json:"isbn_13"`
-	GoogleBooksID pgtype.Text `json:"google_books_id"`
-	Description   pgtype.Text `json:"description"`
-	PublishedDate pgtype.Date `json:"published_date"`
-	PageCount     pgtype.Int4 `json:"page_count"`
-	Language      pgtype.Text `json:"language"`
-	CoverUrl      pgtype.Text `json:"cover_url"`
-	Categories    []string    `json:"categories"`
-	Metadata      []byte      `json:"metadata"`
+	Title         string        `json:"title"`
+	Slug          string        `json:"slug"`
+	Authors       []string      `json:"authors"`
+	Isbn13        pgtype.Text   `json:"isbn_13"`
+	GoogleBooksID pgtype.Text   `json:"google_books_id"`
+	Description   pgtype.Text   `json:"description"`
+	PublishedDate pgtype.Date   `json:"published_date"`
+	PageCount     pgtype.Int4   `json:"page_count"`
+	Language      pgtype.Text   `json:"language"`
+	CoverUrl      pgtype.Text   `json:"cover_url"`
+	Categories    []string      `json:"categories"`
+	Subtitle      pgtype.Text   `json:"subtitle"`
+	Publisher     pgtype.Text   `json:"publisher"`
+	IsbndbID      pgtype.Text   `json:"isbndb_id"`
+	OpenLibraryID pgtype.Text   `json:"open_library_id"`
+	AverageRating pgtype.Float8 `json:"average_rating"`
+	PreviewLink   pgtype.Text   `json:"preview_link"`
+	Metadata      []byte        `json:"metadata"`
 }
 
 func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, error) {
@@ -56,6 +68,12 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		arg.Language,
 		arg.CoverUrl,
 		arg.Categories,
+		arg.Subtitle,
+		arg.Publisher,
+		arg.IsbndbID,
+		arg.OpenLibraryID,
+		arg.AverageRating,
+		arg.PreviewLink,
 		arg.Metadata,
 	)
 	var i Book
@@ -77,12 +95,21 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		&i.Language,
 		&i.CoverUrl,
 		&i.Categories,
+		&i.Subtitle,
+		&i.Publisher,
+		&i.IsbndbID,
+		&i.OpenLibraryID,
+		&i.AverageRating,
+		&i.RatingsCount,
+		&i.PreviewLink,
+		&i.TotalReadsCount,
+		&i.TotalTbrCount,
 	)
 	return i, err
 }
 
 const getBookByGoogleID = `-- name: GetBookByGoogleID :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories FROM books WHERE google_books_id = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books WHERE google_books_id = $1
 `
 
 func (q *Queries) GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error) {
@@ -106,12 +133,21 @@ func (q *Queries) GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Te
 		&i.Language,
 		&i.CoverUrl,
 		&i.Categories,
+		&i.Subtitle,
+		&i.Publisher,
+		&i.IsbndbID,
+		&i.OpenLibraryID,
+		&i.AverageRating,
+		&i.RatingsCount,
+		&i.PreviewLink,
+		&i.TotalReadsCount,
+		&i.TotalTbrCount,
 	)
 	return i, err
 }
 
 const getBookByID = `-- name: GetBookByID :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories FROM books WHERE id = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books WHERE id = $1
 `
 
 func (q *Queries) GetBookByID(ctx context.Context, id uuid.UUID) (Book, error) {
@@ -135,12 +171,21 @@ func (q *Queries) GetBookByID(ctx context.Context, id uuid.UUID) (Book, error) {
 		&i.Language,
 		&i.CoverUrl,
 		&i.Categories,
+		&i.Subtitle,
+		&i.Publisher,
+		&i.IsbndbID,
+		&i.OpenLibraryID,
+		&i.AverageRating,
+		&i.RatingsCount,
+		&i.PreviewLink,
+		&i.TotalReadsCount,
+		&i.TotalTbrCount,
 	)
 	return i, err
 }
 
 const getBookBySlug = `-- name: GetBookBySlug :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories FROM books WHERE slug = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books WHERE slug = $1
 `
 
 func (q *Queries) GetBookBySlug(ctx context.Context, slug string) (Book, error) {
@@ -164,6 +209,15 @@ func (q *Queries) GetBookBySlug(ctx context.Context, slug string) (Book, error) 
 		&i.Language,
 		&i.CoverUrl,
 		&i.Categories,
+		&i.Subtitle,
+		&i.Publisher,
+		&i.IsbndbID,
+		&i.OpenLibraryID,
+		&i.AverageRating,
+		&i.RatingsCount,
+		&i.PreviewLink,
+		&i.TotalReadsCount,
+		&i.TotalTbrCount,
 	)
 	return i, err
 }
@@ -178,7 +232,7 @@ func (q *Queries) IncrementBookViews(ctx context.Context, id uuid.UUID) error {
 }
 
 const searchBooksInDB = `-- name: SearchBooksInDB :many
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories FROM books
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books
 WHERE title ILIKE '%' || $1 || '%'
    OR $1 = ANY(authors)
 ORDER BY view_count DESC
@@ -218,6 +272,15 @@ func (q *Queries) SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams
 			&i.Language,
 			&i.CoverUrl,
 			&i.Categories,
+			&i.Subtitle,
+			&i.Publisher,
+			&i.IsbndbID,
+			&i.OpenLibraryID,
+			&i.AverageRating,
+			&i.RatingsCount,
+			&i.PreviewLink,
+			&i.TotalReadsCount,
+			&i.TotalTbrCount,
 		); err != nil {
 			return nil, err
 		}

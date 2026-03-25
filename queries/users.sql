@@ -29,6 +29,9 @@ UPDATE users SET
     bio = COALESCE($3, bio),
     pronouns = COALESCE($4, pronouns),
     avatar_url = COALESCE($5, avatar_url),
+    birthday = COALESCE($6, birthday),
+    gender = COALESCE($7, gender),
+    links = COALESCE($8, links),
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;

@@ -202,6 +202,7 @@ func main() {
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 					r.Put("/", userHandler.Update)
+				r.Patch("/", userHandler.Update)
 					r.Post("/bookshelf", userHandler.AddToBookshelf)
 					r.Delete("/bookshelf/{bookId}", userHandler.RemoveFromBookshelf)
 					r.Post("/follow", userHandler.Follow)

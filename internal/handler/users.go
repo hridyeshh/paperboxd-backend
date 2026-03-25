@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -45,7 +46,7 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(user))
 }
 
-// Update handles PUT /api/v1/users/:username (owner only)
+// Update handles PUT/PATCH /api/v1/users/:username (owner only)
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
@@ -91,10 +92,24 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		params.Bio = pgtype.Text{String: *req.Bio, Valid: true}
 	}
 	if req.Pronouns != nil {
-		params.Pronouns = pgtype.Text{String: *req.Pronouns, Valid: true}
+		params.Pronouns = *req.Pronouns
 	}
 	if req.AvatarURL != nil {
 		params.AvatarUrl = pgtype.Text{String: *req.AvatarURL, Valid: true}
+	}
+	if req.Birthday != nil {
+		t, err := time.Parse("2006-01-02", *req.Birthday)
+		if err != nil {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "birthday must be in YYYY-MM-DD format")
+			return
+		}
+		params.Birthday = pgtype.Date{Time: t, Valid: true}
+	}
+	if req.Gender != nil {
+		params.Gender = pgtype.Text{String: *req.Gender, Valid: true}
+	}
+	if req.Links != nil {
+		params.Links = *req.Links
 	}
 
 	updated, err := h.Queries.UpdateUser(r.Context(), params)
@@ -147,17 +162,27 @@ func (h *UserHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 func userToResponse(u db.User) types.UserResponse {
 	resp := types.UserResponse{
-		ID:             u.ID,
+		ID:             u.ID.String(),
+		MongoID:        u.ID.String(),
 		Username:       u.Username,
 		Email:          u.Email,
 		IsPublic:       u.IsPublic.Bool,
 		BooksReadCount: u.BooksReadCount.Int32,
+		TotalPagesRead: u.TotalPagesRead.Int32,
 		FollowersCount: u.FollowersCount.Int32,
 		FollowingCount: u.FollowingCount.Int32,
-		CreatedAt:      u.CreatedAt.Time,
+		CreatedAt:      u.CreatedAt.Time.Format(time.RFC3339),
+		Pronouns:       u.Pronouns,
+		Links:          u.Links,
+	}
+	if resp.Pronouns == nil {
+		resp.Pronouns = []string{}
+	}
+	if resp.Links == nil {
+		resp.Links = []string{}
 	}
 	if u.Name.Valid {
-		resp.Name = &u.Name.String
+		resp.Name = u.Name.String
 	}
 	if u.AvatarUrl.Valid {
 		resp.AvatarURL = &u.AvatarUrl.String
@@ -165,8 +190,12 @@ func userToResponse(u db.User) types.UserResponse {
 	if u.Bio.Valid {
 		resp.Bio = &u.Bio.String
 	}
-	if u.Pronouns.Valid {
-		resp.Pronouns = &u.Pronouns.String
+	if u.Birthday.Valid {
+		s := u.Birthday.Time.Format("2006-01-02")
+		resp.Birthday = &s
+	}
+	if u.Gender.Valid {
+		resp.Gender = &u.Gender.String
 	}
 	return resp
 }

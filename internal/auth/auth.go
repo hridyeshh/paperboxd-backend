@@ -278,17 +278,27 @@ func extractDeviceInfo(r *http.Request) []byte {
 // toUserResponse converts a db.User to the public API representation.
 func toUserResponse(u db.User) types.UserResponse {
 	resp := types.UserResponse{
-		ID:             u.ID,
+		ID:             u.ID.String(),
+		MongoID:        u.ID.String(),
 		Username:       u.Username,
 		Email:          u.Email,
 		IsPublic:       u.IsPublic.Bool,
 		BooksReadCount: u.BooksReadCount.Int32,
+		TotalPagesRead: u.TotalPagesRead.Int32,
 		FollowersCount: u.FollowersCount.Int32,
 		FollowingCount: u.FollowingCount.Int32,
-		CreatedAt:      u.CreatedAt.Time,
+		CreatedAt:      u.CreatedAt.Time.Format(time.RFC3339),
+		Pronouns:       u.Pronouns,
+		Links:          u.Links,
+	}
+	if resp.Pronouns == nil {
+		resp.Pronouns = []string{}
+	}
+	if resp.Links == nil {
+		resp.Links = []string{}
 	}
 	if u.Name.Valid {
-		resp.Name = &u.Name.String
+		resp.Name = u.Name.String
 	}
 	if u.AvatarUrl.Valid {
 		resp.AvatarURL = &u.AvatarUrl.String
@@ -296,8 +306,12 @@ func toUserResponse(u db.User) types.UserResponse {
 	if u.Bio.Valid {
 		resp.Bio = &u.Bio.String
 	}
-	if u.Pronouns.Valid {
-		resp.Pronouns = &u.Pronouns.String
+	if u.Birthday.Valid {
+		s := u.Birthday.Time.Format("2006-01-02")
+		resp.Birthday = &s
+	}
+	if u.Gender.Valid {
+		resp.Gender = &u.Gender.String
 	}
 	return resp
 }

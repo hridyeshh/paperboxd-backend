@@ -33,12 +33,15 @@ type AddToBookshelfRequest struct {
 	FinishedAt *string `json:"finished_at"`
 }
 
-// UpdateUserRequest is the payload for PUT /api/v1/users/:username.
+// UpdateUserRequest is the payload for PUT/PATCH /api/v1/users/:username.
 type UpdateUserRequest struct {
-	Name      *string `json:"name"`
-	Bio       *string `json:"bio"`
-	Pronouns  *string `json:"pronouns"`
-	AvatarURL *string `json:"avatar_url"`
+	Name      *string   `json:"name"`
+	Bio       *string   `json:"bio"`
+	Pronouns  *[]string `json:"pronouns"`
+	AvatarURL *string   `json:"avatar_url"`
+	Birthday  *string   `json:"birthday"`
+	Gender    *string   `json:"gender"`
+	Links     *[]string `json:"links"`
 }
 
 // CreateBookRequest is the payload for POST /api/v1/books.
