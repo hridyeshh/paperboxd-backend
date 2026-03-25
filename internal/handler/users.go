@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
@@ -20,8 +21,10 @@ import (
 
 // UserHandler holds dependencies for user endpoints.
 type UserHandler struct {
-	Queries *db.Queries
-	Config  *config.Config
+	Queries     *db.Queries
+	Config      *config.Config
+	ISBNdb      *external.ISBNdbClient
+	GoogleBooks *external.GoogleBooksClient
 }
 
 // GetByUsername handles GET /api/v1/users/:username

@@ -25,12 +25,15 @@ type LogoutRequest struct {
 }
 
 // AddToBookshelfRequest is the payload for POST /api/v1/users/:username/bookshelf.
+// One of BookID, ISBN, or GoogleBooksID must be provided to identify the book.
 type AddToBookshelfRequest struct {
-	BookID     string  `json:"book_id"`
-	Status     string  `json:"status"`
-	Rating     *int    `json:"rating"`
-	StartedAt  *string `json:"started_at"`
-	FinishedAt *string `json:"finished_at"`
+	BookID        *string `json:"book_id"`
+	ISBN          *string `json:"isbn"`
+	GoogleBooksID *string `json:"google_books_id"`
+	Status        string  `json:"status"`
+	Rating        *int    `json:"rating"`
+	StartedAt     *string `json:"started_at"`
+	FinishedAt    *string `json:"finished_at"`
 }
 
 // UpdateUserRequest is the payload for PUT/PATCH /api/v1/users/:username.

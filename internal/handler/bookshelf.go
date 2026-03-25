@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -23,23 +24,18 @@ var validStatuses = map[string]bool{
 	"to-read": true,
 }
 
-// AddToBookshelf handles POST /api/v1/users/:username/bookshelf
+// AddToBookshelf handles POST /api/v1/users/:username/bookshelf.
+// Accepts book_id (UUID), isbn, or google_books_id to identify the book.
+// If the book isn't cached in the DB it will be fetched from ISBNdb / Google Books and stored.
 func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
-	userID, target, ok := h.resolveOwner(w, r)
+	userID, _, ok := h.resolveOwner(w, r)
 	if !ok {
 		return
 	}
-	_ = target
 
 	var req types.AddToBookshelfRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
-		return
-	}
-
-	bookID, err := uuid.Parse(req.BookID)
-	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid book_id")
 		return
 	}
 
@@ -48,6 +44,68 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ── Resolve book ID ───────────────────────────────────────────────────────
+	var bookID uuid.UUID
+
+	switch {
+	case req.BookID != nil:
+		// Direct UUID lookup
+		id, err := uuid.Parse(*req.BookID)
+		if err != nil {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid book_id")
+			return
+		}
+		if _, err := h.Queries.GetBookByID(r.Context(), id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found")
+				return
+			}
+			slog.Error("get book by id", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		bookID = id
+
+	case req.GoogleBooksID != nil:
+		book, err := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: *req.GoogleBooksID, Valid: true})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Not cached — fetch and store
+			book, err = h.createBookFromGoogleBooks(r, *req.GoogleBooksID)
+			if err != nil {
+				slog.Error("auto-cache from google books", "error", err, "google_books_id", *req.GoogleBooksID)
+				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in Google Books")
+				return
+			}
+		} else if err != nil {
+			slog.Error("get book by google id", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		bookID = book.ID
+
+	case req.ISBN != nil:
+		book, err := h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: *req.ISBN, Valid: true})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Not cached — fetch and store
+			book, err = h.createBookFromISBNdb(r, *req.ISBN)
+			if err != nil {
+				slog.Error("auto-cache from isbndb", "error", err, "isbn", *req.ISBN)
+				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in ISBNdb")
+				return
+			}
+		} else if err != nil {
+			slog.Error("get book by isbn", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		bookID = book.ID
+
+	default:
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "provide book_id, isbn, or google_books_id")
+		return
+	}
+
+	// ── Build bookshelf entry ─────────────────────────────────────────────────
 	params := db.AddToBookshelfParams{
 		UserID: userID,
 		BookID: bookID,
@@ -82,11 +140,6 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 
 	entry, err := h.Queries.AddToBookshelf(r.Context(), params)
 	if err != nil {
-		if strings.Contains(err.Error(), "bookshelf_book_id_fkey") ||
-			strings.Contains(err.Error(), "23503") {
-			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found")
-			return
-		}
 		slog.Error("add to bookshelf", "error", err)
 		types.WriteInternalError(w)
 		return
@@ -94,6 +147,79 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 
 	types.WriteJSON(w, http.StatusOK, entry)
 }
+
+// createBookFromISBNdb fetches a book from ISBNdb by ISBN and persists it.
+func (h *UserHandler) createBookFromISBNdb(r *http.Request, isbn string) (db.Book, error) {
+	if h.ISBNdb == nil {
+		return db.Book{}, fmt.Errorf("isbndb client not configured")
+	}
+
+	b, err := h.ISBNdb.GetByISBN(r.Context(), isbn)
+	if err != nil {
+		return db.Book{}, err
+	}
+
+	isbn13 := b.ISBN13
+	if isbn13 == "" {
+		isbn13 = b.ISBN
+	}
+
+	authors := b.Authors
+	if len(authors) == 0 {
+		authors = []string{}
+	}
+	subjects := b.Subjects
+	if len(subjects) == 0 {
+		subjects = []string{}
+	}
+
+	params := db.CreateBookFromISBNdbParams{
+		Title:      b.Title,
+		Slug:       generateSlug(b.Title, isbn13),
+		Authors:    authors,
+		Isbn13:     pgtype.Text{String: isbn13, Valid: isbn13 != ""},
+		Categories: subjects,
+		Publisher:  pgtype.Text{String: b.Publisher, Valid: b.Publisher != ""},
+		IsbndbID:   pgtype.Text{String: isbn, Valid: true},
+		Metadata:   []byte("{}"),
+	}
+	if b.Synopsis != "" {
+		params.Description = pgtype.Text{String: b.Synopsis, Valid: true}
+	}
+	if b.Pages > 0 {
+		params.PageCount = pgtype.Int4{Int32: int32(b.Pages), Valid: true}
+	}
+	if b.Language != "" {
+		params.Language = pgtype.Text{String: b.Language, Valid: true}
+	}
+	if b.Image != "" {
+		params.CoverUrl = pgtype.Text{String: b.Image, Valid: true}
+	}
+	if b.DatePublished != "" {
+		t := parsePublishedDate(b.DatePublished)
+		if t != nil {
+			params.PublishedDate = pgtype.Date{Time: *t, Valid: true}
+		}
+	}
+
+	return h.Queries.CreateBookFromISBNdb(r.Context(), params)
+}
+
+// createBookFromGoogleBooks fetches a book from Google Books by volume ID and persists it.
+func (h *UserHandler) createBookFromGoogleBooks(r *http.Request, volumeID string) (db.Book, error) {
+	if h.GoogleBooks == nil {
+		return db.Book{}, fmt.Errorf("google books client not configured")
+	}
+
+	gb, err := h.GoogleBooks.GetByID(r.Context(), volumeID)
+	if err != nil {
+		return db.Book{}, err
+	}
+
+	params := googleBookToCreateParams(gb)
+	return h.Queries.CreateBook(r.Context(), params)
+}
+
 
 // RemoveFromBookshelf handles DELETE /api/v1/users/:username/bookshelf/:bookId
 func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request) {

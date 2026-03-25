@@ -537,6 +537,18 @@ func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
 	}
 }
 
+// CleanupStaleBooks handles DELETE /api/v1/admin/cleanup-books
+// Removes books older than 15 days that are not in any user's collection.
+func (h *BookHandler) CleanupStaleBooks(w http.ResponseWriter, r *http.Request) {
+	deleted, err := h.Queries.CleanupStaleBooks(r.Context())
+	if err != nil {
+		slog.Error("cleanup stale books", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	types.WriteJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
+}
+
 func parsePagination(r *http.Request) (page, pageSize int) {
 	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {

@@ -114,8 +114,10 @@ func main() {
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	userHandler := &handler.UserHandler{
-		Queries: queries,
-		Config:  cfg,
+		Queries:     queries,
+		Config:      cfg,
+		ISBNdb:      isbndbClient,
+		GoogleBooks: googleBooksClient,
 	}
 
 	// ── Router ─────────────────────────────────────────────────────────────────
@@ -184,6 +186,12 @@ func main() {
 					r.Delete("/like", bookHandler.Unlike)
 				})
 			})
+		})
+
+		// Admin
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Delete("/cleanup-books", bookHandler.CleanupStaleBooks)
 		})
 
 		// Users

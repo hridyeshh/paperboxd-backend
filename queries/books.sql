@@ -37,3 +37,33 @@ LIMIT $2 OFFSET $3;
 
 -- name: IncrementBookViews :exec
 UPDATE books SET view_count = view_count + 1 WHERE id = $1;
+
+-- name: GetBookByISBN :one
+SELECT * FROM books WHERE isbn_13 = $1 OR isbndb_id = $1 LIMIT 1;
+
+-- name: CreateBookFromISBNdb :one
+INSERT INTO books (
+    title, slug, authors, isbn_13,
+    description, published_date, page_count, language, cover_url, categories,
+    publisher, isbndb_id, metadata
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+)
+ON CONFLICT (isbn_13) DO UPDATE SET
+    title = EXCLUDED.title,
+    authors = EXCLUDED.authors,
+    description = EXCLUDED.description,
+    cover_url = EXCLUDED.cover_url,
+    publisher = EXCLUDED.publisher,
+    isbndb_id = EXCLUDED.isbndb_id,
+    updated_at = NOW()
+RETURNING *;
+
+-- name: CleanupStaleBooks :execrows
+DELETE FROM books
+WHERE created_at < NOW() - INTERVAL '15 days'
+  AND id NOT IN (
+      SELECT DISTINCT book_id FROM bookshelf
+      UNION
+      SELECT DISTINCT book_id FROM likes
+  );
