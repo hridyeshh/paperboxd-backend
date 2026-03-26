@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
@@ -70,7 +72,7 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		book, err := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: *req.GoogleBooksID, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Not cached — fetch and store
-			book, err = h.createBookFromGoogleBooks(r, *req.GoogleBooksID)
+			book, err = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID)
 			if err != nil {
 				slog.Error("auto-cache from google books", "error", err, "google_books_id", *req.GoogleBooksID)
 				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in Google Books")
@@ -87,7 +89,7 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		book, err := h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: *req.ISBN, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Not cached — fetch and store
-			book, err = h.createBookFromISBNdb(r, *req.ISBN)
+			book, err = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN)
 			if err != nil {
 				slog.Error("auto-cache from isbndb", "error", err, "isbn", *req.ISBN)
 				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in ISBNdb")
@@ -148,13 +150,13 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
-// createBookFromISBNdb fetches a book from ISBNdb by ISBN and persists it.
-func (h *UserHandler) createBookFromISBNdb(r *http.Request, isbn string) (db.Book, error) {
-	if h.ISBNdb == nil {
+// cacheBookFromISBNdb fetches a book from ISBNdb by ISBN and persists it to the DB.
+func cacheBookFromISBNdb(ctx context.Context, q *db.Queries, isbndb *external.ISBNdbClient, isbn string) (db.Book, error) {
+	if isbndb == nil {
 		return db.Book{}, fmt.Errorf("isbndb client not configured")
 	}
 
-	b, err := h.ISBNdb.GetByISBN(r.Context(), isbn)
+	b, err := isbndb.GetByISBN(ctx, isbn)
 	if err != nil {
 		return db.Book{}, err
 	}
@@ -202,22 +204,22 @@ func (h *UserHandler) createBookFromISBNdb(r *http.Request, isbn string) (db.Boo
 		}
 	}
 
-	return h.Queries.CreateBookFromISBNdb(r.Context(), params)
+	return q.CreateBookFromISBNdb(ctx, params)
 }
 
-// createBookFromGoogleBooks fetches a book from Google Books by volume ID and persists it.
-func (h *UserHandler) createBookFromGoogleBooks(r *http.Request, volumeID string) (db.Book, error) {
-	if h.GoogleBooks == nil {
+// cacheBookFromGoogleBooks fetches a book from Google Books by volume ID and persists it to the DB.
+func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.GoogleBooksClient, volumeID string) (db.Book, error) {
+	if gb == nil {
 		return db.Book{}, fmt.Errorf("google books client not configured")
 	}
 
-	gb, err := h.GoogleBooks.GetByID(r.Context(), volumeID)
+	book, err := gb.GetByID(ctx, volumeID)
 	if err != nil {
 		return db.Book{}, err
 	}
 
-	params := googleBookToCreateParams(gb)
-	return h.Queries.CreateBook(r.Context(), params)
+	params := googleBookToCreateParams(book)
+	return q.CreateBook(ctx, params)
 }
 
 
@@ -489,6 +491,413 @@ func bookRowToResponse(row db.GetUserBookshelfRow) types.BookResponse {
 	}
 	if row.OpenLibraryID.Valid {
 		resp.OpenLibraryID = row.OpenLibraryID.String
+	}
+	return resp
+}
+
+// ── TBR handlers ─────────────────────────────────────────────────────────────
+
+// GetUserTBR handles GET /api/v1/users/:username/tbr
+func (h *UserHandler) GetUserTBR(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for tbr", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	rows, err := h.Queries.GetUserTBR(r.Context(), target.ID)
+	if err != nil {
+		slog.Error("get user tbr", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	resp := make([]types.TBRResponse, len(rows))
+	for i, row := range rows {
+		resp[i] = tbrRowToResponse(row)
+	}
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// UpdateTBRNotes handles PUT /api/v1/users/:username/bookshelf/:bookId/tbr
+func (h *UserHandler) UpdateTBRNotes(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		return
+	}
+
+	var req types.UpdateTBRRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	if req.Priority != nil {
+		switch *req.Priority {
+		case "high", "medium", "low":
+		default:
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "priority must be 'high', 'medium', or 'low'")
+			return
+		}
+	}
+
+	var notesParam, priorityParam pgtype.Text
+	if req.Notes != nil {
+		notesParam = pgtype.Text{String: *req.Notes, Valid: true}
+	}
+	if req.Priority != nil {
+		priorityParam = pgtype.Text{String: *req.Priority, Valid: true}
+	}
+
+	entry, err := h.Queries.UpdateTBRNotes(r.Context(), db.UpdateTBRNotesParams{
+		UserID:      userID,
+		BookID:      bookID,
+		TbrNotes:    notesParam,
+		TbrPriority: priorityParam,
+	})
+	if err != nil {
+		slog.Error("update tbr notes", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, entry)
+}
+
+// ── Currently Reading handlers ────────────────────────────────────────────────
+
+// GetCurrentlyReading handles GET /api/v1/users/:username/reading
+func (h *UserHandler) GetCurrentlyReading(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for currently reading", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	rows, err := h.Queries.GetCurrentlyReading(r.Context(), target.ID)
+	if err != nil {
+		slog.Error("get currently reading", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	resp := make([]types.CurrentlyReadingResponse, len(rows))
+	for i, row := range rows {
+		resp[i] = currentlyReadingRowToResponse(row)
+	}
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// UpdateReadingProgress handles PUT /api/v1/users/:username/bookshelf/:bookId/progress
+func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		return
+	}
+
+	var req types.UpdateReadingProgressRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	params := db.UpdateReadingProgressParams{UserID: userID, BookID: bookID}
+
+	if req.CurrentPage != nil {
+		params.CurrentPage = pgtype.Int4{Int32: *req.CurrentPage, Valid: true}
+
+		// Calculate simple estimated finish (50 pages/day)
+		book, bookErr := h.Queries.GetBookByID(r.Context(), bookID)
+		if bookErr == nil && book.PageCount.Valid && book.PageCount.Int32 > 0 {
+			pagesRemaining := book.PageCount.Int32 - *req.CurrentPage
+			if pagesRemaining > 0 {
+				params.ReadingVelocity = pgtype.Float8{Float64: 50.0, Valid: true}
+				daysRemaining := int(pagesRemaining/50) + 1
+				params.EstimatedFinishDate = pgtype.Date{Time: time.Now().AddDate(0, 0, daysRemaining), Valid: true}
+			}
+		}
+	}
+
+	entry, err := h.Queries.UpdateReadingProgress(r.Context(), params)
+	if err != nil {
+		slog.Error("update reading progress", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, entry)
+}
+
+// MarkAsStarted handles POST /api/v1/users/:username/bookshelf/:bookId/start
+func (h *UserHandler) MarkAsStarted(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		return
+	}
+
+	entry, err := h.Queries.MarkAsStarted(r.Context(), db.MarkAsStartedParams{
+		UserID: userID,
+		BookID: bookID,
+	})
+	if err != nil {
+		slog.Error("mark as started", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, entry)
+}
+
+// MarkAsFinished handles POST /api/v1/users/:username/bookshelf/:bookId/finish
+func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		return
+	}
+
+	entry, err := h.Queries.MarkAsFinished(r.Context(), db.MarkAsFinishedParams{
+		UserID: userID,
+		BookID: bookID,
+	})
+	if err != nil {
+		slog.Error("mark as finished", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, entry)
+}
+
+// ── Row conversion helpers ────────────────────────────────────────────────────
+
+func currentlyReadingRowToResponse(row db.GetCurrentlyReadingRow) types.CurrentlyReadingResponse {
+	bookResp := currentlyReadingBookToResponse(row)
+
+	var progressPct float64
+	var pagesRemaining int32
+	var currentPagePtr *int32
+	if row.CurrentPage.Valid {
+		cp := row.CurrentPage.Int32
+		currentPagePtr = &cp
+		if row.PageCount.Valid && row.PageCount.Int32 > 0 {
+			progressPct = float64(cp) / float64(row.PageCount.Int32) * 100
+			rem := row.PageCount.Int32 - cp
+			if rem < 0 {
+				rem = 0
+			}
+			pagesRemaining = rem
+		}
+	}
+
+	resp := types.CurrentlyReadingResponse{
+		ID:                 row.ID.String(),
+		BookID:             row.BookID.String(),
+		Book:               bookResp,
+		Status:             row.Status,
+		CurrentPage:        currentPagePtr,
+		ProgressPercentage: progressPct,
+		PagesRemaining:     pagesRemaining,
+		CreatedAt:          row.CreatedAt.Time,
+	}
+	if row.EstimatedFinishDate.Valid {
+		t := row.EstimatedFinishDate.Time
+		resp.EstimatedFinishDate = &t
+	}
+	if row.StartedAt.Valid {
+		t := row.StartedAt.Time
+		resp.StartedAt = &t
+	}
+	return resp
+}
+
+func tbrRowToResponse(row db.GetUserTBRRow) types.TBRResponse {
+	bookResp := tbrBookToResponse(row)
+	resp := types.TBRResponse{
+		ID:        row.ID.String(),
+		BookID:    row.BookID.String(),
+		Book:      bookResp,
+		Status:    row.Status,
+		CreatedAt: row.CreatedAt.Time,
+	}
+	if row.TbrNotes.Valid {
+		resp.TBRNotes = &row.TbrNotes.String
+	}
+	if row.TbrPriority.Valid {
+		resp.TBRPriority = &row.TbrPriority.String
+	}
+	if row.TbrAddedAt.Valid {
+		t := row.TbrAddedAt.Time
+		resp.TBRAddedAt = &t
+	}
+	return resp
+}
+
+func currentlyReadingBookToResponse(row db.GetCurrentlyReadingRow) types.BookResponse {
+	vi := types.VolumeInfo{
+		Title:      row.Title,
+		Authors:    row.Authors,
+		Categories: row.Categories,
+	}
+	if vi.Authors == nil {
+		vi.Authors = []string{}
+	}
+	if vi.Categories == nil {
+		vi.Categories = []string{}
+	}
+	if row.Description.Valid {
+		vi.Description = row.Description.String
+	}
+	if row.CoverUrl.Valid {
+		vi.ImageLinks = types.ImageLinks{
+			Thumbnail: row.CoverUrl.String,
+			Small:     row.CoverUrl.String,
+			Medium:    row.CoverUrl.String,
+		}
+	}
+	if row.PublishedDate.Valid {
+		vi.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	}
+	if row.PageCount.Valid {
+		vi.PageCount = int(row.PageCount.Int32)
+	}
+	if row.Language.Valid {
+		vi.Language = row.Language.String
+	}
+	if row.Subtitle.Valid {
+		vi.Subtitle = row.Subtitle.String
+	}
+	if row.Publisher.Valid {
+		vi.Publisher = row.Publisher.String
+	}
+	if row.AverageRating.Valid {
+		v := row.AverageRating.Float64
+		vi.AverageRating = &v
+	}
+	if row.RatingsCount.Valid {
+		v := int(row.RatingsCount.Int32)
+		vi.RatingsCount = &v
+	}
+	if row.Isbn13.Valid && row.Isbn13.String != "" {
+		vi.IndustryIdentifiers = append(vi.IndustryIdentifiers, types.IndustryIdentifier{
+			Type: "ISBN_13", Identifier: row.Isbn13.String,
+		})
+	}
+	resp := types.BookResponse{
+		ID:        row.BookID.String(),
+		MongoID:   row.BookID.String(),
+		VolumeInfo: vi,
+		APISource: "db",
+		FromCache: true,
+		Slug:      row.Slug,
+	}
+	if row.GoogleBooksID.Valid {
+		resp.GoogleBooksID = row.GoogleBooksID.String
+	}
+	if row.IsbndbID.Valid {
+		resp.ISBNdbID = row.IsbndbID.String
+	}
+	return resp
+}
+
+func tbrBookToResponse(row db.GetUserTBRRow) types.BookResponse {
+	vi := types.VolumeInfo{
+		Title:      row.Title,
+		Authors:    row.Authors,
+		Categories: row.Categories,
+	}
+	if vi.Authors == nil {
+		vi.Authors = []string{}
+	}
+	if vi.Categories == nil {
+		vi.Categories = []string{}
+	}
+	if row.Description.Valid {
+		vi.Description = row.Description.String
+	}
+	if row.CoverUrl.Valid {
+		vi.ImageLinks = types.ImageLinks{
+			Thumbnail: row.CoverUrl.String,
+			Small:     row.CoverUrl.String,
+			Medium:    row.CoverUrl.String,
+		}
+	}
+	if row.PublishedDate.Valid {
+		vi.PublishedDate = row.PublishedDate.Time.Format("2006-01-02")
+	}
+	if row.PageCount.Valid {
+		vi.PageCount = int(row.PageCount.Int32)
+	}
+	if row.Language.Valid {
+		vi.Language = row.Language.String
+	}
+	if row.Subtitle.Valid {
+		vi.Subtitle = row.Subtitle.String
+	}
+	if row.Publisher.Valid {
+		vi.Publisher = row.Publisher.String
+	}
+	if row.AverageRating.Valid {
+		v := row.AverageRating.Float64
+		vi.AverageRating = &v
+	}
+	if row.RatingsCount.Valid {
+		v := int(row.RatingsCount.Int32)
+		vi.RatingsCount = &v
+	}
+	if row.Isbn13.Valid && row.Isbn13.String != "" {
+		vi.IndustryIdentifiers = append(vi.IndustryIdentifiers, types.IndustryIdentifier{
+			Type: "ISBN_13", Identifier: row.Isbn13.String,
+		})
+	}
+	resp := types.BookResponse{
+		ID:        row.BookID.String(),
+		MongoID:   row.BookID.String(),
+		VolumeInfo: vi,
+		APISource: "db",
+		FromCache: true,
+		Slug:      row.Slug,
+	}
+	if row.GoogleBooksID.Valid {
+		resp.GoogleBooksID = row.GoogleBooksID.String
+	}
+	if row.IsbndbID.Valid {
+		resp.ISBNdbID = row.IsbndbID.String
 	}
 	return resp
 }

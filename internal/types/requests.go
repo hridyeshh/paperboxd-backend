@@ -51,3 +51,32 @@ type UpdateUserRequest struct {
 type CreateBookRequest struct {
 	GoogleBooksID string `json:"google_books_id"`
 }
+
+// UpdateTBRRequest is the payload for PUT /api/v1/users/:username/bookshelf/:bookId/tbr.
+type UpdateTBRRequest struct {
+	Notes    *string `json:"notes"`
+	Priority *string `json:"priority"` // "high", "medium", "low"
+}
+
+// UpdateReadingProgressRequest is the payload for PUT /api/v1/users/:username/bookshelf/:bookId/progress.
+type UpdateReadingProgressRequest struct {
+	CurrentPage *int32 `json:"current_page"`
+}
+
+// AddToFavoritesRequest is the payload for POST /api/v1/users/:username/favorites.
+// One of BookID, ISBN, or GoogleBooksID must be provided.
+type AddToFavoritesRequest struct {
+	BookID        *string `json:"book_id"`
+	ISBN          *string `json:"isbn"`
+	GoogleBooksID *string `json:"google_books_id"`
+	DisplayOrder  int     `json:"display_order"` // 1–4 only
+	Note          *string `json:"note"`
+}
+
+// ReorderFavoritesRequest is the payload for PUT /api/v1/users/:username/favorites/reorder.
+type ReorderFavoritesRequest struct {
+	Favorites []struct {
+		BookID       string `json:"book_id"`
+		DisplayOrder int    `json:"display_order"` // 1–4 only
+	} `json:"favorites"`
+}

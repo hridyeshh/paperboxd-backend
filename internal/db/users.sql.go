@@ -18,7 +18,7 @@ INSERT INTO users (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count
 `
 
 type CreateUserParams struct {
@@ -62,12 +62,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Gender,
 		&i.Links,
 		&i.TotalPagesRead,
+		&i.FavoritesCount,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -98,12 +99,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Gender,
 		&i.Links,
 		&i.TotalPagesRead,
+		&i.FavoritesCount,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -134,12 +136,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Gender,
 		&i.Links,
 		&i.TotalPagesRead,
+		&i.FavoritesCount,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
@@ -170,12 +173,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.Gender,
 		&i.Links,
 		&i.TotalPagesRead,
+		&i.FavoritesCount,
 	)
 	return i, err
 }
 
 const searchUsers = `-- name: SearchUsers :many
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count FROM users
 WHERE (username ILIKE '%' || $1 || '%'
    OR name ILIKE '%' || $1 || '%')
    AND deleted_at IS NULL
@@ -222,6 +226,7 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 			&i.Gender,
 			&i.Links,
 			&i.TotalPagesRead,
+			&i.FavoritesCount,
 		); err != nil {
 			return nil, err
 		}
@@ -244,7 +249,7 @@ UPDATE users SET
     links = COALESCE($8, links),
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count
 `
 
 type UpdateUserParams struct {
@@ -294,6 +299,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Gender,
 		&i.Links,
 		&i.TotalPagesRead,
+		&i.FavoritesCount,
 	)
 	return i, err
 }

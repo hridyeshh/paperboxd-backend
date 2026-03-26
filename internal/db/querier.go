@@ -13,22 +13,28 @@ import (
 
 type Querier interface {
 	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
+	AddToFavorites(ctx context.Context, arg AddToFavoritesParams) (Favorite, error)
+	CheckFavoriteExists(ctx context.Context, arg CheckFavoriteExistsParams) (bool, error)
 	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
 	CleanupStaleBooks(ctx context.Context) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
+	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
 	GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error)
 	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
+	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
+	GetFavoriteByUserAndBook(ctx context.Context, arg GetFavoriteByUserAndBookParams) (Favorite, error)
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
@@ -36,17 +42,27 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserFavorites(ctx context.Context, userID uuid.UUID) ([]GetUserFavoritesRow, error)
 	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
+	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
+	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
+	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
+	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
+	RemoveFromFavorites(ctx context.Context, arg RemoveFromFavoritesParams) error
+	ReorderFavorites(ctx context.Context, arg ReorderFavoritesParams) error
 	RevokeAllUserTokens(ctx context.Context, userID uuid.UUID) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
+	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
+	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
+	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error
 }

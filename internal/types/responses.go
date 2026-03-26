@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // AuthResponse is returned after a successful login or register.
@@ -36,6 +37,7 @@ type UserResponse struct {
 	IsPublic       bool     `json:"is_public"`
 	BooksReadCount int32    `json:"books_read_count"`
 	TotalPagesRead int32    `json:"total_pages_read"`
+	FavoritesCount int32    `json:"favorites_count"`
 	FollowersCount int32    `json:"followers_count"`
 	FollowingCount int32    `json:"following_count"`
 	CreatedAt      string   `json:"created_at"`
@@ -158,6 +160,42 @@ type FollowResponse struct {
 	IsFollowing    bool   `json:"isFollowing"`
 	FollowersCount int32  `json:"followersCount"`
 	FollowingCount int32  `json:"followingCount"`
+}
+
+// FavoriteResponse is returned from GET /api/v1/users/:username/favorites.
+type FavoriteResponse struct {
+	ID           string       `json:"id"`
+	BookID       string       `json:"book_id"`
+	DisplayOrder int          `json:"display_order"`
+	Note         *string      `json:"note,omitempty"`
+	Book         BookResponse `json:"book"`
+	CreatedAt    time.Time    `json:"created_at"`
+}
+
+// CurrentlyReadingResponse is returned from GET /api/v1/users/:username/reading.
+type CurrentlyReadingResponse struct {
+	ID                  string       `json:"id"`
+	BookID              string       `json:"book_id"`
+	Book                BookResponse `json:"book"`
+	Status              string       `json:"status"`
+	CurrentPage         *int32       `json:"current_page,omitempty"`
+	ProgressPercentage  float64      `json:"progress_percentage"`
+	PagesRemaining      int32        `json:"pages_remaining"`
+	EstimatedFinishDate *time.Time   `json:"estimated_finish_date,omitempty"`
+	StartedAt           *time.Time   `json:"started_at,omitempty"`
+	CreatedAt           time.Time    `json:"created_at"`
+}
+
+// TBRResponse is returned from GET /api/v1/users/:username/tbr.
+type TBRResponse struct {
+	ID          string       `json:"id"`
+	BookID      string       `json:"book_id"`
+	Book        BookResponse `json:"book"`
+	Status      string       `json:"status"`
+	TBRNotes    *string      `json:"tbr_notes,omitempty"`
+	TBRPriority *string      `json:"tbr_priority,omitempty"`
+	TBRAddedAt  *time.Time   `json:"tbr_added_at,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 // WriteJSON writes a JSON response with the given status code.

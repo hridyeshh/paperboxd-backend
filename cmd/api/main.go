@@ -113,6 +113,7 @@ func main() {
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
+	favoritesHandler := handler.NewFavoritesHandler(queries, isbndbClient, googleBooksClient)
 	userHandler := &handler.UserHandler{
 		Queries:     queries,
 		Config:      cfg,
@@ -205,16 +206,43 @@ func main() {
 				r.Get("/likes", userHandler.GetLikes)
 				r.Get("/followers", userHandler.GetFollowers)
 				r.Get("/following", userHandler.GetFollowing)
+				r.Get("/tbr", userHandler.GetUserTBR)
+				r.Get("/reading", userHandler.GetCurrentlyReading)
+				r.Get("/favorites", favoritesHandler.GetUserFavorites)
 
-				// Auth-protected routes
+				// Favorites (auth-protected)
+				r.Group(func(r chi.Router) {
+					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+					r.Post("/favorites", favoritesHandler.AddToFavorites)
+					r.Put("/favorites/reorder", favoritesHandler.ReorderFavorites)
+					r.Delete("/favorites/{bookId}", favoritesHandler.RemoveFromFavorites)
+				})
+
+				// Auth-protected user routes
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 					r.Put("/", userHandler.Update)
-				r.Patch("/", userHandler.Update)
-					r.Post("/bookshelf", userHandler.AddToBookshelf)
-					r.Delete("/bookshelf/{bookId}", userHandler.RemoveFromBookshelf)
+					r.Patch("/", userHandler.Update)
 					r.Post("/follow", userHandler.Follow)
 					r.Delete("/follow", userHandler.Unfollow)
+				})
+
+				// Bookshelf routes
+				r.Route("/bookshelf", func(r chi.Router) {
+					r.Group(func(r chi.Router) {
+						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+						r.Post("/", userHandler.AddToBookshelf)
+					})
+					r.Route("/{bookId}", func(r chi.Router) {
+						r.Group(func(r chi.Router) {
+							r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+							r.Delete("/", userHandler.RemoveFromBookshelf)
+							r.Put("/tbr", userHandler.UpdateTBRNotes)
+							r.Put("/progress", userHandler.UpdateReadingProgress)
+							r.Post("/start", userHandler.MarkAsStarted)
+							r.Post("/finish", userHandler.MarkAsFinished)
+						})
+					})
 				})
 			})
 		})

@@ -39,15 +39,31 @@ type Book struct {
 }
 
 type Bookshelf struct {
-	ID         uuid.UUID          `json:"id"`
-	UserID     uuid.UUID          `json:"user_id"`
-	BookID     uuid.UUID          `json:"book_id"`
-	Status     string             `json:"status"`
-	Rating     pgtype.Int4        `json:"rating"`
-	StartedAt  pgtype.Timestamptz `json:"started_at"`
-	FinishedAt pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID                  uuid.UUID          `json:"id"`
+	UserID              uuid.UUID          `json:"user_id"`
+	BookID              uuid.UUID          `json:"book_id"`
+	Status              string             `json:"status"`
+	Rating              pgtype.Int4        `json:"rating"`
+	StartedAt           pgtype.Timestamptz `json:"started_at"`
+	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	TbrNotes            pgtype.Text        `json:"tbr_notes"`
+	TbrPriority         pgtype.Text        `json:"tbr_priority"`
+	TbrAddedAt          pgtype.Timestamp   `json:"tbr_added_at"`
+	CurrentPage         pgtype.Int4        `json:"current_page"`
+	ReadingVelocity     pgtype.Float8      `json:"reading_velocity"`
+	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
+}
+
+type Favorite struct {
+	ID           uuid.UUID        `json:"id"`
+	UserID       uuid.UUID        `json:"user_id"`
+	BookID       uuid.UUID        `json:"book_id"`
+	DisplayOrder int32            `json:"display_order"`
+	FavoriteNote pgtype.Text      `json:"favorite_note"`
+	CreatedAt    pgtype.Timestamp `json:"created_at"`
+	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
 }
 
 type Follow struct {
@@ -99,4 +115,5 @@ type User struct {
 	Gender         pgtype.Text        `json:"gender"`
 	Links          []string           `json:"links"`
 	TotalPagesRead pgtype.Int4        `json:"total_pages_read"`
+	FavoritesCount int32              `json:"favorites_count"`
 }

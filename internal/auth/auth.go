@@ -285,6 +285,7 @@ func toUserResponse(u db.User) types.UserResponse {
 		IsPublic:       u.IsPublic.Bool,
 		BooksReadCount: u.BooksReadCount.Int32,
 		TotalPagesRead: u.TotalPagesRead.Int32,
+		FavoritesCount: u.FavoritesCount,
 		FollowersCount: u.FollowersCount.Int32,
 		FollowingCount: u.FollowingCount.Int32,
 		CreatedAt:      u.CreatedAt.Time.Format(time.RFC3339),

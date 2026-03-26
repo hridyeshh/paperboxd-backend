@@ -24,7 +24,7 @@ ON CONFLICT (user_id, book_id) DO UPDATE SET
     started_at = EXCLUDED.started_at,
     finished_at = EXCLUDED.finished_at,
     updated_at = NOW()
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
 `
 
 type AddToBookshelfParams struct {
@@ -56,6 +56,12 @@ func (q *Queries) AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) 
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
 	)
 	return i, err
 }
@@ -77,7 +83,7 @@ func (q *Queries) CountUserBooks(ctx context.Context, arg CountUserBooksParams) 
 }
 
 const getBookshelfEntry = `-- name: GetBookshelfEntry :one
-SELECT id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at FROM bookshelf WHERE user_id = $1 AND book_id = $2
+SELECT id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date FROM bookshelf WHERE user_id = $1 AND book_id = $2
 `
 
 type GetBookshelfEntryParams struct {
@@ -98,8 +104,130 @@ func (q *Queries) GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryPa
 		&i.FinishedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
 	)
 	return i, err
+}
+
+const getCurrentlyReading = `-- name: GetCurrentlyReading :many
+SELECT
+    bs.id,
+    bs.user_id,
+    bs.book_id,
+    bs.status,
+    bs.rating,
+    bs.started_at,
+    bs.finished_at,
+    bs.current_page,
+    bs.reading_velocity,
+    bs.estimated_finish_date,
+    bs.created_at,
+    bs.updated_at,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    b.published_date,
+    b.isbn_13,
+    b.description,
+    b.categories,
+    b.publisher,
+    b.language,
+    b.subtitle,
+    b.isbndb_id,
+    b.google_books_id,
+    b.average_rating,
+    b.ratings_count
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+WHERE bs.user_id = $1 AND bs.status = 'reading'
+ORDER BY bs.started_at DESC
+`
+
+type GetCurrentlyReadingRow struct {
+	ID                  uuid.UUID          `json:"id"`
+	UserID              uuid.UUID          `json:"user_id"`
+	BookID              uuid.UUID          `json:"book_id"`
+	Status              string             `json:"status"`
+	Rating              pgtype.Int4        `json:"rating"`
+	StartedAt           pgtype.Timestamptz `json:"started_at"`
+	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
+	CurrentPage         pgtype.Int4        `json:"current_page"`
+	ReadingVelocity     pgtype.Float8      `json:"reading_velocity"`
+	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	Title               string             `json:"title"`
+	Slug                string             `json:"slug"`
+	Authors             []string           `json:"authors"`
+	CoverUrl            pgtype.Text        `json:"cover_url"`
+	PageCount           pgtype.Int4        `json:"page_count"`
+	PublishedDate       pgtype.Date        `json:"published_date"`
+	Isbn13              pgtype.Text        `json:"isbn_13"`
+	Description         pgtype.Text        `json:"description"`
+	Categories          []string           `json:"categories"`
+	Publisher           pgtype.Text        `json:"publisher"`
+	Language            pgtype.Text        `json:"language"`
+	Subtitle            pgtype.Text        `json:"subtitle"`
+	IsbndbID            pgtype.Text        `json:"isbndb_id"`
+	GoogleBooksID       pgtype.Text        `json:"google_books_id"`
+	AverageRating       pgtype.Float8      `json:"average_rating"`
+	RatingsCount        pgtype.Int4        `json:"ratings_count"`
+}
+
+func (q *Queries) GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error) {
+	rows, err := q.db.Query(ctx, getCurrentlyReading, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCurrentlyReadingRow{}
+	for rows.Next() {
+		var i GetCurrentlyReadingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.BookID,
+			&i.Status,
+			&i.Rating,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CurrentPage,
+			&i.ReadingVelocity,
+			&i.EstimatedFinishDate,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.CoverUrl,
+			&i.PageCount,
+			&i.PublishedDate,
+			&i.Isbn13,
+			&i.Description,
+			&i.Categories,
+			&i.Publisher,
+			&i.Language,
+			&i.Subtitle,
+			&i.IsbndbID,
+			&i.GoogleBooksID,
+			&i.AverageRating,
+			&i.RatingsCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserBookshelf = `-- name: GetUserBookshelf :many
@@ -207,6 +335,192 @@ func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfPara
 	return items, nil
 }
 
+const getUserTBR = `-- name: GetUserTBR :many
+SELECT
+    bs.id,
+    bs.user_id,
+    bs.book_id,
+    bs.status,
+    bs.tbr_notes,
+    bs.tbr_priority,
+    bs.tbr_added_at,
+    bs.created_at,
+    bs.updated_at,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    b.published_date,
+    b.isbn_13,
+    b.description,
+    b.categories,
+    b.publisher,
+    b.language,
+    b.subtitle,
+    b.isbndb_id,
+    b.google_books_id,
+    b.average_rating,
+    b.ratings_count
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+WHERE bs.user_id = $1 AND bs.status = 'to-read'
+ORDER BY bs.tbr_added_at DESC NULLS LAST, bs.created_at DESC
+`
+
+type GetUserTBRRow struct {
+	ID            uuid.UUID          `json:"id"`
+	UserID        uuid.UUID          `json:"user_id"`
+	BookID        uuid.UUID          `json:"book_id"`
+	Status        string             `json:"status"`
+	TbrNotes      pgtype.Text        `json:"tbr_notes"`
+	TbrPriority   pgtype.Text        `json:"tbr_priority"`
+	TbrAddedAt    pgtype.Timestamp   `json:"tbr_added_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Title         string             `json:"title"`
+	Slug          string             `json:"slug"`
+	Authors       []string           `json:"authors"`
+	CoverUrl      pgtype.Text        `json:"cover_url"`
+	PageCount     pgtype.Int4        `json:"page_count"`
+	PublishedDate pgtype.Date        `json:"published_date"`
+	Isbn13        pgtype.Text        `json:"isbn_13"`
+	Description   pgtype.Text        `json:"description"`
+	Categories    []string           `json:"categories"`
+	Publisher     pgtype.Text        `json:"publisher"`
+	Language      pgtype.Text        `json:"language"`
+	Subtitle      pgtype.Text        `json:"subtitle"`
+	IsbndbID      pgtype.Text        `json:"isbndb_id"`
+	GoogleBooksID pgtype.Text        `json:"google_books_id"`
+	AverageRating pgtype.Float8      `json:"average_rating"`
+	RatingsCount  pgtype.Int4        `json:"ratings_count"`
+}
+
+func (q *Queries) GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error) {
+	rows, err := q.db.Query(ctx, getUserTBR, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUserTBRRow{}
+	for rows.Next() {
+		var i GetUserTBRRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.BookID,
+			&i.Status,
+			&i.TbrNotes,
+			&i.TbrPriority,
+			&i.TbrAddedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.CoverUrl,
+			&i.PageCount,
+			&i.PublishedDate,
+			&i.Isbn13,
+			&i.Description,
+			&i.Categories,
+			&i.Publisher,
+			&i.Language,
+			&i.Subtitle,
+			&i.IsbndbID,
+			&i.GoogleBooksID,
+			&i.AverageRating,
+			&i.RatingsCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markAsFinished = `-- name: MarkAsFinished :one
+UPDATE bookshelf
+SET
+    status = 'read',
+    finished_at = NOW(),
+    current_page = (SELECT b.page_count FROM books b WHERE b.id = bookshelf.book_id),
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+`
+
+type MarkAsFinishedParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	BookID uuid.UUID `json:"book_id"`
+}
+
+func (q *Queries) MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error) {
+	row := q.db.QueryRow(ctx, markAsFinished, arg.UserID, arg.BookID)
+	var i Bookshelf
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.Rating,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+	)
+	return i, err
+}
+
+const markAsStarted = `-- name: MarkAsStarted :one
+UPDATE bookshelf
+SET
+    status = 'reading',
+    started_at = COALESCE(started_at, NOW()),
+    current_page = COALESCE($3, 0),
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+`
+
+type MarkAsStartedParams struct {
+	UserID      uuid.UUID   `json:"user_id"`
+	BookID      uuid.UUID   `json:"book_id"`
+	CurrentPage pgtype.Int4 `json:"current_page"`
+}
+
+func (q *Queries) MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error) {
+	row := q.db.QueryRow(ctx, markAsStarted, arg.UserID, arg.BookID, arg.CurrentPage)
+	var i Bookshelf
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.Rating,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+	)
+	return i, err
+}
+
 const removeFromBookshelf = `-- name: RemoveFromBookshelf :exec
 DELETE FROM bookshelf WHERE user_id = $1 AND book_id = $2
 `
@@ -219,4 +533,98 @@ type RemoveFromBookshelfParams struct {
 func (q *Queries) RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error {
 	_, err := q.db.Exec(ctx, removeFromBookshelf, arg.UserID, arg.BookID)
 	return err
+}
+
+const updateReadingProgress = `-- name: UpdateReadingProgress :one
+UPDATE bookshelf
+SET
+    current_page = $3,
+    reading_velocity = $4,
+    estimated_finish_date = $5,
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+`
+
+type UpdateReadingProgressParams struct {
+	UserID              uuid.UUID     `json:"user_id"`
+	BookID              uuid.UUID     `json:"book_id"`
+	CurrentPage         pgtype.Int4   `json:"current_page"`
+	ReadingVelocity     pgtype.Float8 `json:"reading_velocity"`
+	EstimatedFinishDate pgtype.Date   `json:"estimated_finish_date"`
+}
+
+func (q *Queries) UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error) {
+	row := q.db.QueryRow(ctx, updateReadingProgress,
+		arg.UserID,
+		arg.BookID,
+		arg.CurrentPage,
+		arg.ReadingVelocity,
+		arg.EstimatedFinishDate,
+	)
+	var i Bookshelf
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.Rating,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+	)
+	return i, err
+}
+
+const updateTBRNotes = `-- name: UpdateTBRNotes :one
+UPDATE bookshelf
+SET
+    tbr_notes = $3,
+    tbr_priority = $4,
+    tbr_added_at = COALESCE(tbr_added_at, NOW()),
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+`
+
+type UpdateTBRNotesParams struct {
+	UserID      uuid.UUID   `json:"user_id"`
+	BookID      uuid.UUID   `json:"book_id"`
+	TbrNotes    pgtype.Text `json:"tbr_notes"`
+	TbrPriority pgtype.Text `json:"tbr_priority"`
+}
+
+func (q *Queries) UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error) {
+	row := q.db.QueryRow(ctx, updateTBRNotes,
+		arg.UserID,
+		arg.BookID,
+		arg.TbrNotes,
+		arg.TbrPriority,
+	)
+	var i Bookshelf
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.Rating,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+	)
+	return i, err
 }
