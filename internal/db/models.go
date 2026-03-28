@@ -9,6 +9,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Activity struct {
+	ID           uuid.UUID        `json:"id"`
+	UserID       uuid.UUID        `json:"user_id"`
+	ActivityType string           `json:"activity_type"`
+	BookID       pgtype.UUID      `json:"book_id"`
+	ListID       pgtype.UUID      `json:"list_id"`
+	EntryID      pgtype.UUID      `json:"entry_id"`
+	TargetUserID pgtype.UUID      `json:"target_user_id"`
+	Metadata     []byte           `json:"metadata"`
+	CreatedAt    pgtype.Timestamp `json:"created_at"`
+}
+
 type Book struct {
 	ID              uuid.UUID          `json:"id"`
 	Title           string             `json:"title"`
@@ -54,6 +66,25 @@ type Bookshelf struct {
 	CurrentPage         pgtype.Int4        `json:"current_page"`
 	ReadingVelocity     pgtype.Float8      `json:"reading_velocity"`
 	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
+}
+
+type DiaryEntry struct {
+	ID        uuid.UUID        `json:"id"`
+	UserID    uuid.UUID        `json:"user_id"`
+	BookID    pgtype.UUID      `json:"book_id"`
+	Title     pgtype.Text      `json:"title"`
+	Content   string           `json:"content"`
+	IsPrivate bool             `json:"is_private"`
+	Rating    pgtype.Int4      `json:"rating"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+}
+
+type DiaryEntryLike struct {
+	ID        uuid.UUID        `json:"id"`
+	UserID    uuid.UUID        `json:"user_id"`
+	EntryID   uuid.UUID        `json:"entry_id"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
 }
 
 type Favorite struct {
@@ -125,29 +156,30 @@ type SavedList struct {
 }
 
 type User struct {
-	ID             uuid.UUID          `json:"id"`
-	Username       string             `json:"username"`
-	Email          string             `json:"email"`
-	PasswordHash   pgtype.Text        `json:"password_hash"`
-	Name           pgtype.Text        `json:"name"`
-	AvatarUrl      pgtype.Text        `json:"avatar_url"`
-	Bio            pgtype.Text        `json:"bio"`
-	Pronouns       []string           `json:"pronouns"`
-	IsPublic       pgtype.Bool        `json:"is_public"`
-	FavoriteGenres []string           `json:"favorite_genres"`
-	Settings       []byte             `json:"settings"`
-	FollowersCount pgtype.Int4        `json:"followers_count"`
-	FollowingCount pgtype.Int4        `json:"following_count"`
-	BooksReadCount pgtype.Int4        `json:"books_read_count"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	LastActive     pgtype.Timestamptz `json:"last_active"`
-	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
-	MongoID        pgtype.Text        `json:"mongo_id"`
-	Birthday       pgtype.Date        `json:"birthday"`
-	Gender         pgtype.Text        `json:"gender"`
-	Links          []string           `json:"links"`
-	TotalPagesRead pgtype.Int4        `json:"total_pages_read"`
-	FavoritesCount int32              `json:"favorites_count"`
-	ListsCount     int32              `json:"lists_count"`
+	ID                uuid.UUID          `json:"id"`
+	Username          string             `json:"username"`
+	Email             string             `json:"email"`
+	PasswordHash      pgtype.Text        `json:"password_hash"`
+	Name              pgtype.Text        `json:"name"`
+	AvatarUrl         pgtype.Text        `json:"avatar_url"`
+	Bio               pgtype.Text        `json:"bio"`
+	Pronouns          []string           `json:"pronouns"`
+	IsPublic          pgtype.Bool        `json:"is_public"`
+	FavoriteGenres    []string           `json:"favorite_genres"`
+	Settings          []byte             `json:"settings"`
+	FollowersCount    pgtype.Int4        `json:"followers_count"`
+	FollowingCount    pgtype.Int4        `json:"following_count"`
+	BooksReadCount    pgtype.Int4        `json:"books_read_count"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	LastActive        pgtype.Timestamptz `json:"last_active"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	MongoID           pgtype.Text        `json:"mongo_id"`
+	Birthday          pgtype.Date        `json:"birthday"`
+	Gender            pgtype.Text        `json:"gender"`
+	Links             []string           `json:"links"`
+	TotalPagesRead    pgtype.Int4        `json:"total_pages_read"`
+	FavoritesCount    int32              `json:"favorites_count"`
+	ListsCount        int32              `json:"lists_count"`
+	DiaryEntriesCount int32              `json:"diary_entries_count"`
 }

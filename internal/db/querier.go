@@ -18,47 +18,64 @@ type Querier interface {
 	AddToFavorites(ctx context.Context, arg AddToFavoritesParams) (Favorite, error)
 	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
 	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
+	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
+	CheckEntryOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	CheckFavoriteExists(ctx context.Context, arg CheckFavoriteExistsParams) (bool, error)
 	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
 	CheckListAccess(ctx context.Context, arg CheckListAccessParams) (bool, error)
 	// Authorization Helpers
 	CheckListOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	CheckListSaved(ctx context.Context, arg CheckListSavedParams) (bool, error)
+	CheckNewActivities(ctx context.Context, arg CheckNewActivitiesParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
 	CleanupStaleBooks(ctx context.Context) (int64, error)
+	CountEntryLikes(ctx context.Context, entryID uuid.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
 	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
+	CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserLists(ctx context.Context, userID uuid.UUID) (int64, error)
+	CreateActivity(ctx context.Context, arg CreateActivityParams) (Activity, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
+	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DecrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserListsCount(ctx context.Context, id uuid.UUID) error
+	DeleteDiaryEntry(ctx context.Context, id uuid.UUID) error
 	DeleteList(ctx context.Context, id uuid.UUID) error
+	DeleteUserActivities(ctx context.Context, arg DeleteUserActivitiesParams) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
+	GetActivityByID(ctx context.Context, id uuid.UUID) (Activity, error)
 	GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error)
 	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
+	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
+	GetDiaryEntryByID(ctx context.Context, id uuid.UUID) (DiaryEntry, error)
+	GetEntryLikes(ctx context.Context, entryID uuid.UUID) ([]GetEntryLikesRow, error)
 	GetFavoriteByUserAndBook(ctx context.Context, arg GetFavoriteByUserAndBookParams) (Favorite, error)
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
+	GetFollowingActivities(ctx context.Context, arg GetFollowingActivitiesParams) ([]GetFollowingActivitiesRow, error)
 	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
 	GetListBooks(ctx context.Context, listID uuid.UUID) ([]GetListBooksRow, error)
 	GetListByID(ctx context.Context, id uuid.UUID) (List, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
+	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetUserDiaryEntries(ctx context.Context, arg GetUserDiaryEntriesParams) ([]GetUserDiaryEntriesRow, error)
 	GetUserFavorites(ctx context.Context, userID uuid.UUID) ([]GetUserFavoritesRow, error)
 	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
 	GetUserLists(ctx context.Context, arg GetUserListsParams) ([]GetUserListsRow, error)
@@ -67,9 +84,12 @@ type Querier interface {
 	// Access Control
 	GrantListAccess(ctx context.Context, arg GrantListAccessParams) (ListAccess, error)
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
+	IncrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserListsCount(ctx context.Context, id uuid.UUID) error
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
+	// Likes
+	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
@@ -85,7 +105,9 @@ type Querier interface {
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
+	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error
 	UnsaveList(ctx context.Context, arg UnsaveListParams) error
+	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)

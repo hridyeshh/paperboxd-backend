@@ -153,6 +153,11 @@ func (h *ListsHandler) CreateList(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		_ = h.Queries.IncrementUserListsCount(context.Background(), userID)
+		_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
+			UserID:       userID,
+			ActivityType: "created_list",
+			ListID:       uuidToPgtype(list.ID),
+		})
 	}()
 
 	types.WriteJSON(w, http.StatusCreated, listToResponse(list, username, 0, 0, false, true, true))
@@ -589,6 +594,15 @@ func (h *ListsHandler) ShareList(w http.ResponseWriter, r *http.Request) {
 		})
 		if err == nil {
 			granted++
+			targetID := target.ID
+			go func() {
+				_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
+					UserID:       userID,
+					ActivityType: "shared_list",
+					ListID:       uuidToPgtype(listID),
+					TargetUserID: uuidToPgtype(targetID),
+				})
+			}()
 		}
 	}
 

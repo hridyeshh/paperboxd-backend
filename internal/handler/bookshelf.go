@@ -147,6 +147,14 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go func() {
+		_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
+			UserID:       userID,
+			ActivityType: "added_book",
+			BookID:       pgtype.UUID{Bytes: bookID, Valid: true},
+		})
+	}()
+
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 

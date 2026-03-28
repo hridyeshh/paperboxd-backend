@@ -35,12 +35,14 @@ type UserResponse struct {
 	Gender         *string  `json:"gender,omitempty"`
 	Links          []string `json:"links"`
 	IsPublic       bool     `json:"is_public"`
-	BooksReadCount int32    `json:"books_read_count"`
-	TotalPagesRead int32    `json:"total_pages_read"`
-	FavoritesCount int32    `json:"favorites_count"`
-	FollowersCount int32    `json:"followers_count"`
-	FollowingCount int32    `json:"following_count"`
-	CreatedAt      string   `json:"created_at"`
+	BooksReadCount    int32  `json:"books_read_count"`
+	TotalPagesRead    int32  `json:"total_pages_read"`
+	FavoritesCount    int32  `json:"favorites_count"`
+	ListsCount        int32  `json:"lists_count"`
+	DiaryEntriesCount int32  `json:"diary_entries_count"`
+	FollowersCount    int32  `json:"followers_count"`
+	FollowingCount    int32  `json:"following_count"`
+	CreatedAt         string `json:"created_at"`
 }
 
 // SuccessResponse is a generic success envelope.
@@ -234,6 +236,54 @@ type ListAccessResponse struct {
 	Name      string    `json:"name"`
 	AvatarURL *string   `json:"avatar_url"`
 	GrantedAt time.Time `json:"granted_at"`
+}
+
+// DiaryEntryResponse is returned from diary entry endpoints.
+type DiaryEntryResponse struct {
+	ID         string        `json:"id"`
+	UserID     string        `json:"user_id"`
+	Username   string        `json:"username"`
+	Name       string        `json:"name"`
+	AvatarURL  *string       `json:"avatar_url"`
+	BookID     *string       `json:"book_id"`
+	Book       *BookResponse `json:"book,omitempty"`
+	Title      *string       `json:"title"`
+	Content    string        `json:"content"`
+	IsPrivate  bool          `json:"is_private"`
+	Rating     *int          `json:"rating"`
+	LikesCount int64         `json:"likes_count"`
+	IsLiked    bool          `json:"is_liked"`
+	CanEdit    bool          `json:"can_edit"`
+	CreatedAt  time.Time     `json:"created_at"`
+	UpdatedAt  time.Time     `json:"updated_at"`
+}
+
+// DiaryEntriesResponse is the paginated list from GET /api/v1/users/:username/diary.
+type DiaryEntriesResponse struct {
+	Entries    []DiaryEntryResponse `json:"entries"`
+	TotalCount int64                `json:"total_count"`
+	Page       int                  `json:"page"`
+	PageSize   int                  `json:"page_size"`
+}
+
+// ActivityResponse is a single item in the activity feed.
+type ActivityResponse struct {
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	Username       string    `json:"username"`
+	Name           string    `json:"name"`
+	AvatarURL      *string   `json:"avatar_url"`
+	ActivityType   string    `json:"activity_type"`
+	BookID         *string   `json:"book_id"`
+	BookTitle      *string   `json:"book_title"`
+	BookSlug       *string   `json:"book_slug"`
+	ListID         *string   `json:"list_id"`
+	ListTitle      *string   `json:"list_title"`
+	EntryID        *string   `json:"entry_id"`
+	EntryTitle     *string   `json:"entry_title"`
+	TargetUserID   *string   `json:"target_user_id"`
+	TargetUsername *string   `json:"target_username"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // WriteJSON writes a JSON response with the given status code.

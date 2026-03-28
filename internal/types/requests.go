@@ -113,3 +113,23 @@ type GrantAccessRequest struct {
 type ShareListRequest struct {
 	Usernames []string `json:"usernames"`
 }
+
+// CreateDiaryEntryRequest is the payload for POST /api/v1/users/:username/diary.
+// One of BookID, ISBN, or GoogleBooksID may optionally be provided to link a book.
+type CreateDiaryEntryRequest struct {
+	BookID        *string `json:"book_id"`
+	ISBN          *string `json:"isbn"`
+	GoogleBooksID *string `json:"google_books_id"`
+	Title         *string `json:"title"`     // Max 100 chars
+	Content       string  `json:"content"`   // Required; rich text HTML
+	IsPrivate     bool    `json:"is_private"`
+	Rating        *int    `json:"rating"`    // 1–5
+}
+
+// UpdateDiaryEntryRequest is the payload for PUT /api/v1/users/:username/diary/:entryId.
+type UpdateDiaryEntryRequest struct {
+	Title     *string `json:"title"`
+	Content   *string `json:"content"`
+	IsPrivate *bool   `json:"is_private"`
+	Rating    *int    `json:"rating"` // 1–5; pass null to clear
+}

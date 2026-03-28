@@ -115,6 +115,8 @@ func main() {
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	favoritesHandler := handler.NewFavoritesHandler(queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
+	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient)
+	activitiesHandler := handler.NewActivitiesHandler(queries)
 	userHandler := &handler.UserHandler{
 		Queries:     queries,
 		Config:      cfg,
@@ -181,6 +183,7 @@ func main() {
 
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", bookHandler.GetByID)
+				r.Get("/diary", diaryHandler.GetBookDiaryEntries)
 
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
@@ -188,6 +191,14 @@ func main() {
 					r.Delete("/like", bookHandler.Unlike)
 				})
 			})
+		})
+
+		// Activity feed
+		r.Route("/activities", func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Get("/me", activitiesHandler.GetUserActivities)
+			r.Get("/following", activitiesHandler.GetFollowingActivities)
+			r.Get("/check-new", activitiesHandler.CheckNewActivities)
 		})
 
 		// Admin
@@ -226,6 +237,23 @@ func main() {
 					r.Patch("/", userHandler.Update)
 					r.Post("/follow", userHandler.Follow)
 					r.Delete("/follow", userHandler.Unfollow)
+				})
+
+				// Diary routes
+				r.Get("/diary", diaryHandler.GetUserDiaryEntries)
+				r.Group(func(r chi.Router) {
+					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+					r.Post("/diary", diaryHandler.CreateDiaryEntry)
+				})
+				r.Route("/diary/{entryId}", func(r chi.Router) {
+					r.Get("/", diaryHandler.GetDiaryEntry)
+					r.Group(func(r chi.Router) {
+						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+						r.Put("/", diaryHandler.UpdateDiaryEntry)
+						r.Delete("/", diaryHandler.DeleteDiaryEntry)
+						r.Post("/like", diaryHandler.LikeDiaryEntry)
+						r.Delete("/like", diaryHandler.UnlikeDiaryEntry)
+					})
 				})
 
 				// Lists routes
