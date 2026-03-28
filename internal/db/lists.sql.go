@@ -461,21 +461,16 @@ func (q *Queries) GetUserLists(ctx context.Context, arg GetUserListsParams) ([]G
 
 const getUserSavedLists = `-- name: GetUserSavedLists :many
 SELECT
-    l.id,
-    l.user_id,
-    l.title,
-    l.description,
-    l.is_private,
-    l.created_at,
-    l.updated_at,
+    l.id, l.user_id, l.title, l.description, l.is_private, l.created_at, l.updated_at,
     u.username as owner_username,
+    sl.saved_at,
     COUNT(DISTINCT lb.book_id) as book_count
 FROM saved_lists sl
 JOIN lists l ON sl.list_id = l.id
 JOIN users u ON l.user_id = u.id
 LEFT JOIN list_books lb ON l.id = lb.list_id
 WHERE sl.user_id = $1
-GROUP BY l.id, u.username
+GROUP BY l.id, u.username, sl.saved_at
 ORDER BY sl.saved_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -495,6 +490,7 @@ type GetUserSavedListsRow struct {
 	CreatedAt     pgtype.Timestamp `json:"created_at"`
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 	OwnerUsername string           `json:"owner_username"`
+	SavedAt       pgtype.Timestamp `json:"saved_at"`
 	BookCount     int64            `json:"book_count"`
 }
 
@@ -516,6 +512,7 @@ func (q *Queries) GetUserSavedLists(ctx context.Context, arg GetUserSavedListsPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OwnerUsername,
+			&i.SavedAt,
 			&i.BookCount,
 		); err != nil {
 			return nil, err
