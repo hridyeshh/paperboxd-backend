@@ -198,6 +198,44 @@ type TBRResponse struct {
 	CreatedAt   time.Time    `json:"created_at"`
 }
 
+// ListResponse is a single reading list.
+type ListResponse struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Username    string    `json:"username"`
+	Title       string    `json:"title"`
+	Description *string   `json:"description"`
+	IsPrivate   bool      `json:"is_private"`
+	BookCount   int64     `json:"book_count"`
+	SaveCount   int64     `json:"save_count"`
+	IsSaved     bool      `json:"is_saved"`
+	CanEdit     bool      `json:"can_edit"`
+	CanView     bool      `json:"can_view"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ListWithBooksResponse extends ListResponse with the books in the list.
+type ListWithBooksResponse struct {
+	ListResponse
+	Books []BookResponse `json:"books"`
+}
+
+// UserListsResponse is returned from GET /api/v1/users/:username/lists.
+type UserListsResponse struct {
+	OwnLists   []ListResponse `json:"own_lists"`
+	SavedLists []ListResponse `json:"saved_lists"`
+}
+
+// ListAccessResponse is returned from GET /api/v1/users/:username/lists/:listId/access.
+type ListAccessResponse struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Name      string    `json:"name"`
+	AvatarURL *string   `json:"avatar_url"`
+	GrantedAt time.Time `json:"granted_at"`
+}
+
 // WriteJSON writes a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, statusCode int, v any) {
 	w.Header().Set("Content-Type", "application/json")

@@ -114,6 +114,7 @@ func main() {
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	favoritesHandler := handler.NewFavoritesHandler(queries, isbndbClient, googleBooksClient)
+	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
 	userHandler := &handler.UserHandler{
 		Queries:     queries,
 		Config:      cfg,
@@ -225,6 +226,29 @@ func main() {
 					r.Patch("/", userHandler.Update)
 					r.Post("/follow", userHandler.Follow)
 					r.Delete("/follow", userHandler.Unfollow)
+				})
+
+				// Lists routes
+				r.Get("/lists", listsHandler.GetUserLists)
+				r.Group(func(r chi.Router) {
+					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+					r.Post("/lists", listsHandler.CreateList)
+				})
+				r.Route("/lists/{listId}", func(r chi.Router) {
+					r.Get("/", listsHandler.GetListDetails)
+					r.Group(func(r chi.Router) {
+						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+						r.Put("/", listsHandler.UpdateList)
+						r.Delete("/", listsHandler.DeleteList)
+						r.Post("/books", listsHandler.AddBookToList)
+						r.Delete("/books/{bookId}", listsHandler.RemoveBookFromList)
+						r.Post("/share", listsHandler.ShareList)
+						r.Post("/save", listsHandler.SaveList)
+						r.Delete("/save", listsHandler.UnsaveList)
+						r.Post("/access", listsHandler.GrantAccess)
+						r.Delete("/access", listsHandler.RevokeAccess)
+						r.Get("/access", listsHandler.GetAccessUsers)
+					})
 				})
 
 				// Bookshelf routes

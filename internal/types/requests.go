@@ -80,3 +80,36 @@ type ReorderFavoritesRequest struct {
 		DisplayOrder int    `json:"display_order"` // 1–4 only
 	} `json:"favorites"`
 }
+
+// CreateListRequest is the payload for POST /api/v1/users/:username/lists.
+type CreateListRequest struct {
+	Title       string  `json:"title"`       // Max 50 chars
+	Description *string `json:"description"` // Max 200 chars
+	IsPrivate   bool    `json:"is_private"`
+}
+
+// UpdateListRequest is the payload for PUT /api/v1/users/:username/lists/:listId.
+type UpdateListRequest struct {
+	Title       *string `json:"title"`       // Max 50 chars
+	Description *string `json:"description"` // Max 200 chars
+	IsPrivate   *bool   `json:"is_private"`
+}
+
+// AddBookToListRequest is the payload for POST /api/v1/users/:username/lists/:listId/books.
+// One of BookID, ISBN, or GoogleBooksID must be provided.
+type AddBookToListRequest struct {
+	BookID        *string `json:"book_id"`
+	ISBN          *string `json:"isbn"`
+	GoogleBooksID *string `json:"google_books_id"`
+	DisplayOrder  *int    `json:"display_order"`
+}
+
+// GrantAccessRequest is the payload for POST /api/v1/users/:username/lists/:listId/access.
+type GrantAccessRequest struct {
+	Username string `json:"username"`
+}
+
+// ShareListRequest is the payload for POST /api/v1/users/:username/lists/:listId/share.
+type ShareListRequest struct {
+	Usernames []string `json:"usernames"`
+}

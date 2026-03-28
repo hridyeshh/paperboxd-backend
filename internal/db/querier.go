@@ -12,21 +12,35 @@ import (
 )
 
 type Querier interface {
+	// List Books Operations
+	AddBookToList(ctx context.Context, arg AddBookToListParams) (ListBook, error)
 	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
 	AddToFavorites(ctx context.Context, arg AddToFavoritesParams) (Favorite, error)
+	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
+	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
 	CheckFavoriteExists(ctx context.Context, arg CheckFavoriteExistsParams) (bool, error)
 	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
+	CheckListAccess(ctx context.Context, arg CheckListAccessParams) (bool, error)
+	// Authorization Helpers
+	CheckListOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	CheckListSaved(ctx context.Context, arg CheckListSavedParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
 	CleanupStaleBooks(ctx context.Context) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
+	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
+	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountUserLists(ctx context.Context, userID uuid.UUID) (int64, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
+	CreateList(ctx context.Context, arg CreateListParams) (List, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
+	DecrementUserListsCount(ctx context.Context, id uuid.UUID) error
+	DeleteList(ctx context.Context, id uuid.UUID) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
 	GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error)
 	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
@@ -37,6 +51,9 @@ type Querier interface {
 	GetFavoriteByUserAndBook(ctx context.Context, arg GetFavoriteByUserAndBookParams) (Favorite, error)
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
+	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
+	GetListBooks(ctx context.Context, listID uuid.UUID) ([]GetListBooksRow, error)
+	GetListByID(ctx context.Context, id uuid.UUID) (List, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -44,22 +61,33 @@ type Querier interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserFavorites(ctx context.Context, userID uuid.UUID) ([]GetUserFavoritesRow, error)
 	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
+	GetUserLists(ctx context.Context, arg GetUserListsParams) ([]GetUserListsRow, error)
+	GetUserSavedLists(ctx context.Context, arg GetUserSavedListsParams) ([]GetUserSavedListsRow, error)
 	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
+	// Access Control
+	GrantListAccess(ctx context.Context, arg GrantListAccessParams) (ListAccess, error)
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
 	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
+	IncrementUserListsCount(ctx context.Context, id uuid.UUID) error
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
+	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
 	RemoveFromFavorites(ctx context.Context, arg RemoveFromFavoritesParams) error
 	ReorderFavorites(ctx context.Context, arg ReorderFavoritesParams) error
 	RevokeAllUserTokens(ctx context.Context, userID uuid.UUID) error
+	RevokeListAccess(ctx context.Context, arg RevokeListAccessParams) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
+	// Saved Lists
+	SaveList(ctx context.Context, arg SaveListParams) (SavedList, error)
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
+	UnsaveList(ctx context.Context, arg UnsaveListParams) error
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
+	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)

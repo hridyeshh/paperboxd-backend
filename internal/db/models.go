@@ -80,6 +80,32 @@ type Like struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type List struct {
+	ID          uuid.UUID        `json:"id"`
+	UserID      uuid.UUID        `json:"user_id"`
+	Title       string           `json:"title"`
+	Description pgtype.Text      `json:"description"`
+	IsPrivate   bool             `json:"is_private"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+}
+
+type ListAccess struct {
+	ID        uuid.UUID        `json:"id"`
+	ListID    uuid.UUID        `json:"list_id"`
+	UserID    uuid.UUID        `json:"user_id"`
+	GrantedBy uuid.UUID        `json:"granted_by"`
+	GrantedAt pgtype.Timestamp `json:"granted_at"`
+}
+
+type ListBook struct {
+	ID           uuid.UUID        `json:"id"`
+	ListID       uuid.UUID        `json:"list_id"`
+	BookID       uuid.UUID        `json:"book_id"`
+	AddedAt      pgtype.Timestamp `json:"added_at"`
+	DisplayOrder int32            `json:"display_order"`
+}
+
 type RefreshToken struct {
 	ID         uuid.UUID          `json:"id"`
 	UserID     uuid.UUID          `json:"user_id"`
@@ -89,6 +115,13 @@ type RefreshToken struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	DeviceInfo []byte             `json:"device_info"`
+}
+
+type SavedList struct {
+	ID      uuid.UUID        `json:"id"`
+	UserID  uuid.UUID        `json:"user_id"`
+	ListID  uuid.UUID        `json:"list_id"`
+	SavedAt pgtype.Timestamp `json:"saved_at"`
 }
 
 type User struct {
@@ -116,4 +149,5 @@ type User struct {
 	Links          []string           `json:"links"`
 	TotalPagesRead pgtype.Int4        `json:"total_pages_read"`
 	FavoritesCount int32              `json:"favorites_count"`
+	ListsCount     int32              `json:"lists_count"`
 }
