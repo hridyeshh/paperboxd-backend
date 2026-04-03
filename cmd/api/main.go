@@ -214,7 +214,6 @@ func main() {
 			r.Route("/{username}", func(r chi.Router) {
 				// Public routes
 				r.Get("/", userHandler.GetByUsername)
-				r.Get("/bookshelf", userHandler.GetBookshelf)
 				r.Get("/likes", userHandler.GetLikes)
 				r.Get("/followers", userHandler.GetFollowers)
 				r.Get("/following", userHandler.GetFollowing)
@@ -281,6 +280,7 @@ func main() {
 
 				// Bookshelf routes
 				r.Route("/bookshelf", func(r chi.Router) {
+					r.Get("/", userHandler.GetBookshelf)
 					r.Group(func(r chi.Router) {
 						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 						r.Post("/", userHandler.AddToBookshelf)
