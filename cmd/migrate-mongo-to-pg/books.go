@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -22,29 +23,29 @@ type mongoBook struct {
 	OpenLibraryID  string             `bson:"openLibraryId"`
 	OpenLibraryKey string             `bson:"openLibraryKey"`
 	VolumeInfo     struct {
-		Title       string   `bson:"title"`
-		Subtitle    string   `bson:"subtitle"`
-		Authors     []string `bson:"authors"`
-		Publisher   string   `bson:"publisher"`
-		PublishedDate string `bson:"publishedDate"`
-		Description string   `bson:"description"`
-		PageCount   int32    `bson:"pageCount"`
-		Categories  []string `bson:"categories"`
-		Language    string   `bson:"language"`
-		PreviewLink string   `bson:"previewLink"`
-		AverageRating float64 `bson:"averageRating"`
-		RatingsCount  int32   `bson:"ratingsCount"`
-		ImageLinks  struct {
+		Title         string   `bson:"title"`
+		Subtitle      string   `bson:"subtitle"`
+		Authors       []string `bson:"authors"`
+		Publisher     string   `bson:"publisher"`
+		PublishedDate string   `bson:"publishedDate"`
+		Description   string   `bson:"description"`
+		PageCount     int32    `bson:"pageCount"`
+		Categories    []string `bson:"categories"`
+		Language      string   `bson:"language"`
+		PreviewLink   string   `bson:"previewLink"`
+		AverageRating float64  `bson:"averageRating"`
+		RatingsCount  int32    `bson:"ratingsCount"`
+		ImageLinks    struct {
 			Thumbnail string `bson:"thumbnail"`
 			Small     string `bson:"small"`
 			Medium    string `bson:"medium"`
 		} `bson:"imageLinks"`
 	} `bson:"volumeInfo"`
-	PaperboxdRating       float64 `bson:"paperboxdRating"`
-	PaperboxdRatingsCount int32   `bson:"paperboxdRatingsCount"`
-	TotalReads            int32   `bson:"totalReads"`
-	TotalLikes            int32   `bson:"totalLikes"`
-	TotalTBR              int32   `bson:"totalTBR"`
+	PaperboxdRating       float64       `bson:"paperboxdRating"`
+	PaperboxdRatingsCount int32         `bson:"paperboxdRatingsCount"`
+	TotalReads            int32         `bson:"totalReads"`
+	TotalLikes            int32         `bson:"totalLikes"`
+	TotalTBR              int32         `bson:"totalTBR"`
 	CreatedAt             bson.DateTime `bson:"createdAt"`
 }
 
@@ -79,6 +80,23 @@ func migrateBooks(ctx context.Context, conn *Connections, dryRun bool) error {
 	return cur.Err()
 }
 
+const bookInsertSQL = `
+	INSERT INTO books (
+		id, title, slug, subtitle, authors, publisher, published_date,
+		description, page_count, categories, language, cover_url, preview_link,
+		isbn_13, isbndb_id, google_books_id, open_library_id,
+		average_rating, ratings_count, total_reads_count, total_tbr_count,
+		created_at, updated_at
+	) VALUES (
+		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
+	)
+	ON CONFLICT (id) DO UPDATE SET
+		average_rating    = EXCLUDED.average_rating,
+		ratings_count     = EXCLUDED.ratings_count,
+		total_reads_count = EXCLUDED.total_reads_count,
+		total_tbr_count   = EXCLUDED.total_tbr_count
+`
+
 func upsertBook(ctx context.Context, conn *Connections, b mongoBook, pgID uuid.UUID, dryRun bool) error {
 	vi := b.VolumeInfo
 
@@ -91,7 +109,6 @@ func upsertBook(ctx context.Context, conn *Connections, b mongoBook, pgID uuid.U
 		coverURL = vi.ImageLinks.Medium
 	}
 
-	// Authors
 	if vi.Authors == nil {
 		vi.Authors = []string{}
 	}
@@ -99,20 +116,17 @@ func upsertBook(ctx context.Context, conn *Connections, b mongoBook, pgID uuid.U
 		vi.Categories = []string{}
 	}
 
-	// Primary author for slug
 	primaryAuthor := ""
 	if len(vi.Authors) > 0 {
 		primaryAuthor = vi.Authors[0]
 	}
-	slug := generateSlug(vi.Title, primaryAuthor)
+	baseSlug := generateSlug(vi.Title, primaryAuthor)
 
-	// Published date
 	var publishedDate pgtype.Date
 	if d := parseMongoBooksDate(vi.PublishedDate); d != nil {
 		publishedDate = pgDate(*d)
 	}
 
-	// Ratings: prefer paperboxd-specific if set
 	avgRating := pgtype.Float8{}
 	ratingsCount := pgtype.Int4{}
 	if b.PaperboxdRatingsCount > 0 && b.PaperboxdRating > 0 {
@@ -128,46 +142,31 @@ func upsertBook(ctx context.Context, conn *Connections, b mongoBook, pgID uuid.U
 		return nil
 	}
 
-	_, err := conn.PG.Exec(ctx, `
-		INSERT INTO books (
-			id, title, slug, subtitle, authors, publisher, published_date,
-			description, page_count, categories, language, cover_url, preview_link,
-			isbn_13, isbndb_id, google_books_id, open_library_id,
-			average_rating, ratings_count, total_reads_count, total_tbr_count,
-			created_at, updated_at
-		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
-		)
-		ON CONFLICT (id) DO UPDATE SET
-			average_rating   = EXCLUDED.average_rating,
-			ratings_count    = EXCLUDED.ratings_count,
-			total_reads_count = EXCLUDED.total_reads_count,
-			total_tbr_count  = EXCLUDED.total_tbr_count
-	`,
-		pgUUID(pgID),
-		vi.Title,
-		slug,
-		nullStr(vi.Subtitle),
-		vi.Authors,
-		nullStr(vi.Publisher),
-		publishedDate,
-		nullStr(vi.Description),
-		nullInt32(vi.PageCount),
-		vi.Categories,
-		nullStr(vi.Language),
-		nullStr(coverURL),
-		nullStr(vi.PreviewLink),
-		nullStr(b.ISBN13),
-		nullStr(b.IsbndbID),
-		nullStr(b.GoogleBooksID),
-		nullStr(b.OpenLibraryID),
-		avgRating,
-		ratingsCount,
-		pgInt4(b.TotalReads),
-		pgInt4(b.TotalTBR),
-		b.CreatedAt.Time().UTC(),
-		b.CreatedAt.Time().UTC(),
+	// Try inserting; on slug collision append the last 8 hex chars of the ObjectId
+	// to make the slug unique (different editions of the same book).
+	slug := baseSlug
+	_, err := conn.PG.Exec(ctx, bookInsertSQL,
+		pgUUID(pgID), vi.Title, slug,
+		nullStr(vi.Subtitle), vi.Authors, nullStr(vi.Publisher), publishedDate,
+		nullStr(vi.Description), nullInt32(vi.PageCount), vi.Categories,
+		nullStr(vi.Language), nullStr(coverURL), nullStr(vi.PreviewLink),
+		nullStr(b.ISBN13), nullStr(b.IsbndbID), nullStr(b.GoogleBooksID), nullStr(b.OpenLibraryID),
+		avgRating, ratingsCount, pgInt4(b.TotalReads), pgInt4(b.TotalTBR),
+		b.CreatedAt.Time().UTC(), b.CreatedAt.Time().UTC(),
 	)
+	if err != nil && strings.Contains(err.Error(), "books_slug_key") {
+		// Slug collision: append last 8 hex chars of ObjectId for uniqueness
+		slug = fmt.Sprintf("%s-%s", baseSlug, b.ID.Hex()[16:])
+		_, err = conn.PG.Exec(ctx, bookInsertSQL,
+			pgUUID(pgID), vi.Title, slug,
+			nullStr(vi.Subtitle), vi.Authors, nullStr(vi.Publisher), publishedDate,
+			nullStr(vi.Description), nullInt32(vi.PageCount), vi.Categories,
+			nullStr(vi.Language), nullStr(coverURL), nullStr(vi.PreviewLink),
+			nullStr(b.ISBN13), nullStr(b.IsbndbID), nullStr(b.GoogleBooksID), nullStr(b.OpenLibraryID),
+			avgRating, ratingsCount, pgInt4(b.TotalReads), pgInt4(b.TotalTBR),
+			b.CreatedAt.Time().UTC(), b.CreatedAt.Time().UTC(),
+		)
+	}
 	return err
 }
 
@@ -187,10 +186,8 @@ func nullInt32(n int32) interface{} {
 	return n
 }
 
-// findBookByMongoID looks up the PG UUID for a mongo ObjectId.
-// Tries the deterministic mapping first; falls back to a DB lookup by external IDs.
+// findBookUUID looks up the PG UUID for a mongo ObjectId.
 func findBookUUID(ctx context.Context, conn *Connections, oid bson.ObjectID) (uuid.UUID, bool) {
-	// Try deterministic UUID first
 	pgID := idmap.FromObjectID(oid)
 	var exists bool
 	err := conn.PG.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM books WHERE id = $1)`, pgUUID(pgID)).Scan(&exists)
@@ -210,20 +207,18 @@ func findOrCreateBookFromRef(ctx context.Context, conn *Connections, ref mongoBo
 		return pgID, nil
 	}
 
-	// Check existence
 	var exists bool
 	_ = conn.PG.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM books WHERE id = $1)`, pgUUID(pgID)).Scan(&exists)
 	if exists {
 		return pgID, nil
 	}
 
-	// Create minimal book record from the denormalized reference
 	title := strings.TrimSpace(ref.Title)
 	if title == "" {
 		title = "Unknown Title"
 	}
 	author := strings.TrimSpace(ref.Author)
-	slug := generateSlug(title, author)
+	baseSlug := generateSlug(title, author)
 	authors := []string{}
 	if author != "" {
 		authors = append(authors, author)
@@ -233,7 +228,16 @@ func findOrCreateBookFromRef(ctx context.Context, conn *Connections, ref mongoBo
 		INSERT INTO books (id, title, slug, authors, cover_url, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING
-	`, pgUUID(pgID), title, slug, authors, nullStr(ref.Cover))
+	`, pgUUID(pgID), title, baseSlug, authors, nullStr(ref.Cover))
+	if err != nil && strings.Contains(err.Error(), "books_slug_key") {
+		// Slug collision: append last 8 hex chars of the ref ObjectId
+		slug := fmt.Sprintf("%s-%s", baseSlug, ref.BookID.Hex()[16:])
+		_, err = conn.PG.Exec(ctx, `
+			INSERT INTO books (id, title, slug, authors, cover_url, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+			ON CONFLICT (id) DO NOTHING
+		`, pgUUID(pgID), title, slug, authors, nullStr(ref.Cover))
+	}
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -242,9 +246,9 @@ func findOrCreateBookFromRef(ctx context.Context, conn *Connections, ref mongoBo
 
 // mongoBookRef is a denormalized book reference embedded in User documents.
 type mongoBookRef struct {
-	BookID bson.ObjectID `bson:"bookId"`
-	Title  string             `bson:"title"`
-	Author string             `bson:"author"`
-	Cover  string             `bson:"cover"`
-	IsbndbID string           `bson:"isbndbId"`
+	BookID   bson.ObjectID `bson:"bookId"`
+	Title    string        `bson:"title"`
+	Author   string        `bson:"author"`
+	Cover    string        `bson:"cover"`
+	IsbndbID string        `bson:"isbndbId"`
 }
