@@ -5,7 +5,7 @@
 //
 //	MONGO_URI      - MongoDB connection string (required)
 //	MONGO_DB       - MongoDB database name (default: "paperboxd")
-//	POSTGRES_URL   - PostgreSQL DSN (required)
+//	POSTGRES_URL   - PostgreSQL DSN (required unless DATABASE_URL is set)
 //	DRY_RUN        - Set to "true" to log without writing (default: false)
 //
 // Usage:
@@ -43,14 +43,14 @@ func main() {
 	}
 	defer conn.Close(ctx)
 
-	// ── Prerequisites: ensure all PG tables exist ─────────────────────────────
-	// Run all migrations before this script:
-	//   migrate -path ./migrations -database $POSTGRES_URL up
-	//
-	// Plus the additional tables from MONGO_MIGRATION_ANALYSIS.md:
-	//   migration 000007 (bookshelf.notes/format, user reading_goal, newsletters,
-	//                      account_deletions, otps, user_preferences)
-	// ────────────────────────────────────────────────────────────────────────────
+	if err := preflightPostgresSchema(ctx, conn.PG); err != nil {
+		slog.Error("postgres schema not ready", "error", err)
+		slog.Error("apply migrations first",
+			"example", `migrate -path ./migrations -database "$DATABASE_URL" up`,
+			"makefile", `make migrate-up DATABASE_URL='postgresql://user:pass@host:port/db?sslmode=require'`,
+		)
+		os.Exit(1)
+	}
 
 	steps := []struct {
 		name string
@@ -58,6 +58,8 @@ func main() {
 	}{
 		{"books", migrateBooks},
 		{"users_core", migrateUsers},
+		{"user_authors_read", migrateAuthorsRead},
+		{"user_preferences_legacy", migrateUserPreferences},
 		{"follows", migrateFollows},
 		{"likes", migrateLikes},
 		{"bookshelf", migrateBookshelf},

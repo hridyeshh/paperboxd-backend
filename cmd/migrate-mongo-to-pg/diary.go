@@ -9,7 +9,7 @@ import (
 
 	"github.com/hridyesh/paperboxd-backend/cmd/migrate-mongo-to-pg/idmap"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	
+
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -26,11 +26,18 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 	}
 	defer cur.Close(ctx)
 
+	stepStart := time.Now()
+	userDocs := 0
+	const diaryProgressEvery = 15
+
 	for cur.Next(ctx) {
+		userDocs++
+		logMigrationProgress("diary_entries", userDocs, diaryProgressEvery, stepStart)
+
 		var u struct {
-			ID           bson.ObjectID  `bson:"_id"`
-			Username     string              `bson:"username"`
-			DiaryEntries []mongoDiaryEntry   `bson:"diaryEntries"`
+			ID           bson.ObjectID     `bson:"_id"`
+			Username     string            `bson:"username"`
+			DiaryEntries []mongoDiaryEntry `bson:"diaryEntries"`
 		}
 		if err := cur.Decode(&u); err != nil {
 			stats.errors++

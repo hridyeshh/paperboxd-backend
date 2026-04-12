@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,7 +20,7 @@ type Config struct {
 	PgDSN    string
 
 	// Migration behaviour
-	DryRun   bool // log inserts but don't execute
+	DryRun    bool // log inserts but don't execute
 	BatchSize int
 }
 
@@ -35,7 +36,15 @@ func configFromEnv() Config {
 	}
 	pgDSN := os.Getenv("POSTGRES_URL")
 	if pgDSN == "" {
-		slog.Error("POSTGRES_URL not set")
+		pgDSN = os.Getenv("DATABASE_URL")
+	}
+	if pgDSN == "" {
+		slog.Error("POSTGRES_URL or DATABASE_URL not set")
+		os.Exit(1)
+	}
+	if err := validatePgDSN(pgDSN); err != nil {
+		slog.Error("invalid Postgres URL", "error", err)
+		slog.Error("hint: separate make variables with a space — e.g. ... DATABASE_URL='postgresql://.../railway' MONGO_URI='mongodb+srv://...'")
 		os.Exit(1)
 	}
 	return Config{
@@ -52,6 +61,19 @@ type Connections struct {
 	Mongo  *mongo.Database
 	PG     *pgxpool.Pool
 	mongoc *mongo.Client
+}
+
+// validatePgDSN catches accidental shell/Make pasting where MONGO_URI is glued into DATABASE_URL.
+func validatePgDSN(dsn string) error {
+	dsn = strings.TrimSpace(dsn)
+	low := strings.ToLower(dsn)
+	if strings.Contains(low, "mongodb+srv://") || strings.Contains(low, "mongodb://") {
+		return fmt.Errorf("Postgres URL contains a MongoDB URI — another connection string was likely merged into DATABASE_URL/POSTGRES_URL")
+	}
+	if strings.Contains(dsn, "MONGO_URI=") {
+		return fmt.Errorf("Postgres URL contains \"MONGO_URI=\" — fix quoting or add a space between variables")
+	}
+	return nil
 }
 
 func connect(ctx context.Context, cfg Config) (*Connections, error) {

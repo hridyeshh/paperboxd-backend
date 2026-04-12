@@ -61,6 +61,8 @@ func verify(ctx context.Context, conn *Connections) {
 		{"likes", "SELECT COUNT(*) FROM likes"},
 		{"favorites", "SELECT COUNT(*) FROM favorites"},
 		{"activities", "SELECT COUNT(*) FROM activities"},
+		{"user_authors_read", "SELECT COUNT(*) FROM user_authors_read"},
+		{"user_preferences_legacy", "SELECT COUNT(*) FROM user_preferences_legacy"},
 	}
 
 	for _, d := range derived {

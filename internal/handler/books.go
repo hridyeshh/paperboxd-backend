@@ -40,10 +40,19 @@ func NewBookHandler(queries *db.Queries, cfg *config.Config, isbndb *external.IS
 	}
 }
 
+// searchQueryString reads ?query= or ?q= (web client uses q).
+func searchQueryString(r *http.Request) string {
+	q := strings.TrimSpace(r.URL.Query().Get("query"))
+	if q != "" {
+		return q
+	}
+	return strings.TrimSpace(r.URL.Query().Get("q"))
+}
+
 // Search handles GET /api/v1/books/search?query=...&page=...&page_size=...
 // Priority: DB cache → ISBNdb → Google Books
 func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	query := searchQueryString(r)
 	if query == "" {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "query parameter is required")
 		return

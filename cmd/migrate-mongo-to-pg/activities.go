@@ -10,7 +10,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/cmd/migrate-mongo-to-pg/idmap"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	
+
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -29,11 +29,18 @@ func migrateActivities(ctx context.Context, conn *Connections, dryRun bool) erro
 	}
 	defer cur.Close(ctx)
 
+	stepStart := time.Now()
+	userDocs := 0
+	const actProgressEvery = 15
+
 	for cur.Next(ctx) {
+		userDocs++
+		logMigrationProgress("activities", userDocs, actProgressEvery, stepStart)
+
 		var u struct {
-			ID         bson.ObjectID `bson:"_id"`
-			Username   string             `bson:"username"`
-			Activities []mongoActivity    `bson:"activities"`
+			ID         bson.ObjectID   `bson:"_id"`
+			Username   string          `bson:"username"`
+			Activities []mongoActivity `bson:"activities"`
 		}
 		if err := cur.Decode(&u); err != nil {
 			stats.errors++
@@ -137,11 +144,11 @@ func migrateActivities(ctx context.Context, conn *Connections, dryRun bool) erro
 
 type mongoNewsletter struct {
 	ID             bson.ObjectID `bson:"_id"`
-	Email          string             `bson:"email"`
-	IsActive       bool               `bson:"isActive"`
-	Source         string             `bson:"source"`
-	SubscribedAt   *time.Time         `bson:"subscribedAt"`
-	UnsubscribedAt *time.Time         `bson:"unsubscribedAt"`
+	Email          string        `bson:"email"`
+	IsActive       bool          `bson:"isActive"`
+	Source         string        `bson:"source"`
+	SubscribedAt   *time.Time    `bson:"subscribedAt"`
+	UnsubscribedAt *time.Time    `bson:"unsubscribedAt"`
 }
 
 func migrateNewsletters(ctx context.Context, conn *Connections, dryRun bool) error {
@@ -157,7 +164,14 @@ func migrateNewsletters(ctx context.Context, conn *Connections, dryRun bool) err
 	}
 	defer cur.Close(ctx)
 
+	stepStart := time.Now()
+	nDocs := 0
+	const newsletterProgressEvery = 100
+
 	for cur.Next(ctx) {
+		nDocs++
+		logMigrationProgress("newsletters", nDocs, newsletterProgressEvery, stepStart)
+
 		var n mongoNewsletter
 		if err := cur.Decode(&n); err != nil {
 			stats.errors++
@@ -207,10 +221,10 @@ func migrateNewsletters(ctx context.Context, conn *Connections, dryRun bool) err
 
 type mongoAccountDeletion struct {
 	ID        bson.ObjectID `bson:"_id"`
-	Email     string             `bson:"email"`
-	Username  string             `bson:"username"`
-	Reasons   []string           `bson:"reasons"`
-	DeletedAt *time.Time         `bson:"deletedAt"`
+	Email     string        `bson:"email"`
+	Username  string        `bson:"username"`
+	Reasons   []string      `bson:"reasons"`
+	DeletedAt *time.Time    `bson:"deletedAt"`
 }
 
 func migrateAccountDeletions(ctx context.Context, conn *Connections, dryRun bool) error {
@@ -225,7 +239,14 @@ func migrateAccountDeletions(ctx context.Context, conn *Connections, dryRun bool
 	}
 	defer cur.Close(ctx)
 
+	stepStart := time.Now()
+	nDocs := 0
+	const accountDelProgressEvery = 50
+
 	for cur.Next(ctx) {
+		nDocs++
+		logMigrationProgress("account_deletions", nDocs, accountDelProgressEvery, stepStart)
+
 		var ad mongoAccountDeletion
 		if err := cur.Decode(&ad); err != nil {
 			stats.errors++

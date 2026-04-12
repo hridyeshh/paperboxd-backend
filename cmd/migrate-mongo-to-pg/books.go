@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/hridyesh/paperboxd-backend/cmd/migrate-mongo-to-pg/idmap"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -16,12 +17,12 @@ import (
 // mongoBook mirrors the MongoDB Book document structure.
 type mongoBook struct {
 	ID             bson.ObjectID `bson:"_id"`
-	IsbndbID       string             `bson:"isbndbId"`
-	ISBN           string             `bson:"isbn"`
-	ISBN13         string             `bson:"isbn13"`
-	GoogleBooksID  string             `bson:"googleBooksId"`
-	OpenLibraryID  string             `bson:"openLibraryId"`
-	OpenLibraryKey string             `bson:"openLibraryKey"`
+	IsbndbID       string        `bson:"isbndbId"`
+	ISBN           string        `bson:"isbn"`
+	ISBN13         string        `bson:"isbn13"`
+	GoogleBooksID  string        `bson:"googleBooksId"`
+	OpenLibraryID  string        `bson:"openLibraryId"`
+	OpenLibraryKey string        `bson:"openLibraryKey"`
 	VolumeInfo     struct {
 		Title         string   `bson:"title"`
 		Subtitle      string   `bson:"subtitle"`
@@ -60,7 +61,14 @@ func migrateBooks(ctx context.Context, conn *Connections, dryRun bool) error {
 	}
 	defer cur.Close(ctx)
 
+	stepStart := time.Now()
+	processed := 0
+	const progressEvery = 100
+
 	for cur.Next(ctx) {
+		processed++
+		logMigrationProgress("books", processed, progressEvery, stepStart)
+
 		var b mongoBook
 		if err := cur.Decode(&b); err != nil {
 			logErr("books", "decode", err, nil)

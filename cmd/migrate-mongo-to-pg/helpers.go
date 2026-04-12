@@ -66,13 +66,19 @@ func pgDate(t time.Time) pgtype.Date {
 // ── Date parsing ──────────────────────────────────────────────────────────────
 
 // parseMongoBooksDate tries multiple formats for publishedDate which may be
-// "2023-10-15", "2023-10", "2023", or empty.
+// "2023-10-15", "20200920" (YYYYMMDD), "2023-10", "2023", or empty.
 func parseMongoBooksDate(s string) *time.Time {
-	if s == "" {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" {
+		return nil
+	}
+	if strings.TrimFunc(s, func(r rune) bool { return r == '0' }) == "" {
+		// Placeholder / corrupt values like "0000" or "00000000"
 		return nil
 	}
 	formats := []string{
 		"2006-01-02",
+		"20060102", // Google Books / ISBN DB sometimes use compact YYYYMMDD
 		"2006-01",
 		"2006",
 	}
@@ -115,6 +121,17 @@ func mapTBRUrgency(urgency string) pgtype.Text {
 		return pgText("high")
 	case "Eventually":
 		return pgText("low")
+	default:
+		return pgtype.Text{}
+	}
+}
+
+// mongoFormatToPG maps Mongo bookshelf format to PG bookshelf.format (nullable).
+func mongoFormatToPG(s string) pgtype.Text {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "Print", "Digital", "Audio":
+		return pgText(s)
 	default:
 		return pgtype.Text{}
 	}
@@ -197,5 +214,17 @@ func logErr(collection, op string, err error, id interface{}) {
 		"operation", op,
 		"id", fmt.Sprintf("%v", id),
 		"error", err,
+	)
+}
+
+// logMigrationProgress logs every `every` processed items so long steps show a heartbeat.
+func logMigrationProgress(step string, processed, every int, start time.Time) {
+	if every <= 0 || processed <= 0 || processed%every != 0 {
+		return
+	}
+	slog.Info("step progress",
+		"step", step,
+		"processed", processed,
+		"elapsed", time.Since(start).Round(time.Millisecond),
 	)
 }

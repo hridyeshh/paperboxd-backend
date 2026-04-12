@@ -125,9 +125,9 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
 }
 
-// Search handles GET /api/v1/users/search?query=...
+// Search handles GET /api/v1/users/search?query=... or ?q=...
 func (h *UserHandler) Search(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	query := searchQueryString(r)
 	if query == "" {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "query parameter is required")
 		return
