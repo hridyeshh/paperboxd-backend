@@ -24,7 +24,7 @@ ON CONFLICT (user_id, book_id) DO UPDATE SET
     started_at = EXCLUDED.started_at,
     finished_at = EXCLUDED.finished_at,
     updated_at = NOW()
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
 `
 
 type AddToBookshelfParams struct {
@@ -62,6 +62,8 @@ func (q *Queries) AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) 
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }
@@ -83,7 +85,7 @@ func (q *Queries) CountUserBooks(ctx context.Context, arg CountUserBooksParams) 
 }
 
 const getBookshelfEntry = `-- name: GetBookshelfEntry :one
-SELECT id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date FROM bookshelf WHERE user_id = $1 AND book_id = $2
+SELECT id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format FROM bookshelf WHERE user_id = $1 AND book_id = $2
 `
 
 type GetBookshelfEntryParams struct {
@@ -110,6 +112,8 @@ func (q *Queries) GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryPa
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }
@@ -341,6 +345,7 @@ SELECT
     bs.user_id,
     bs.book_id,
     bs.status,
+    bs.current_page,
     bs.tbr_notes,
     bs.tbr_priority,
     bs.tbr_added_at,
@@ -373,6 +378,7 @@ type GetUserTBRRow struct {
 	UserID        uuid.UUID          `json:"user_id"`
 	BookID        uuid.UUID          `json:"book_id"`
 	Status        string             `json:"status"`
+	CurrentPage   pgtype.Int4        `json:"current_page"`
 	TbrNotes      pgtype.Text        `json:"tbr_notes"`
 	TbrPriority   pgtype.Text        `json:"tbr_priority"`
 	TbrAddedAt    pgtype.Timestamp   `json:"tbr_added_at"`
@@ -410,6 +416,7 @@ func (q *Queries) GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTB
 			&i.UserID,
 			&i.BookID,
 			&i.Status,
+			&i.CurrentPage,
 			&i.TbrNotes,
 			&i.TbrPriority,
 			&i.TbrAddedAt,
@@ -450,7 +457,7 @@ SET
     current_page = (SELECT b.page_count FROM books b WHERE b.id = bookshelf.book_id),
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
 `
 
 type MarkAsFinishedParams struct {
@@ -477,6 +484,8 @@ func (q *Queries) MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) 
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }
@@ -489,7 +498,7 @@ SET
     current_page = COALESCE($3, 0),
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
 `
 
 type MarkAsStartedParams struct {
@@ -517,6 +526,8 @@ func (q *Queries) MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (B
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }
@@ -543,7 +554,7 @@ SET
     estimated_finish_date = $5,
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
 `
 
 type UpdateReadingProgressParams struct {
@@ -579,6 +590,8 @@ func (q *Queries) UpdateReadingProgress(ctx context.Context, arg UpdateReadingPr
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }
@@ -591,7 +604,7 @@ SET
     tbr_added_at = COALESCE(tbr_added_at, NOW()),
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
 `
 
 type UpdateTBRNotesParams struct {
@@ -625,6 +638,8 @@ func (q *Queries) UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) 
 		&i.CurrentPage,
 		&i.ReadingVelocity,
 		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
 	)
 	return i, err
 }

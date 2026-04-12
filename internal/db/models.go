@@ -9,6 +9,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AccountDeletion struct {
+	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
+	Username  pgtype.Text        `json:"username"`
+	Reasons   []string           `json:"reasons"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
 type Activity struct {
 	ID           uuid.UUID        `json:"id"`
 	UserID       uuid.UUID        `json:"user_id"`
@@ -66,6 +74,8 @@ type Bookshelf struct {
 	CurrentPage         pgtype.Int4        `json:"current_page"`
 	ReadingVelocity     pgtype.Float8      `json:"reading_velocity"`
 	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
+	Notes               pgtype.Text        `json:"notes"`
+	Format              pgtype.Text        `json:"format"`
 }
 
 type DiaryEntry struct {
@@ -109,6 +119,7 @@ type Like struct {
 	UserID    uuid.UUID          `json:"user_id"`
 	BookID    uuid.UUID          `json:"book_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Reason    pgtype.Text        `json:"reason"`
 }
 
 type List struct {
@@ -137,6 +148,17 @@ type ListBook struct {
 	DisplayOrder int32            `json:"display_order"`
 }
 
+type Newsletter struct {
+	ID             uuid.UUID          `json:"id"`
+	Email          string             `json:"email"`
+	IsActive       bool               `json:"is_active"`
+	Source         string             `json:"source"`
+	SubscribedAt   pgtype.Timestamptz `json:"subscribed_at"`
+	UnsubscribedAt pgtype.Timestamptz `json:"unsubscribed_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RefreshToken struct {
 	ID         uuid.UUID          `json:"id"`
 	UserID     uuid.UUID          `json:"user_id"`
@@ -156,30 +178,50 @@ type SavedList struct {
 }
 
 type User struct {
-	ID                uuid.UUID          `json:"id"`
-	Username          string             `json:"username"`
-	Email             string             `json:"email"`
-	PasswordHash      pgtype.Text        `json:"password_hash"`
-	Name              pgtype.Text        `json:"name"`
-	AvatarUrl         pgtype.Text        `json:"avatar_url"`
-	Bio               pgtype.Text        `json:"bio"`
-	Pronouns          []string           `json:"pronouns"`
-	IsPublic          pgtype.Bool        `json:"is_public"`
-	FavoriteGenres    []string           `json:"favorite_genres"`
-	Settings          []byte             `json:"settings"`
-	FollowersCount    pgtype.Int4        `json:"followers_count"`
-	FollowingCount    pgtype.Int4        `json:"following_count"`
-	BooksReadCount    pgtype.Int4        `json:"books_read_count"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	LastActive        pgtype.Timestamptz `json:"last_active"`
-	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
-	MongoID           pgtype.Text        `json:"mongo_id"`
-	Birthday          pgtype.Date        `json:"birthday"`
-	Gender            pgtype.Text        `json:"gender"`
-	Links             []string           `json:"links"`
-	TotalPagesRead    pgtype.Int4        `json:"total_pages_read"`
-	FavoritesCount    int32              `json:"favorites_count"`
-	ListsCount        int32              `json:"lists_count"`
-	DiaryEntriesCount int32              `json:"diary_entries_count"`
+	ID                 uuid.UUID          `json:"id"`
+	Username           string             `json:"username"`
+	Email              string             `json:"email"`
+	PasswordHash       pgtype.Text        `json:"password_hash"`
+	Name               pgtype.Text        `json:"name"`
+	AvatarUrl          pgtype.Text        `json:"avatar_url"`
+	Bio                pgtype.Text        `json:"bio"`
+	Pronouns           []string           `json:"pronouns"`
+	IsPublic           pgtype.Bool        `json:"is_public"`
+	FavoriteGenres     []string           `json:"favorite_genres"`
+	Settings           []byte             `json:"settings"`
+	FollowersCount     pgtype.Int4        `json:"followers_count"`
+	FollowingCount     pgtype.Int4        `json:"following_count"`
+	BooksReadCount     pgtype.Int4        `json:"books_read_count"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LastActive         pgtype.Timestamptz `json:"last_active"`
+	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
+	MongoID            pgtype.Text        `json:"mongo_id"`
+	Birthday           pgtype.Date        `json:"birthday"`
+	Gender             pgtype.Text        `json:"gender"`
+	Links              []string           `json:"links"`
+	TotalPagesRead     pgtype.Int4        `json:"total_pages_read"`
+	FavoritesCount     int32              `json:"favorites_count"`
+	ListsCount         int32              `json:"lists_count"`
+	DiaryEntriesCount  int32              `json:"diary_entries_count"`
+	ReadingGoalYear    pgtype.Int4        `json:"reading_goal_year"`
+	ReadingGoalTarget  pgtype.Int4        `json:"reading_goal_target"`
+	ReadingGoalCurrent pgtype.Int4        `json:"reading_goal_current"`
+}
+
+type UserAuthorsRead struct {
+	ID             uuid.UUID          `json:"id"`
+	UserID         uuid.UUID          `json:"user_id"`
+	AuthorName     string             `json:"author_name"`
+	BooksRead      int32              `json:"books_read"`
+	BooksTbr       int32              `json:"books_tbr"`
+	FavoriteBookID pgtype.UUID        `json:"favorite_book_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type UserPreferencesLegacy struct {
+	UserID         uuid.UUID          `json:"user_id"`
+	Payload        []byte             `json:"payload"`
+	MongoUpdatedAt pgtype.Timestamptz `json:"mongo_updated_at"`
+	MigratedAt     pgtype.Timestamptz `json:"migrated_at"`
 }

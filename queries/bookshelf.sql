@@ -110,6 +110,7 @@ SELECT
     bs.user_id,
     bs.book_id,
     bs.status,
+    bs.current_page,
     bs.tbr_notes,
     bs.tbr_priority,
     bs.tbr_added_at,

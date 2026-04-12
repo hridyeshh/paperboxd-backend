@@ -160,13 +160,42 @@ func (h *BookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.GoogleBooksID == "" {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "google_books_id is required")
+	isbn := strings.TrimSpace(req.ISBN)
+	googleID := strings.TrimSpace(req.GoogleBooksID)
+	if isbn == "" && googleID == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "google_books_id or isbn is required")
 		return
 	}
 
+	// ── ISBN: resolve or cache (same behaviour as bookshelf add) ─────────────
+	if isbn != "" {
+		existing, err := h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: isbn, Valid: true})
+		if err == nil {
+			types.WriteJSON(w, http.StatusOK, bookToResponse(existing))
+			return
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Error("get book by isbn", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		if h.ISBNdb == nil {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "ISBN lookup is not configured")
+			return
+		}
+		book, err := cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, isbn)
+		if err != nil {
+			slog.Error("cache book from isbn", "error", err, "isbn", isbn)
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Book not found for ISBN")
+			return
+		}
+		types.WriteJSON(w, http.StatusCreated, bookToResponse(book))
+		return
+	}
+
+	// ── Google Books volume id ────────────────────────────────────────────────
 	// Check if already in DB
-	existing, err := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: req.GoogleBooksID, Valid: true})
+	existing, err := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: googleID, Valid: true})
 	if err == nil {
 		types.WriteJSON(w, http.StatusOK, bookToResponse(existing))
 		return
@@ -177,8 +206,12 @@ func (h *BookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.GoogleBooks == nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Google Books client is not configured")
+		return
+	}
 	// Fetch from Google Books
-	gb, err := h.GoogleBooks.GetByID(r.Context(), req.GoogleBooksID)
+	gb, err := h.GoogleBooks.GetByID(r.Context(), googleID)
 	if err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Book not found in Google Books")
 		return

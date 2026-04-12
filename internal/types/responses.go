@@ -194,6 +194,7 @@ type TBRResponse struct {
 	BookID      string       `json:"book_id"`
 	Book        BookResponse `json:"book"`
 	Status      string       `json:"status"`
+	CurrentPage *int32       `json:"current_page,omitempty"`
 	TBRNotes    *string      `json:"tbr_notes,omitempty"`
 	TBRPriority *string      `json:"tbr_priority,omitempty"`
 	TBRAddedAt  *time.Time   `json:"tbr_added_at,omitempty"`

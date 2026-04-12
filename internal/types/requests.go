@@ -48,8 +48,10 @@ type UpdateUserRequest struct {
 }
 
 // CreateBookRequest is the payload for POST /api/v1/books.
+// Provide either google_books_id (Google volume id) or isbn (ISBN-10/13) to get-or-create a cached row.
 type CreateBookRequest struct {
-	GoogleBooksID string `json:"google_books_id"`
+	GoogleBooksID string `json:"google_books_id,omitempty"`
+	ISBN            string `json:"isbn,omitempty"`
 }
 
 // UpdateTBRRequest is the payload for PUT /api/v1/users/:username/bookshelf/:bookId/tbr.

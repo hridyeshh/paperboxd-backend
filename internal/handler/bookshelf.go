@@ -773,6 +773,10 @@ func tbrRowToResponse(row db.GetUserTBRRow) types.TBRResponse {
 		t := row.TbrAddedAt.Time
 		resp.TBRAddedAt = &t
 	}
+	if row.CurrentPage.Valid {
+		cp := row.CurrentPage.Int32
+		resp.CurrentPage = &cp
+	}
 	return resp
 }
 

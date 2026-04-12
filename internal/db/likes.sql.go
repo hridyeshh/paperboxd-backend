@@ -125,7 +125,7 @@ const likeBook = `-- name: LikeBook :one
 INSERT INTO likes (user_id, book_id)
 VALUES ($1, $2)
 ON CONFLICT (user_id, book_id) DO NOTHING
-RETURNING id, user_id, book_id, created_at
+RETURNING id, user_id, book_id, created_at, reason
 `
 
 type LikeBookParams struct {
@@ -141,6 +141,7 @@ func (q *Queries) LikeBook(ctx context.Context, arg LikeBookParams) (Like, error
 		&i.UserID,
 		&i.BookID,
 		&i.CreatedAt,
+		&i.Reason,
 	)
 	return i, err
 }
