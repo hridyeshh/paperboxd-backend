@@ -256,6 +256,63 @@ func (h *BookHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, bookToResponse(book))
 }
 
+// resolveBookIDParam resolves an arbitrary book identifier (URL param or body
+// field) to a Postgres book UUID. It accepts a UUID, a Google Books volume ID,
+// or an ISBN (10 or 13 digits, hyphens allowed). When the book isn't cached
+// it is fetched from Google Books / ISBNdb and stored.
+func resolveBookIDParam(
+	ctx context.Context,
+	q *db.Queries,
+	gb *external.GoogleBooksClient,
+	isbndb *external.ISBNdbClient,
+	raw string,
+) (uuid.UUID, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uuid.UUID{}, errors.New("book id is required")
+	}
+
+	if id, err := uuid.Parse(raw); err == nil {
+		if _, err := q.GetBookByID(ctx, id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return uuid.UUID{}, errors.New("book not found")
+			}
+			return uuid.UUID{}, err
+		}
+		return id, nil
+	}
+
+	// Try Google Books volume ID (short alphanumeric, no hyphens)
+	if !strings.ContainsAny(raw, "-") && len(raw) <= 20 {
+		book, err := q.GetBookByGoogleID(ctx, pgtype.Text{String: raw, Valid: true})
+		if errors.Is(err, pgx.ErrNoRows) && gb != nil {
+			book, err = cacheBookFromGoogleBooks(ctx, q, gb, raw)
+		}
+		if err == nil {
+			return book.ID, nil
+		}
+	}
+
+	// Try ISBN (10 or 13 digits, possibly with hyphens)
+	isbn := strings.ReplaceAll(raw, "-", "")
+	if len(isbn) == 10 || len(isbn) == 13 {
+		book, err := q.GetBookByISBN(ctx, pgtype.Text{String: isbn, Valid: true})
+		if errors.Is(err, pgx.ErrNoRows) && isbndb != nil {
+			book, err = cacheBookFromISBNdb(ctx, q, isbndb, isbn)
+		}
+		if err == nil {
+			return book.ID, nil
+		}
+	}
+
+	return uuid.UUID{}, errors.New("could not resolve book: send a Postgres UUID, Google Books volume ID, or ISBN")
+}
+
+// resolveBookID resolves the {id} URL param using the shared helper.
+func (h *BookHandler) resolveBookID(ctx context.Context, raw string) (uuid.UUID, error) {
+	return resolveBookIDParam(ctx, h.Queries, h.GoogleBooks, h.ISBNdb, raw)
+}
+
 // Like handles POST /api/v1/books/:id/like
 func (h *BookHandler) Like(w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := reqctx.GetUserID(r.Context())
@@ -270,9 +327,9 @@ func (h *BookHandler) Like(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "id"))
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -303,9 +360,9 @@ func (h *BookHandler) Unlike(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "id"))
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 

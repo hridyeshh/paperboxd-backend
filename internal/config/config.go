@@ -26,15 +26,23 @@ type Config struct {
 
 	GoogleBooksAPIKey string
 	ISBNdbAPIKey      string
+
+	RateLimitPerMinute int
 }
 
 func Load() (*Config, error) {
 	// Load .env file (ignore error in production - Railway sets env vars)
 	_ = godotenv.Load()
 
+	env := getEnv("ENVIRONMENT", "development")
+	defaultRateLimit := 100
+	if env == "development" {
+		defaultRateLimit = 5000
+	}
+
 	return &Config{
 		Port:        getEnv("PORT", "8080"),
-		Environment: getEnv("ENVIRONMENT", "development"),
+		Environment: env,
 
 		DatabaseURL: getEnv("DATABASE_URL", ""),
 		DBMaxConns:  getEnvAsInt32("DB_MAX_CONNS", 25),
@@ -44,11 +52,13 @@ func Load() (*Config, error) {
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),
 
 		JWTSecret:          getEnv("JWT_SECRET", ""),
-		AccessTokenExpiry:  15 * time.Minute,
+		AccessTokenExpiry:  1 * time.Hour,
 		RefreshTokenExpiry: 30 * 24 * time.Hour,
 
 		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
 		ISBNdbAPIKey:      getEnv("ISBNDB_API_KEY", ""),
+
+		RateLimitPerMinute: getEnvAsInt("RATE_LIMIT_PER_MINUTE", defaultRateLimit),
 	}, nil
 }
 
@@ -76,6 +86,14 @@ func getEnvAsInt32(key string, defaultVal int32) int32 {
 	valStr := getEnv(key, "")
 	if val, err := strconv.ParseInt(valStr, 10, 32); err == nil {
 		return int32(val)
+	}
+	return defaultVal
+}
+
+func getEnvAsInt(key string, defaultVal int) int {
+	valStr := getEnv(key, "")
+	if val, err := strconv.Atoi(valStr); err == nil {
+		return val
 	}
 	return defaultVal
 }

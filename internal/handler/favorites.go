@@ -214,9 +214,9 @@ func (h *FavoritesHandler) RemoveFromFavorites(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 

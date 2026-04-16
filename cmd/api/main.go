@@ -147,8 +147,10 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// Rate limiting: 100 requests per minute per IP
-	r.Use(httprate.LimitByIP(100, time.Minute))
+	// Rate limiting: configurable per IP (dev default 5000/min, prod 100/min)
+	if cfg.RateLimitPerMinute > 0 {
+		r.Use(httprate.LimitByIP(cfg.RateLimitPerMinute, time.Minute))
+	}
 
 	// ── Routes ─────────────────────────────────────────────────────────────────
 

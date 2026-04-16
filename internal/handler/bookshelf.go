@@ -238,9 +238,9 @@ func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -540,9 +540,9 @@ func (h *UserHandler) UpdateTBRNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -621,9 +621,9 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -667,9 +667,9 @@ func (h *UserHandler) MarkAsStarted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
@@ -693,9 +693,9 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookID, err := uuid.Parse(chi.URLParam(r, "bookId"))
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
