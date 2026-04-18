@@ -25,11 +25,38 @@ ORDER BY l.updated_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: GetListCoverURLs :many
-SELECT b.cover_url
-FROM list_books lb
-JOIN books b ON lb.book_id = b.id
-WHERE lb.list_id = $1 AND b.cover_url IS NOT NULL AND b.cover_url != ''
-ORDER BY lb.display_order ASC, lb.added_at DESC
+-- Prefer stored cover_url; otherwise synthesize a thumbnail URL from Google Books
+-- id or ISBN so list cards still show art when cover_url was never backfilled.
+SELECT r.cover_url
+FROM (
+    SELECT
+        lb.display_order,
+        lb.added_at,
+        CAST(
+            COALESCE(
+                NULLIF(TRIM(b.cover_url), ''),
+                CASE
+                    WHEN b.google_books_id IS NOT NULL AND TRIM(b.google_books_id) <> ''
+                    THEN 'https://books.google.com/books/content?id='
+                        || TRIM(b.google_books_id)
+                        || '&printsec=frontcover&img=1&zoom=1&source=gbs_api'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN b.isbn_13 IS NOT NULL AND TRIM(REPLACE(b.isbn_13, '-', '')) <> ''
+                    THEN 'https://covers.openlibrary.org/b/isbn/'
+                        || TRIM(REPLACE(b.isbn_13, '-', ''))
+                        || '-M.jpg'
+                    ELSE NULL
+                END
+            ) AS TEXT
+        ) AS cover_url
+    FROM list_books lb
+    INNER JOIN books b ON lb.book_id = b.id
+    WHERE lb.list_id = $1
+) AS r
+WHERE r.cover_url IS NOT NULL
+ORDER BY r.display_order ASC, r.added_at DESC
 LIMIT 3;
 
 -- name: GetUserSavedLists :many
