@@ -97,11 +97,6 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.DisplayOrder < 1 || req.DisplayOrder > 4 {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "display_order must be between 1 and 4")
-		return
-	}
-
 	count, err := h.Queries.CountUserFavorites(r.Context(), userID)
 	if err != nil {
 		slog.Error("count user favorites", "error", err)
@@ -111,6 +106,11 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 	if count >= 4 {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
 		return
+	}
+
+	// Auto-assign next slot when caller omits display_order
+	if req.DisplayOrder < 1 || req.DisplayOrder > 4 {
+		req.DisplayOrder = int(count) + 1
 	}
 
 	// Resolve book
