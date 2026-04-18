@@ -651,6 +651,19 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 	}
 
 	entry, err := h.Queries.UpdateReadingProgress(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No bookshelf row yet — auto-add as "reading" then set progress.
+		if _, addErr := h.Queries.AddToBookshelf(r.Context(), db.AddToBookshelfParams{
+			UserID: userID,
+			BookID: bookID,
+			Status: "reading",
+		}); addErr != nil {
+			slog.Error("auto-add to bookshelf for progress", "error", addErr)
+			types.WriteInternalError(w)
+			return
+		}
+		entry, err = h.Queries.UpdateReadingProgress(r.Context(), params)
+	}
 	if err != nil {
 		slog.Error("update reading progress", "error", err)
 		types.WriteInternalError(w)
