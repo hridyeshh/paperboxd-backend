@@ -652,11 +652,11 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 
 	entry, err := h.Queries.UpdateReadingProgress(r.Context(), params)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// No bookshelf row yet — auto-add as "reading" then set progress.
+		// No bookshelf row yet — auto-add then retry.
 		if _, addErr := h.Queries.AddToBookshelf(r.Context(), db.AddToBookshelfParams{
 			UserID: userID,
 			BookID: bookID,
-			Status: "reading",
+			Status: "to-read",
 		}); addErr != nil {
 			slog.Error("auto-add to bookshelf for progress", "error", addErr)
 			types.WriteInternalError(w)
@@ -668,6 +668,34 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		slog.Error("update reading progress", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	// Keep bookshelf status in sync with reading progress:
+	//   0 pages       → leave status as-is (user may have explicitly set it)
+	//   1…(n-1) pages → "to-read" (shows in DNF section on profile)
+	//   n pages       → "read"   (finished)
+	if req.CurrentPage != nil {
+		cp := *req.CurrentPage
+		var newStatus string
+		book, bookErr := h.Queries.GetBookByID(r.Context(), bookID)
+		if bookErr == nil && book.PageCount.Valid && book.PageCount.Int32 > 0 {
+			if cp >= book.PageCount.Int32 {
+				newStatus = "read"
+			} else if cp > 0 {
+				newStatus = "to-read"
+			}
+		} else if cp > 0 {
+			newStatus = "to-read"
+		}
+		if newStatus != "" && newStatus != entry.Status {
+			if updated, statusErr := h.Queries.UpdateBookshelfStatus(r.Context(), db.UpdateBookshelfStatusParams{
+				UserID: userID,
+				BookID: bookID,
+				Status: newStatus,
+			}); statusErr == nil {
+				entry = updated
+			}
+		}
 	}
 
 	types.WriteJSON(w, http.StatusOK, entry)

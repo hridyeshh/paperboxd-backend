@@ -136,3 +136,11 @@ FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = 'to-read'
 ORDER BY bs.tbr_added_at DESC NULLS LAST, bs.created_at DESC;
+
+-- name: UpdateBookshelfStatus :one
+UPDATE bookshelf
+SET
+    status = $3,
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING *;
