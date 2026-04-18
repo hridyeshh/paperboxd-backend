@@ -546,6 +546,46 @@ func (q *Queries) RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshe
 	return err
 }
 
+const updateBookshelfStatus = `-- name: UpdateBookshelfStatus :one
+UPDATE bookshelf
+SET
+    status = $3,
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
+`
+
+type UpdateBookshelfStatusParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	BookID uuid.UUID `json:"book_id"`
+	Status string    `json:"status"`
+}
+
+func (q *Queries) UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error) {
+	row := q.db.QueryRow(ctx, updateBookshelfStatus, arg.UserID, arg.BookID, arg.Status)
+	var i Bookshelf
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.Rating,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TbrNotes,
+		&i.TbrPriority,
+		&i.TbrAddedAt,
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+		&i.Notes,
+		&i.Format,
+	)
+	return i, err
+}
+
 const updateReadingProgress = `-- name: UpdateReadingProgress :one
 UPDATE bookshelf
 SET
@@ -621,46 +661,6 @@ func (q *Queries) UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) 
 		arg.TbrNotes,
 		arg.TbrPriority,
 	)
-	var i Bookshelf
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.BookID,
-		&i.Status,
-		&i.Rating,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.TbrNotes,
-		&i.TbrPriority,
-		&i.TbrAddedAt,
-		&i.CurrentPage,
-		&i.ReadingVelocity,
-		&i.EstimatedFinishDate,
-		&i.Notes,
-		&i.Format,
-	)
-	return i, err
-}
-
-const updateBookshelfStatus = `-- name: UpdateBookshelfStatus :one
-UPDATE bookshelf
-SET
-    status = $3,
-    updated_at = NOW()
-WHERE user_id = $1 AND book_id = $2
-RETURNING id, user_id, book_id, status, rating, started_at, finished_at, created_at, updated_at, tbr_notes, tbr_priority, tbr_added_at, current_page, reading_velocity, estimated_finish_date, notes, format
-`
-
-type UpdateBookshelfStatusParams struct {
-	UserID uuid.UUID `json:"user_id"`
-	BookID uuid.UUID `json:"book_id"`
-	Status string    `json:"status"`
-}
-
-func (q *Queries) UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error) {
-	row := q.db.QueryRow(ctx, updateBookshelfStatus, arg.UserID, arg.BookID, arg.Status)
 	var i Bookshelf
 	err := row.Scan(
 		&i.ID,

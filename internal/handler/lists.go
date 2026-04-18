@@ -218,7 +218,18 @@ func (h *ListsHandler) GetUserLists(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		canEdit := isOwner
-		ownLists = append(ownLists, listRowToResponse(row, username, isSaved, canEdit))
+		resp := listRowToResponse(row, username, isSaved, canEdit)
+		if coverURLs, err := h.Queries.GetListCoverURLs(r.Context(), row.ID); err == nil {
+			for _, cu := range coverURLs {
+				if cu != "" {
+					resp.CoverURLs = append(resp.CoverURLs, cu)
+				}
+			}
+		}
+		if resp.CoverURLs == nil {
+			resp.CoverURLs = []string{}
+		}
+		ownLists = append(ownLists, resp)
 	}
 
 	savedRows, err := h.Queries.GetUserSavedLists(r.Context(), db.GetUserSavedListsParams{
@@ -248,7 +259,18 @@ func (h *ListsHandler) GetUserLists(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		savedLists = append(savedLists, savedListRowToResponse(row, isOwner))
+		resp := savedListRowToResponse(row, isOwner)
+		if coverURLs, err := h.Queries.GetListCoverURLs(r.Context(), row.ID); err == nil {
+			for _, cu := range coverURLs {
+				if cu != "" {
+					resp.CoverURLs = append(resp.CoverURLs, cu)
+				}
+			}
+		}
+		if resp.CoverURLs == nil {
+			resp.CoverURLs = []string{}
+		}
+		savedLists = append(savedLists, resp)
 	}
 
 	types.WriteJSON(w, http.StatusOK, types.UserListsResponse{
@@ -952,12 +974,12 @@ func listBookRowToBookResponse(row db.GetListBooksRow) types.BookResponse {
 		})
 	}
 	resp := types.BookResponse{
-		ID:        row.BookID.String(),
-		MongoID:   row.BookID.String(),
+		ID:         row.BookID.String(),
+		MongoID:    row.BookID.String(),
 		VolumeInfo: vi,
-		APISource: "db",
-		FromCache: true,
-		Slug:      row.Slug,
+		APISource:  "db",
+		FromCache:  true,
+		Slug:       row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String

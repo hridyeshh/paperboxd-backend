@@ -214,6 +214,7 @@ type ListResponse struct {
 	IsSaved     bool      `json:"is_saved"`
 	CanEdit     bool      `json:"can_edit"`
 	CanView     bool      `json:"can_view"`
+	CoverURLs   []string  `json:"cover_urls"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

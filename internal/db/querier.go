@@ -69,6 +69,9 @@ type Querier interface {
 	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
 	GetListBooks(ctx context.Context, listID uuid.UUID) ([]GetListBooksRow, error)
 	GetListByID(ctx context.Context, id uuid.UUID) (List, error)
+	// Prefer stored cover_url; otherwise synthesize a thumbnail URL from Google Books
+	// id or ISBN so list cards still show art when cover_url was never backfilled.
+	GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
@@ -107,10 +110,10 @@ type Querier interface {
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
 	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error
 	UnsaveList(ctx context.Context, arg UnsaveListParams) error
+	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
 	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
-	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)

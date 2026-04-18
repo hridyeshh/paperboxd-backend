@@ -395,6 +395,62 @@ func (q *Queries) GetListByID(ctx context.Context, id uuid.UUID) (List, error) {
 	return i, err
 }
 
+const getListCoverURLs = `-- name: GetListCoverURLs :many
+SELECT r.cover_url
+FROM (
+    SELECT
+        lb.display_order,
+        lb.added_at,
+        CAST(
+            COALESCE(
+                NULLIF(TRIM(b.cover_url), ''),
+                CASE
+                    WHEN b.google_books_id IS NOT NULL AND TRIM(b.google_books_id) <> ''
+                    THEN 'https://books.google.com/books/content?id='
+                        || TRIM(b.google_books_id)
+                        || '&printsec=frontcover&img=1&zoom=1&source=gbs_api'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN b.isbn_13 IS NOT NULL AND TRIM(REPLACE(b.isbn_13, '-', '')) <> ''
+                    THEN 'https://covers.openlibrary.org/b/isbn/'
+                        || TRIM(REPLACE(b.isbn_13, '-', ''))
+                        || '-M.jpg'
+                    ELSE NULL
+                END
+            ) AS TEXT
+        ) AS cover_url
+    FROM list_books lb
+    INNER JOIN books b ON lb.book_id = b.id
+    WHERE lb.list_id = $1
+) AS r
+WHERE r.cover_url IS NOT NULL
+ORDER BY r.display_order ASC, r.added_at DESC
+LIMIT 3
+`
+
+// Prefer stored cover_url; otherwise synthesize a thumbnail URL from Google Books
+// id or ISBN so list cards still show art when cover_url was never backfilled.
+func (q *Queries) GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, getListCoverURLs, listID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var cover_url string
+		if err := rows.Scan(&cover_url); err != nil {
+			return nil, err
+		}
+		items = append(items, cover_url)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserLists = `-- name: GetUserLists :many
 SELECT
     l.id,
