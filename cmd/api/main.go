@@ -147,9 +147,11 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// Rate limiting: configurable per IP (dev default 5000/min, prod 100/min)
+	// Rate limiting: per Bearer token when present, else per IP (see KeyByAuthorizationOrIP).
 	if cfg.RateLimitPerMinute > 0 {
-		r.Use(httprate.LimitByIP(cfg.RateLimitPerMinute, time.Minute))
+		r.Use(httprate.Limit(cfg.RateLimitPerMinute, time.Minute,
+			httprate.WithKeyFuncs(appMiddleware.KeyByAuthorizationOrIP),
+		))
 	}
 
 	// ── Routes ─────────────────────────────────────────────────────────────────
