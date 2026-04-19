@@ -257,8 +257,8 @@ func main() {
 					})
 				})
 
-				// Lists routes
-				r.Get("/lists", listsHandler.GetUserLists)
+				// Lists routes (optional JWT: own private lists + saved lists when cookie is forwarded)
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/lists", listsHandler.GetUserLists)
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 					r.Post("/lists", listsHandler.CreateList)
