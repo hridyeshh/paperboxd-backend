@@ -101,6 +101,45 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CheckUsername handles GET /api/v1/auth/check-username?username=x.
+// Returns {"available": true|false} — no authentication required.
+func (h *Handler) CheckUsername(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("username")))
+
+	if username == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "username query param is required")
+		return
+	}
+
+	if len(username) < 3 || len(username) > 50 || !isValidUsername(username) {
+		types.WriteJSON(w, http.StatusOK, map[string]any{
+			"available": false,
+			"username":  username,
+			"reason":    "Username must be 3-50 chars and contain only letters, numbers, underscores, and hyphens",
+		})
+		return
+	}
+
+	_, err := h.queries.GetUserByUsername(r.Context(), username)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteJSON(w, http.StatusOK, map[string]any{
+				"available": true,
+				"username":  username,
+			})
+			return
+		}
+		slog.Error("check username", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"available": false,
+		"username":  username,
+	})
+}
+
 // Login handles POST /api/v1/auth/login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req types.LoginRequest
@@ -197,6 +236,124 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: newRefreshToken,
 		ExpiresIn:    int(h.cfg.AccessTokenExpiry.Seconds()),
 	})
+}
+
+// ForgotPassword handles POST /api/v1/auth/forgot-password.
+// Generates a single-use reset token, stores its SHA-256 hash, and returns the
+// plaintext token to the caller (the Next.js proxy) so it can email it via
+// Resend. Always returns 200 even when the email does not exist, to avoid
+// leaking account existence — but only includes a token in the response when
+// we actually created one.
+func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req types.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if email == "" || !emailRegex.MatchString(email) {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Valid email is required")
+		return
+	}
+
+	user, err := h.queries.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Don't leak account existence — return a generic success.
+			types.WriteJSON(w, http.StatusOK, map[string]any{"sent": false})
+			return
+		}
+		slog.Error("forgot password: get user", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	rawToken, err := generateSecureToken()
+	if err != nil {
+		slog.Error("forgot password: generate token", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	tokenHash := hashToken(rawToken)
+	expiresAt := pgtype.Timestamptz{Time: time.Now().Add(1 * time.Hour), Valid: true}
+
+	if _, err := h.queries.CreatePasswordResetToken(r.Context(), db.CreatePasswordResetTokenParams{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		slog.Error("forgot password: create token", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"sent":        true,
+		"reset_token": rawToken,
+		"email":       user.Email,
+		"username":    user.Username,
+	})
+}
+
+// ResetPassword handles POST /api/v1/auth/reset-password.
+// Verifies the plaintext token against the stored hash, updates the user's
+// password, marks the token used, and revokes all refresh tokens for safety.
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req types.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	if strings.TrimSpace(req.Token) == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Token is required")
+		return
+	}
+	if err := validatePassword(req.NewPassword); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, err.Error())
+		return
+	}
+
+	tokenHash := hashToken(req.Token)
+	stored, err := h.queries.GetPasswordResetToken(r.Context(), tokenHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusUnauthorized, types.ErrCodeInvalidToken, "Reset token is invalid or expired")
+			return
+		}
+		slog.Error("reset password: lookup token", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	newHash, err := HashPassword(req.NewPassword)
+	if err != nil {
+		slog.Error("reset password: hash", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	if err := h.queries.UpdateUserPasswordByID(r.Context(), db.UpdateUserPasswordByIDParams{
+		ID:           stored.UserID,
+		PasswordHash: pgtype.Text{String: newHash, Valid: true},
+	}); err != nil {
+		slog.Error("reset password: update user", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	if err := h.queries.MarkPasswordResetTokenUsed(r.Context(), stored.ID); err != nil {
+		slog.Warn("reset password: mark used", "error", err)
+	}
+
+	// Revoke all refresh tokens — anyone logged in with the old password is kicked.
+	if err := h.queries.RevokeAllUserTokens(r.Context(), stored.UserID); err != nil {
+		slog.Warn("reset password: revoke tokens", "error", err)
+	}
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Password reset successfully"})
 }
 
 // Logout handles POST /api/v1/auth/logout

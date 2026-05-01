@@ -43,6 +43,7 @@ type Querier interface {
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
 	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
+	CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DecrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
@@ -72,6 +73,7 @@ type Querier interface {
 	// Prefer stored cover_url; otherwise synthesize a thumbnail URL from Google Books
 	// id or ISBN so list cards still show art when cover_url was never backfilled.
 	GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error)
+	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
@@ -95,6 +97,7 @@ type Querier interface {
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
+	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
 	RemoveFromFavorites(ctx context.Context, arg RemoveFromFavoritesParams) error
@@ -106,6 +109,7 @@ type Querier interface {
 	SaveList(ctx context.Context, arg SaveListParams) (SavedList, error)
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
+	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
 	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error
@@ -119,6 +123,7 @@ type Querier interface {
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error
+	UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) error
 }
 
 var _ Querier = (*Queries)(nil)

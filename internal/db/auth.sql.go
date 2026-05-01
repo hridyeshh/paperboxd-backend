@@ -12,6 +12,81 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createPasswordResetToken = `-- name: CreatePasswordResetToken :one
+INSERT INTO password_reset_tokens (
+    user_id, token_hash, expires_at
+) VALUES (
+    $1, $2, $3
+)
+RETURNING id, user_id, token_hash, expires_at, used_at, created_at
+`
+
+type CreatePasswordResetTokenParams struct {
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error) {
+	row := q.db.QueryRow(ctx, createPasswordResetToken, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	var i PasswordResetToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getPasswordResetToken = `-- name: GetPasswordResetToken :one
+SELECT id, user_id, token_hash, expires_at, used_at, created_at FROM password_reset_tokens
+WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+`
+
+func (q *Queries) GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error) {
+	row := q.db.QueryRow(ctx, getPasswordResetToken, tokenHash)
+	var i PasswordResetToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const markPasswordResetTokenUsed = `-- name: MarkPasswordResetTokenUsed :exec
+UPDATE password_reset_tokens
+SET used_at = NOW()
+WHERE id = $1
+`
+
+func (q *Queries) MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markPasswordResetTokenUsed, id)
+	return err
+}
+
+const updateUserPasswordByID = `-- name: UpdateUserPasswordByID :exec
+UPDATE users
+SET password_hash = $2, updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type UpdateUserPasswordByIDParams struct {
+	ID           uuid.UUID   `json:"id"`
+	PasswordHash pgtype.Text `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) error {
+	_, err := q.db.Exec(ctx, updateUserPasswordByID, arg.ID, arg.PasswordHash)
+	return err
+}
+
 const createRefreshToken = `-- name: CreateRefreshToken :one
 INSERT INTO refresh_tokens (
     user_id, token_hash, expires_at, device_info

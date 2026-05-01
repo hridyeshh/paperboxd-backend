@@ -344,3 +344,15 @@ func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error 
 	_, err := q.db.Exec(ctx, updateUserLastActive, id)
 	return err
 }
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users
+SET deleted_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
+}

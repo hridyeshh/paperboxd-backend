@@ -167,6 +167,9 @@ func main() {
 			r.Post("/login", authHandler.Login)
 			r.Post("/refresh", authHandler.Refresh)
 			r.Post("/logout", authHandler.Logout)
+			r.Get("/check-username", authHandler.CheckUsername)
+			r.Post("/forgot-password", authHandler.ForgotPassword)
+			r.Post("/reset-password", authHandler.ResetPassword)
 		})
 
 		// Protected routes
@@ -174,6 +177,7 @@ func main() {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 
 			r.Get("/users/me", authHandler.Me)
+			r.Delete("/users/me", userHandler.DeleteMe)
 		})
 
 		// Books

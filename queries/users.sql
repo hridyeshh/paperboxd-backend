@@ -43,3 +43,9 @@ WHERE (username ILIKE '%' || $1 || '%'
    AND deleted_at IS NULL
 ORDER BY followers_count DESC
 LIMIT $2 OFFSET $3;
+
+-- name: SoftDeleteUser :exec
+UPDATE users
+SET deleted_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL;

@@ -125,6 +125,36 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
 }
 
+// DeleteMe handles DELETE /api/v1/users/me — soft-deletes the authenticated
+// user and revokes all their refresh tokens.
+func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := h.Queries.SoftDeleteUser(r.Context(), userID); err != nil {
+		slog.Error("soft delete user", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	// Revoke all refresh tokens so the session can't be resumed.
+	if err := h.Queries.RevokeAllUserTokens(r.Context(), userID); err != nil {
+		// Non-fatal: account is already soft-deleted, so auth queries will fail anyway.
+		slog.Warn("revoke tokens on delete", "error", err, "user_id", userID)
+	}
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Account deleted"})
+}
+
 // Search handles GET /api/v1/users/search?query=... or ?q=...
 func (h *UserHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := searchQueryString(r)

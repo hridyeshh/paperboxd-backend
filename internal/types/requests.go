@@ -24,6 +24,17 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// ForgotPasswordRequest is the payload for POST /api/v1/auth/forgot-password.
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+// ResetPasswordRequest is the payload for POST /api/v1/auth/reset-password.
+type ResetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
 // AddToBookshelfRequest is the payload for POST /api/v1/users/:username/bookshelf.
 // One of BookID, ISBN, or GoogleBooksID must be provided to identify the book.
 type AddToBookshelfRequest struct {
