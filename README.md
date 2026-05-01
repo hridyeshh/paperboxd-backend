@@ -274,13 +274,12 @@ Full endpoint reference, status codes, and request/response shapes: **[docs/API.
 
 ## Contact
 
-**Developer:** Hridyesh Kumar
+**Developer:** Hridyesh
 **Email:** paperboxd@gmail.com
 **Website:** paperboxd.in
 
 ---
 
-*Built with ❤️ in Bangalore*
 *Powered by Go, PostgreSQL, Next.js, and a lot of coffee ☕*
 
 ---
