@@ -378,6 +378,103 @@ func (h *BookHandler) Unlike(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Book unliked"})
 }
 
+// GetBySlug handles GET /api/v1/books/by-slug/{slug}
+// Slug format from frontend: "title+words+hexid" (e.g. "deep+work+dd04")
+func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "slug is required")
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Try exact slug match (handles Go-style stored slugs)
+	book, err := h.Queries.GetBookBySlug(ctx, slug)
+	if err == nil {
+		types.WriteJSON(w, http.StatusOK, bookToResponse(book))
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		slog.Error("get book by slug", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	// 2. Parse title from frontend slug and search DB cache
+	title := titleFromSlug(slug)
+	dbBooks, err := h.Queries.SearchBooksInDB(ctx, db.SearchBooksInDBParams{
+		Column1: pgtype.Text{String: title, Valid: true},
+		Limit:   1,
+		Offset:  0,
+	})
+	if err == nil && len(dbBooks) > 0 {
+		types.WriteJSON(w, http.StatusOK, bookToResponse(dbBooks[0]))
+		return
+	}
+
+	// 3. ISBNdb external search + cache result in DB
+	if h.ISBNdb != nil {
+		isbndbBooks, isbndbErr := h.ISBNdb.Search(ctx, title, 1, 1)
+		if isbndbErr == nil && len(isbndbBooks) > 0 {
+			b := isbndbBooks[0]
+			isbn := b.ISBN13
+			if isbn == "" {
+				isbn = b.ISBN
+			}
+			if isbn != "" {
+				if cached, cacheErr := cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, isbn); cacheErr == nil {
+					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
+					return
+				}
+			}
+			types.WriteJSON(w, http.StatusOK, isbndbBookToResponse(b))
+			return
+		}
+	}
+
+	// 4. Google Books fallback + cache result in DB
+	if h.GoogleBooks != nil {
+		googleBooks, gbErr := h.GoogleBooks.Search(ctx, title, 1)
+		if gbErr == nil && len(googleBooks) > 0 {
+			gb := googleBooks[0]
+			if gb.ID != "" {
+				if cached, cacheErr := cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, gb.ID); cacheErr == nil {
+					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
+					return
+				}
+			}
+			types.WriteJSON(w, http.StatusOK, googleBookToResponse(gb))
+			return
+		}
+	}
+
+	types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "book not found")
+}
+
+// titleFromSlug converts a frontend book slug to a search title.
+// Frontend slug format: "deep+work+dd04" → "deep work"
+// Strips the trailing +hex segment if present (4–8 hex chars).
+func titleFromSlug(slug string) string {
+	parts := strings.Split(slug, "+")
+	if len(parts) > 1 && isHexSegment(parts[len(parts)-1]) {
+		parts = parts[:len(parts)-1]
+	}
+	return strings.Join(parts, " ")
+}
+
+func isHexSegment(s string) bool {
+	if len(s) < 4 || len(s) > 8 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 var nonAlphanumRegex = regexp.MustCompile(`[^a-z0-9]+`)

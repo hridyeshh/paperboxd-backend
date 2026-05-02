@@ -183,6 +183,7 @@ func main() {
 		// Books
 		r.Route("/books", func(r chi.Router) {
 			r.Get("/search", bookHandler.Search)
+			r.Get("/by-slug/{slug}", bookHandler.GetBySlug)
 
 			r.Group(func(r chi.Router) {
 				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
