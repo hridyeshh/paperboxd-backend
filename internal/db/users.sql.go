@@ -198,6 +198,31 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const recordAccountDeletion = `-- name: RecordAccountDeletion :exec
+INSERT INTO account_deletions (
+    user_id, email, username, reasons
+) VALUES (
+    $1, $2, $3, $4
+)
+`
+
+type RecordAccountDeletionParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	Email    string      `json:"email"`
+	Username pgtype.Text `json:"username"`
+	Reasons  []string    `json:"reasons"`
+}
+
+func (q *Queries) RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error {
+	_, err := q.db.Exec(ctx, recordAccountDeletion,
+		arg.UserID,
+		arg.Email,
+		arg.Username,
+		arg.Reasons,
+	)
+	return err
+}
+
 const searchUsers = `-- name: SearchUsers :many
 SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current FROM users
 WHERE (username ILIKE '%' || $1 || '%'
@@ -261,6 +286,18 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 		return nil, err
 	}
 	return items, nil
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users
+SET deleted_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, softDeleteUser, id)
+	return err
 }
 
 const updateUser = `-- name: UpdateUser :one
@@ -342,17 +379,5 @@ WHERE id = $1
 
 func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, updateUserLastActive, id)
-	return err
-}
-
-const softDeleteUser = `-- name: SoftDeleteUser :exec
-UPDATE users
-SET deleted_at = NOW(),
-    updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL
-`
-
-func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, softDeleteUser, id)
 	return err
 }

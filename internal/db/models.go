@@ -15,6 +15,7 @@ type AccountDeletion struct {
 	Username  pgtype.Text        `json:"username"`
 	Reasons   []string           `json:"reasons"`
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	UserID    pgtype.UUID        `json:"user_id"`
 }
 
 type Activity struct {

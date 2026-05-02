@@ -49,3 +49,10 @@ UPDATE users
 SET deleted_at = NOW(),
     updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: RecordAccountDeletion :exec
+INSERT INTO account_deletions (
+    user_id, email, username, reasons
+) VALUES (
+    $1, $2, $3, $4
+);

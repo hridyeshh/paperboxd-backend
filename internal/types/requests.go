@@ -35,6 +35,12 @@ type ResetPasswordRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
+// DeleteAccountRequest is the optional payload for DELETE /api/v1/users/me.
+// Reasons are persisted in the account_deletions audit table for retention analysis.
+type DeleteAccountRequest struct {
+	Reasons []string `json:"reasons"`
+}
+
 // AddToBookshelfRequest is the payload for POST /api/v1/users/:username/bookshelf.
 // One of BookID, ISBN, or GoogleBooksID must be provided to identify the book.
 type AddToBookshelfRequest struct {

@@ -125,8 +125,10 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
 }
 
-// DeleteMe handles DELETE /api/v1/users/me — soft-deletes the authenticated
-// user and revokes all their refresh tokens.
+// DeleteMe handles DELETE /api/v1/users/me — records exit reasons, soft-deletes
+// the authenticated user, and revokes all their refresh tokens. The optional
+// JSON body {reasons: string[]} is persisted to account_deletions for retention
+// analysis; if missing or unparseable we still allow the deletion.
 func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
@@ -140,13 +142,32 @@ func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req types.DeleteAccountRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	user, err := h.Queries.GetUserByID(r.Context(), userID)
+	if err != nil {
+		slog.Error("delete me: lookup user", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	if err := h.Queries.RecordAccountDeletion(r.Context(), db.RecordAccountDeletionParams{
+		UserID:   pgtype.UUID{Bytes: userID, Valid: true},
+		Email:    user.Email,
+		Username: pgtype.Text{String: user.Username, Valid: user.Username != ""},
+		Reasons:  req.Reasons,
+	}); err != nil {
+		// Non-fatal: don't block deletion just because the audit write failed.
+		slog.Warn("record account deletion", "error", err, "user_id", userID)
+	}
+
 	if err := h.Queries.SoftDeleteUser(r.Context(), userID); err != nil {
 		slog.Error("soft delete user", "error", err, "user_id", userID)
 		types.WriteInternalError(w)
 		return
 	}
 
-	// Revoke all refresh tokens so the session can't be resumed.
 	if err := h.Queries.RevokeAllUserTokens(r.Context(), userID); err != nil {
 		// Non-fatal: account is already soft-deleted, so auth queries will fail anyway.
 		slog.Warn("revoke tokens on delete", "error", err, "user_id", userID)

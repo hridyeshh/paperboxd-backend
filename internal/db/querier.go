@@ -98,6 +98,7 @@ type Querier interface {
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
 	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
+	RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
 	RemoveFromFavorites(ctx context.Context, arg RemoveFromFavoritesParams) error
