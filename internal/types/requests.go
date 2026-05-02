@@ -55,6 +55,7 @@ type AddToBookshelfRequest struct {
 
 // UpdateUserRequest is the payload for PUT/PATCH /api/v1/users/:username.
 type UpdateUserRequest struct {
+	Username  *string   `json:"username"`
 	Name      *string   `json:"name"`
 	Bio       *string   `json:"bio"`
 	Pronouns  *[]string `json:"pronouns"`

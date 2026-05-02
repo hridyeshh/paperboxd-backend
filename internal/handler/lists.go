@@ -798,9 +798,17 @@ func (h *ListsHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Accept username from query param or JSON body (DELETE with body)
 	username := r.URL.Query().Get("username")
 	if username == "" {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "username query param is required")
+		var body struct {
+			Username string `json:"username"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		username = body.Username
+	}
+	if username == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "username is required")
 		return
 	}
 

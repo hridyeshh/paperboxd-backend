@@ -381,3 +381,51 @@ func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error 
 	_, err := q.db.Exec(ctx, updateUserLastActive, id)
 	return err
 }
+
+const updateUsername = `-- name: UpdateUsername :one
+UPDATE users SET username = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current
+`
+
+type UpdateUsernameParams struct {
+	ID       uuid.UUID `json:"id"`
+	Username string    `json:"username"`
+}
+
+func (q *Queries) UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUsername, arg.ID, arg.Username)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.Pronouns,
+		&i.IsPublic,
+		&i.FavoriteGenres,
+		&i.Settings,
+		&i.FollowersCount,
+		&i.FollowingCount,
+		&i.BooksReadCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActive,
+		&i.DeletedAt,
+		&i.MongoID,
+		&i.Birthday,
+		&i.Gender,
+		&i.Links,
+		&i.TotalPagesRead,
+		&i.FavoritesCount,
+		&i.ListsCount,
+		&i.DiaryEntriesCount,
+		&i.ReadingGoalYear,
+		&i.ReadingGoalTarget,
+		&i.ReadingGoalCurrent,
+	)
+	return i, err
+}

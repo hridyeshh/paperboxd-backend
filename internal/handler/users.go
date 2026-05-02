@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
 
 // UserHandler holds dependencies for user endpoints.
 type UserHandler struct {
@@ -85,6 +88,39 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
 		return
+	}
+
+	// Handle username change separately (uniqueness check + dedicated query)
+	if req.Username != nil {
+		newUsername := strings.ToLower(strings.TrimSpace(*req.Username))
+		if !usernameRegex.MatchString(newUsername) {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "username must be 3-30 characters: letters, numbers, underscores only")
+			return
+		}
+		_, taken := h.Queries.GetUserByUsername(r.Context(), newUsername)
+		if taken == nil {
+			types.WriteError(w, http.StatusConflict, types.ErrCodeConflict, "username is already taken")
+			return
+		}
+		if _, err := h.Queries.UpdateUsername(r.Context(), db.UpdateUsernameParams{
+			ID:       userID,
+			Username: newUsername,
+		}); err != nil {
+			slog.Error("update username", "error", err, "user_id", userID)
+			types.WriteInternalError(w)
+			return
+		}
+		// If only username is changing, return early
+		if req.Name == nil && req.Bio == nil && req.Pronouns == nil && req.AvatarURL == nil &&
+			req.Birthday == nil && req.Gender == nil && req.Links == nil {
+			refreshed, err := h.Queries.GetUserByID(r.Context(), userID)
+			if err != nil {
+				types.WriteInternalError(w)
+				return
+			}
+			types.WriteJSON(w, http.StatusOK, userToResponse(refreshed))
+			return
+		}
 	}
 
 	params := db.UpdateUserParams{ID: userID}

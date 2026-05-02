@@ -36,6 +36,11 @@ UPDATE users SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateUsername :one
+UPDATE users SET username = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING *;
+
 -- name: SearchUsers :many
 SELECT * FROM users
 WHERE (username ILIKE '%' || $1 || '%'
