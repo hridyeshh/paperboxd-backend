@@ -371,6 +371,54 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	return i, err
 }
 
+const updateUserGenres = `-- name: UpdateUserGenres :one
+UPDATE users SET favorite_genres = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current
+`
+
+type UpdateUserGenresParams struct {
+	ID             uuid.UUID `json:"id"`
+	FavoriteGenres []string  `json:"favorite_genres"`
+}
+
+func (q *Queries) UpdateUserGenres(ctx context.Context, arg UpdateUserGenresParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserGenres, arg.ID, arg.FavoriteGenres)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.Pronouns,
+		&i.IsPublic,
+		&i.FavoriteGenres,
+		&i.Settings,
+		&i.FollowersCount,
+		&i.FollowingCount,
+		&i.BooksReadCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActive,
+		&i.DeletedAt,
+		&i.MongoID,
+		&i.Birthday,
+		&i.Gender,
+		&i.Links,
+		&i.TotalPagesRead,
+		&i.FavoritesCount,
+		&i.ListsCount,
+		&i.DiaryEntriesCount,
+		&i.ReadingGoalYear,
+		&i.ReadingGoalTarget,
+		&i.ReadingGoalCurrent,
+	)
+	return i, err
+}
+
 const updateUserLastActive = `-- name: UpdateUserLastActive :exec
 UPDATE users
 SET last_active = NOW()
@@ -426,6 +474,33 @@ func (q *Queries) UpdateUsername(ctx context.Context, arg UpdateUsernameParams) 
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
+	)
+	return i, err
+}
+
+const upsertAuthorRead = `-- name: UpsertAuthorRead :one
+INSERT INTO user_authors_read (user_id, author_name)
+VALUES ($1, $2)
+ON CONFLICT (user_id, author_name) DO UPDATE SET author_name = EXCLUDED.author_name
+RETURNING id, user_id, author_name, books_read, books_tbr, favorite_book_id, created_at
+`
+
+type UpsertAuthorReadParams struct {
+	UserID     uuid.UUID `json:"user_id"`
+	AuthorName string    `json:"author_name"`
+}
+
+func (q *Queries) UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error) {
+	row := q.db.QueryRow(ctx, upsertAuthorRead, arg.UserID, arg.AuthorName)
+	var i UserAuthorsRead
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AuthorName,
+		&i.BooksRead,
+		&i.BooksTbr,
+		&i.FavoriteBookID,
+		&i.CreatedAt,
 	)
 	return i, err
 }

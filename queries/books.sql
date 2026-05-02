@@ -59,6 +59,22 @@ ON CONFLICT (isbn_13) DO UPDATE SET
     updated_at = NOW()
 RETURNING *;
 
+-- name: GetLatestBooks :many
+SELECT * FROM books
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: GetPopularBooks :many
+SELECT * FROM books
+ORDER BY view_count DESC
+LIMIT $1 OFFSET $2;
+
+-- name: GetBooksByAuthor :many
+SELECT * FROM books
+WHERE array_to_string(authors, '|') ILIKE '%' || $1 || '%'
+ORDER BY view_count DESC
+LIMIT $2 OFFSET $3;
+
 -- name: CleanupStaleBooks :execrows
 DELETE FROM books
 WHERE created_at < NOW() - INTERVAL '15 days'

@@ -868,6 +868,74 @@ func (h *ListsHandler) GetAccessUsers(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, resp)
 }
 
+// AcceptCollaboration handles POST /api/v1/lists/{listId}/collaborators
+// Accepts a collaboration request by granting access to the list.
+// Body: { "user_id": "<uuid>", "action": "accept" | "reject" }
+func (h *ListsHandler) AcceptCollaboration(w http.ResponseWriter, r *http.Request) {
+	callerIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	callerID, err := uuid.Parse(callerIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	listID, err := uuid.Parse(chi.URLParam(r, "listId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid list ID")
+		return
+	}
+
+	var req struct {
+		UserID string `json:"user_id"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+	if req.UserID == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "user_id is required")
+		return
+	}
+
+	ownerID, err := h.Queries.CheckListOwnership(r.Context(), listID)
+	if err != nil {
+		types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "List not found")
+		return
+	}
+	if ownerID != callerID {
+		types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, "Only the list owner can manage collaborators")
+		return
+	}
+
+	if req.Action == "reject" {
+		types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Collaboration request rejected"})
+		return
+	}
+
+	targetID, err := uuid.Parse(req.UserID)
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid user_id")
+		return
+	}
+
+	if _, err := h.Queries.GrantListAccess(r.Context(), db.GrantListAccessParams{
+		ListID:    listID,
+		UserID:    targetID,
+		GrantedBy: callerID,
+	}); err != nil {
+		slog.Error("grant list access via collaborators", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Collaboration accepted"})
+}
+
 // ── Row converters ────────────────────────────────────────────────────────────
 
 func listToResponse(list db.List, username string, bookCount, saveCount int64, isSaved, canEdit, canView bool) types.ListResponse {

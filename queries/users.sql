@@ -36,6 +36,17 @@ UPDATE users SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateUserGenres :one
+UPDATE users SET favorite_genres = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING *;
+
+-- name: UpsertAuthorRead :one
+INSERT INTO user_authors_read (user_id, author_name)
+VALUES ($1, $2)
+ON CONFLICT (user_id, author_name) DO UPDATE SET author_name = EXCLUDED.author_name
+RETURNING *;
+
 -- name: UpdateUsername :one
 UPDATE users SET username = $2, updated_at = NOW()
 WHERE id = $1

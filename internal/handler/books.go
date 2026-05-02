@@ -378,6 +378,148 @@ func (h *BookHandler) Unlike(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Book unliked"})
 }
 
+// GetLatest handles GET /api/v1/books/latest
+func (h *BookHandler) GetLatest(w http.ResponseWriter, r *http.Request) {
+	page, pageSize := parsePagination(r)
+	books, err := h.Queries.GetLatestBooks(r.Context(), db.GetLatestBooksParams{
+		Limit:  int32(pageSize),
+		Offset: int32((page - 1) * pageSize),
+	})
+	if err != nil {
+		slog.Error("get latest books", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	items := make([]types.BookResponse, len(books))
+	for i, b := range books {
+		items[i] = bookToResponse(b)
+	}
+	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+		Kind:       "books#volumes",
+		TotalItems: len(items),
+		Items:      items,
+		Page:       page,
+		PageSize:   pageSize,
+		Source:     "db",
+	})
+}
+
+// GetPublic handles GET /api/v1/books/public
+// Returns two carousels: recently added books and most-viewed books.
+func (h *BookHandler) GetPublic(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	const carouselSize = int32(12)
+
+	newBooks, err := h.Queries.GetLatestBooks(ctx, db.GetLatestBooksParams{Limit: carouselSize, Offset: 0})
+	if err != nil {
+		slog.Error("get latest books for public", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	popularBooks, err := h.Queries.GetPopularBooks(ctx, db.GetPopularBooksParams{Limit: carouselSize, Offset: 0})
+	if err != nil {
+		slog.Error("get popular books for public", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	toItems := func(books []db.Book) []types.BookResponse {
+		items := make([]types.BookResponse, len(books))
+		for i, b := range books {
+			items[i] = bookToResponse(b)
+		}
+		return items
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"new_releases": toItems(newBooks),
+		"popular":      toItems(popularBooks),
+	})
+}
+
+// GetByAuthor handles GET /api/v1/books/by-author?author=...
+func (h *BookHandler) GetByAuthor(w http.ResponseWriter, r *http.Request) {
+	author := r.URL.Query().Get("author")
+	if author == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "author parameter is required")
+		return
+	}
+	page, pageSize := parsePagination(r)
+	books, err := h.Queries.GetBooksByAuthor(r.Context(), db.GetBooksByAuthorParams{
+		Column1: pgtype.Text{String: author, Valid: true},
+		Limit:   int32(pageSize),
+		Offset:  int32((page - 1) * pageSize),
+	})
+	if err != nil {
+		slog.Error("get books by author", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	items := make([]types.BookResponse, len(books))
+	for i, b := range books {
+		items[i] = bookToResponse(b)
+	}
+	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+		Kind:       "books#volumes",
+		TotalItems: len(items),
+		Items:      items,
+		Page:       page,
+		PageSize:   pageSize,
+		Source:     "db",
+	})
+}
+
+// ShareBook handles POST /api/v1/books/{id}/share
+func (h *BookHandler) ShareBook(w http.ResponseWriter, r *http.Request) {
+	callerIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	callerID, err := uuid.Parse(callerIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	var req struct {
+		TargetUsername string `json:"targetUsername"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetUsername == "" {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "targetUsername is required")
+		return
+	}
+
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(req.TargetUsername))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for share book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	go func() {
+		_, _ = h.Queries.CreateActivity(r.Context(), db.CreateActivityParams{
+			UserID:       callerID,
+			ActivityType: "shared_book",
+			BookID:       uuidToPgtype(bookID),
+			TargetUserID: uuidToPgtype(target.ID),
+			Metadata:     []byte("{}"),
+		})
+	}()
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Book shared successfully"})
+}
+
 // GetBySlug handles GET /api/v1/books/by-slug/{slug}
 // Slug format from frontend: "title+words+hexid" (e.g. "deep+work+dd04")
 func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {

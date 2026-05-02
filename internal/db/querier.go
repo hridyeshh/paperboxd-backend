@@ -59,6 +59,7 @@ type Querier interface {
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
+	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
 	GetDiaryEntryByID(ctx context.Context, id uuid.UUID) (DiaryEntry, error)
@@ -67,13 +68,16 @@ type Querier interface {
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
 	GetFollowingActivities(ctx context.Context, arg GetFollowingActivitiesParams) ([]GetFollowingActivitiesRow, error)
+	GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error)
 	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
 	GetListBooks(ctx context.Context, listID uuid.UUID) ([]GetListBooksRow, error)
 	GetListByID(ctx context.Context, id uuid.UUID) (List, error)
 	// Prefer stored cover_url; otherwise synthesize a thumbnail URL from Google Books
 	// id or ISBN so list cards still show art when cover_url was never backfilled.
 	GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error)
+	GetListOwnerUsername(ctx context.Context, id uuid.UUID) (string, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
+	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
@@ -123,9 +127,11 @@ type Querier interface {
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
+	UpdateUserGenres(ctx context.Context, arg UpdateUserGenresParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error
 	UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) error
 	UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error)
+	UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error)
 }
 
 var _ Querier = (*Queries)(nil)

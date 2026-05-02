@@ -451,6 +451,19 @@ func (q *Queries) GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]str
 	return items, nil
 }
 
+const getListOwnerUsername = `-- name: GetListOwnerUsername :one
+SELECT u.username FROM lists l
+JOIN users u ON l.user_id = u.id
+WHERE l.id = $1
+`
+
+func (q *Queries) GetListOwnerUsername(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getListOwnerUsername, id)
+	var username string
+	err := row.Scan(&username)
+	return username, err
+}
+
 const getUserLists = `-- name: GetUserLists :many
 SELECT
     l.id,

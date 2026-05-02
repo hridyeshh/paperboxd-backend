@@ -161,6 +161,62 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
 }
 
+// SaveOnboarding handles POST /api/v1/users/me/onboarding
+// Saves preferred genres to users.favorite_genres and upserts author interest rows.
+func (h *UserHandler) SaveOnboarding(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		Genres  []string `json:"genres"`
+		Authors []string `json:"authors"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+	if len(req.Genres) == 0 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "genres is required")
+		return
+	}
+
+	if _, err := h.Queries.UpdateUserGenres(r.Context(), db.UpdateUserGenresParams{
+		ID:             userID,
+		FavoriteGenres: req.Genres,
+	}); err != nil {
+		slog.Error("update user genres", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	for _, author := range req.Authors {
+		if author == "" {
+			continue
+		}
+		if _, err := h.Queries.UpsertAuthorRead(r.Context(), db.UpsertAuthorReadParams{
+			UserID:     userID,
+			AuthorName: author,
+		}); err != nil {
+			slog.Warn("upsert author read", "error", err, "author", author)
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":  true,
+		"message":  "Onboarding saved successfully",
+		"genres":   req.Genres,
+		"authors":  req.Authors,
+	})
+}
+
 // DeleteMe handles DELETE /api/v1/users/me — records exit reasons, soft-deletes
 // the authenticated user, and revokes all their refresh tokens. The optional
 // JSON body {reasons: string[]} is persisted to account_deletions for retention

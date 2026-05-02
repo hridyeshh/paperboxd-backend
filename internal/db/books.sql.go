@@ -361,6 +361,182 @@ func (q *Queries) GetBookBySlug(ctx context.Context, slug string) (Book, error) 
 	return i, err
 }
 
+const getBooksByAuthor = `-- name: GetBooksByAuthor :many
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books
+WHERE array_to_string(authors, '|') ILIKE '%' || $1 || '%'
+ORDER BY view_count DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetBooksByAuthorParams struct {
+	Column1 pgtype.Text `json:"column_1"`
+	Limit   int32       `json:"limit"`
+	Offset  int32       `json:"offset"`
+}
+
+func (q *Queries) GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, getBooksByAuthor, arg.Column1, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Book{}
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.Isbn13,
+			&i.GoogleBooksID,
+			&i.Metadata,
+			&i.ViewCount,
+			&i.LikeCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.PublishedDate,
+			&i.PageCount,
+			&i.Language,
+			&i.CoverUrl,
+			&i.Categories,
+			&i.Subtitle,
+			&i.Publisher,
+			&i.IsbndbID,
+			&i.OpenLibraryID,
+			&i.AverageRating,
+			&i.RatingsCount,
+			&i.PreviewLink,
+			&i.TotalReadsCount,
+			&i.TotalTbrCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLatestBooks = `-- name: GetLatestBooks :many
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type GetLatestBooksParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, getLatestBooks, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Book{}
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.Isbn13,
+			&i.GoogleBooksID,
+			&i.Metadata,
+			&i.ViewCount,
+			&i.LikeCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.PublishedDate,
+			&i.PageCount,
+			&i.Language,
+			&i.CoverUrl,
+			&i.Categories,
+			&i.Subtitle,
+			&i.Publisher,
+			&i.IsbndbID,
+			&i.OpenLibraryID,
+			&i.AverageRating,
+			&i.RatingsCount,
+			&i.PreviewLink,
+			&i.TotalReadsCount,
+			&i.TotalTbrCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPopularBooks = `-- name: GetPopularBooks :many
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count FROM books
+ORDER BY view_count DESC
+LIMIT $1 OFFSET $2
+`
+
+type GetPopularBooksParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, getPopularBooks, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Book{}
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.Isbn13,
+			&i.GoogleBooksID,
+			&i.Metadata,
+			&i.ViewCount,
+			&i.LikeCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.PublishedDate,
+			&i.PageCount,
+			&i.Language,
+			&i.CoverUrl,
+			&i.Categories,
+			&i.Subtitle,
+			&i.Publisher,
+			&i.IsbndbID,
+			&i.OpenLibraryID,
+			&i.AverageRating,
+			&i.RatingsCount,
+			&i.PreviewLink,
+			&i.TotalReadsCount,
+			&i.TotalTbrCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const incrementBookViews = `-- name: IncrementBookViews :exec
 UPDATE books SET view_count = view_count + 1 WHERE id = $1
 `

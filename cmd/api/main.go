@@ -178,12 +178,16 @@ func main() {
 
 			r.Get("/users/me", authHandler.Me)
 			r.Delete("/users/me", userHandler.DeleteMe)
+			r.Post("/users/me/onboarding", userHandler.SaveOnboarding)
 		})
 
 		// Books
 		r.Route("/books", func(r chi.Router) {
 			r.Get("/search", bookHandler.Search)
 			r.Get("/by-slug/{slug}", bookHandler.GetBySlug)
+			r.Get("/latest", bookHandler.GetLatest)
+			r.Get("/public", bookHandler.GetPublic)
+			r.Get("/by-author", bookHandler.GetByAuthor)
 
 			r.Group(func(r chi.Router) {
 				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
@@ -198,6 +202,7 @@ func main() {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 					r.Post("/like", bookHandler.Like)
 					r.Delete("/like", bookHandler.Unlike)
+					r.Post("/share", bookHandler.ShareBook)
 				})
 			})
 		})
@@ -208,6 +213,12 @@ func main() {
 			r.Get("/me", activitiesHandler.GetUserActivities)
 			r.Get("/following", activitiesHandler.GetFollowingActivities)
 			r.Get("/check-new", activitiesHandler.CheckNewActivities)
+		})
+
+		// Standalone list collaborators (frontend uses listId without knowing owner username)
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Post("/lists/{listId}/collaborators", listsHandler.AcceptCollaboration)
 		})
 
 		// Admin

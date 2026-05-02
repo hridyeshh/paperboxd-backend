@@ -220,3 +220,8 @@ SELECT EXISTS(
         OR EXISTS(SELECT 1 FROM list_access WHERE list_id = $1 AND user_id = $2)
     )
 );
+
+-- name: GetListOwnerUsername :one
+SELECT u.username FROM lists l
+JOIN users u ON l.user_id = u.id
+WHERE l.id = $1;
