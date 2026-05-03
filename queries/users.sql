@@ -61,9 +61,16 @@ ORDER BY followers_count DESC
 LIMIT $2 OFFSET $3;
 
 -- name: SoftDeleteUser :exec
+-- Soft-delete the user and free their email/username so they (or anyone) can
+-- re-register with the same identifiers. The original values are preserved in
+-- the account_deletions audit table by RecordAccountDeletion (called first).
+-- The UUID-based placeholders are deterministic and lowercase, satisfying the
+-- column-level UNIQUE constraints and the username_lowercase CHECK.
 UPDATE users
 SET deleted_at = NOW(),
-    updated_at = NOW()
+    updated_at = NOW(),
+    email      = 'd_' || REPLACE(id::text, '-', '') || '@deleted.local',
+    username   = 'd_' || REPLACE(id::text, '-', '')
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: RecordAccountDeletion :exec

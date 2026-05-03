@@ -291,7 +291,9 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 const softDeleteUser = `-- name: SoftDeleteUser :exec
 UPDATE users
 SET deleted_at = NOW(),
-    updated_at = NOW()
+    updated_at = NOW(),
+    email      = 'd_' || REPLACE(id::text, '-', '') || '@deleted.local',
+    username   = 'd_' || REPLACE(id::text, '-', '')
 WHERE id = $1 AND deleted_at IS NULL
 `
 
