@@ -170,6 +170,8 @@ func main() {
 			r.Get("/check-username", authHandler.CheckUsername)
 			r.Post("/forgot-password", authHandler.ForgotPassword)
 			r.Post("/reset-password", authHandler.ResetPassword)
+			r.Post("/otp/send", authHandler.SendOTP)
+			r.Post("/otp/verify", authHandler.VerifyOTP)
 		})
 
 		// Protected routes

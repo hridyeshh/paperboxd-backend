@@ -43,6 +43,7 @@ type Querier interface {
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
 	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
+	CreateOTP(ctx context.Context, arg CreateOTPParams) (OtpCode, error)
 	CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
@@ -51,6 +52,7 @@ type Querier interface {
 	DecrementUserListsCount(ctx context.Context, id uuid.UUID) error
 	DeleteDiaryEntry(ctx context.Context, id uuid.UUID) error
 	DeleteList(ctx context.Context, id uuid.UUID) error
+	DeleteOTPByEmail(ctx context.Context, email string) error
 	DeleteUserActivities(ctx context.Context, arg DeleteUserActivitiesParams) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
 	GetActivityByID(ctx context.Context, id uuid.UUID) (Activity, error)
@@ -76,6 +78,7 @@ type Querier interface {
 	// id or ISBN so list cards still show art when cover_url was never backfilled.
 	GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error)
 	GetListOwnerUsername(ctx context.Context, id uuid.UUID) (string, error)
+	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
@@ -93,6 +96,7 @@ type Querier interface {
 	// Access Control
 	GrantListAccess(ctx context.Context, arg GrantListAccessParams) (ListAccess, error)
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
+	IncrementOTPAttempts(ctx context.Context, id uuid.UUID) error
 	IncrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserListsCount(ctx context.Context, id uuid.UUID) error
@@ -101,6 +105,7 @@ type Querier interface {
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
+	MarkOTPUsed(ctx context.Context, id uuid.UUID) error
 	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
 	RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error

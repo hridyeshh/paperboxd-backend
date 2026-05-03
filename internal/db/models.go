@@ -160,6 +160,17 @@ type Newsletter struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OtpCode struct {
+	ID          uuid.UUID          `json:"id"`
+	Email       string             `json:"email"`
+	CodeHash    string             `json:"code_hash"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	Attempts    int32              `json:"attempts"`
+	MaxAttempts int32              `json:"max_attempts"`
+	UsedAt      pgtype.Timestamptz `json:"used_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type PasswordResetToken struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`
