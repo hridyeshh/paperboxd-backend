@@ -1,0 +1,1 @@
+ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS metadata JSONB;

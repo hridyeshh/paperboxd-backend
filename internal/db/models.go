@@ -169,6 +169,7 @@ type OtpCode struct {
 	MaxAttempts int32              `json:"max_attempts"`
 	UsedAt      pgtype.Timestamptz `json:"used_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Metadata    []byte             `json:"metadata"`
 }
 
 type PasswordResetToken struct {

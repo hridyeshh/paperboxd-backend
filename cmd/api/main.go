@@ -172,6 +172,8 @@ func main() {
 			r.Post("/reset-password", authHandler.ResetPassword)
 			r.Post("/otp/send", authHandler.SendOTP)
 			r.Post("/otp/verify", authHandler.VerifyOTP)
+			r.Post("/register/send-otp", authHandler.SendRegistrationOTP)
+			r.Post("/register/verify-otp", authHandler.VerifyRegistrationOTP)
 		})
 
 		// Protected routes

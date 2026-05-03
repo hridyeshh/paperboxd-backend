@@ -26,3 +26,10 @@ WHERE id = $1;
 -- name: DeleteOTPByEmail :exec
 DELETE FROM otp_codes
 WHERE email = $1;
+
+-- name: CreateOTPWithMetadata :one
+INSERT INTO otp_codes (
+    email, code_hash, expires_at, max_attempts, metadata
+) VALUES (
+    $1, $2, $3, $4, $5
+) RETURNING *;

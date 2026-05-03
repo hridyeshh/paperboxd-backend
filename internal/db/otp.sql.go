@@ -17,7 +17,7 @@ INSERT INTO otp_codes (
     email, code_hash, expires_at, max_attempts
 ) VALUES (
     $1, $2, $3, $4
-) RETURNING id, email, code_hash, expires_at, attempts, max_attempts, used_at, created_at
+) RETURNING id, email, code_hash, expires_at, attempts, max_attempts, used_at, created_at, metadata
 `
 
 type CreateOTPParams struct {
@@ -44,6 +44,46 @@ func (q *Queries) CreateOTP(ctx context.Context, arg CreateOTPParams) (OtpCode, 
 		&i.MaxAttempts,
 		&i.UsedAt,
 		&i.CreatedAt,
+		&i.Metadata,
+	)
+	return i, err
+}
+
+const createOTPWithMetadata = `-- name: CreateOTPWithMetadata :one
+INSERT INTO otp_codes (
+    email, code_hash, expires_at, max_attempts, metadata
+) VALUES (
+    $1, $2, $3, $4, $5
+) RETURNING id, email, code_hash, expires_at, attempts, max_attempts, used_at, created_at, metadata
+`
+
+type CreateOTPWithMetadataParams struct {
+	Email       string             `json:"email"`
+	CodeHash    string             `json:"code_hash"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	MaxAttempts int32              `json:"max_attempts"`
+	Metadata    []byte             `json:"metadata"`
+}
+
+func (q *Queries) CreateOTPWithMetadata(ctx context.Context, arg CreateOTPWithMetadataParams) (OtpCode, error) {
+	row := q.db.QueryRow(ctx, createOTPWithMetadata,
+		arg.Email,
+		arg.CodeHash,
+		arg.ExpiresAt,
+		arg.MaxAttempts,
+		arg.Metadata,
+	)
+	var i OtpCode
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.CodeHash,
+		&i.ExpiresAt,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.UsedAt,
+		&i.CreatedAt,
+		&i.Metadata,
 	)
 	return i, err
 }
@@ -59,7 +99,7 @@ func (q *Queries) DeleteOTPByEmail(ctx context.Context, email string) error {
 }
 
 const getOTPByEmail = `-- name: GetOTPByEmail :one
-SELECT id, email, code_hash, expires_at, attempts, max_attempts, used_at, created_at FROM otp_codes
+SELECT id, email, code_hash, expires_at, attempts, max_attempts, used_at, created_at, metadata FROM otp_codes
 WHERE email = $1
   AND used_at IS NULL
   AND expires_at > NOW()
@@ -79,6 +119,7 @@ func (q *Queries) GetOTPByEmail(ctx context.Context, email string) (OtpCode, err
 		&i.MaxAttempts,
 		&i.UsedAt,
 		&i.CreatedAt,
+		&i.Metadata,
 	)
 	return i, err
 }

@@ -44,6 +44,7 @@ type Querier interface {
 	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
 	CreateOTP(ctx context.Context, arg CreateOTPParams) (OtpCode, error)
+	CreateOTPWithMetadata(ctx context.Context, arg CreateOTPWithMetadataParams) (OtpCode, error)
 	CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
