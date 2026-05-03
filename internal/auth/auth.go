@@ -445,6 +445,7 @@ func toUserResponse(u db.User) types.UserResponse {
 		FavoritesCount: u.FavoritesCount,
 		FollowersCount: u.FollowersCount.Int32,
 		FollowingCount: u.FollowingCount.Int32,
+		FavoriteGenres: u.FavoriteGenres,
 		CreatedAt:      u.CreatedAt.Time.Format(time.RFC3339),
 		Pronouns:       u.Pronouns,
 		Links:          u.Links,
@@ -454,6 +455,9 @@ func toUserResponse(u db.User) types.UserResponse {
 	}
 	if resp.Links == nil {
 		resp.Links = []string{}
+	}
+	if resp.FavoriteGenres == nil {
+		resp.FavoriteGenres = []string{}
 	}
 	if u.Name.Valid {
 		resp.Name = u.Name.String
