@@ -35,14 +35,15 @@ type UserResponse struct {
 	Gender         *string  `json:"gender,omitempty"`
 	Links          []string `json:"links"`
 	IsPublic       bool     `json:"is_public"`
-	BooksReadCount    int32  `json:"books_read_count"`
-	TotalPagesRead    int32  `json:"total_pages_read"`
-	FavoritesCount    int32  `json:"favorites_count"`
-	ListsCount        int32  `json:"lists_count"`
-	DiaryEntriesCount int32  `json:"diary_entries_count"`
-	FollowersCount    int32  `json:"followers_count"`
-	FollowingCount    int32  `json:"following_count"`
-	CreatedAt         string `json:"created_at"`
+	BooksReadCount    int32    `json:"books_read_count"`
+	TotalPagesRead    int32    `json:"total_pages_read"`
+	FavoritesCount    int32    `json:"favorites_count"`
+	ListsCount        int32    `json:"lists_count"`
+	DiaryEntriesCount int32    `json:"diary_entries_count"`
+	FollowersCount    int32    `json:"followers_count"`
+	FollowingCount    int32    `json:"following_count"`
+	FavoriteGenres    []string `json:"favorite_genres"`
+	CreatedAt         string   `json:"created_at"`
 }
 
 // SuccessResponse is a generic success envelope.
