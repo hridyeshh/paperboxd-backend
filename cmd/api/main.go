@@ -117,6 +117,9 @@ func main() {
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient)
 	activitiesHandler := handler.NewActivitiesHandler(queries)
+	xpHandler := handler.NewXPHandler(queries)
+	leaderboardHandler := handler.NewLeaderboardHandler(queries)
+	referralHandler := handler.NewReferralHandler(queries)
 	userHandler := &handler.UserHandler{
 		Queries:     queries,
 		Config:      cfg,
@@ -183,6 +186,17 @@ func main() {
 			r.Get("/users/me", authHandler.Me)
 			r.Delete("/users/me", userHandler.DeleteMe)
 			r.Post("/users/me/onboarding", userHandler.SaveOnboarding)
+			r.Post("/users/me/daily-open", userHandler.RecordDailyOpen)
+			r.Get("/users/me/leaderboard-stats", leaderboardHandler.GetMyLeaderboardStats)
+			r.Get("/users/me/referral", referralHandler.GetMyReferralCode)
+			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
+		})
+
+		// TEMPORARY TEST ROUTES - DELETE BEFORE PRODUCTION
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Post("/test/award-xp", xpHandler.TestAwardXP)
+			r.Get("/test/xp-info", xpHandler.TestGetXPInfo)
 		})
 
 		// Books
@@ -225,10 +239,21 @@ func main() {
 			r.Post("/lists/{listId}/collaborators", listsHandler.AcceptCollaboration)
 		})
 
+		// Leaderboard (public read, auth required for friends)
+		r.Route("/leaderboard", func(r chi.Router) {
+			r.Get("/global", leaderboardHandler.GetGlobalLeaderboard)
+			r.Get("/dimension/{dimension}", leaderboardHandler.GetLeaderboardByDimension)
+			r.Group(func(r chi.Router) {
+				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+				r.Get("/friends", leaderboardHandler.GetFriendsLeaderboard)
+			})
+		})
+
 		// Admin
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 			r.Delete("/cleanup-books", bookHandler.CleanupStaleBooks)
+			r.Post("/leaderboard/rebuild", leaderboardHandler.RebuildLeaderboard)
 		})
 
 		// Users

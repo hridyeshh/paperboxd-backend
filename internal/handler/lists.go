@@ -13,6 +13,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -151,13 +152,22 @@ func (h *ListsHandler) CreateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	listID := list.ID
 	go func() {
 		_ = h.Queries.IncrementUserListsCount(context.Background(), userID)
 		_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
 			UserID:       userID,
 			ActivityType: "created_list",
-			ListID:       uuidToPgtype(list.ID),
+			ListID:       uuidToPgtype(listID),
 		})
+		xpSvc := service.NewXPService(h.Queries)
+		listCount, _ := h.Queries.CountUserLists(context.Background(), userID)
+		xpAmount := service.XPCreateListMore
+		if listCount <= 1 {
+			xpAmount = service.XPCreateList
+		}
+		_ = xpSvc.AwardXP(context.Background(), userID, "create_list", xpAmount, &listID)
+		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
 	}()
 
 	types.WriteJSON(w, http.StatusCreated, listToResponse(list, username, 0, 0, false, true, true))
@@ -470,7 +480,7 @@ func (h *ListsHandler) DeleteList(w http.ResponseWriter, r *http.Request) {
 
 // AddBookToList handles POST /api/v1/users/:username/lists/:listId/books.
 func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
-	listID, _, ok := h.resolveListOwner(w, r)
+	listID, userID, ok := h.resolveListOwner(w, r)
 	if !ok {
 		return
 	}
@@ -553,6 +563,11 @@ func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
+
+	go func() {
+		xpSvc := service.NewXPService(h.Queries)
+		_ = xpSvc.AwardXP(context.Background(), userID, "add_to_list", service.XPAddToList, nil)
+	}()
 
 	types.WriteJSON(w, http.StatusCreated, entry)
 }

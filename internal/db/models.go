@@ -115,6 +115,25 @@ type Follow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type LeaderboardStat struct {
+	UserID         uuid.UUID        `json:"user_id"`
+	Username       string           `json:"username"`
+	BooksRead      pgtype.Int4      `json:"books_read"`
+	PagesRead      pgtype.Int4      `json:"pages_read"`
+	DiaryEntries   pgtype.Int4      `json:"diary_entries"`
+	GenresExplored pgtype.Int4      `json:"genres_explored"`
+	TotalXp        pgtype.Int4      `json:"total_xp"`
+	Level          pgtype.Int4      `json:"level"`
+	CurrentStreak  pgtype.Int4      `json:"current_streak"`
+	BooksRank      pgtype.Int4      `json:"books_rank"`
+	PagesRank      pgtype.Int4      `json:"pages_rank"`
+	DiaryRank      pgtype.Int4      `json:"diary_rank"`
+	GenresRank     pgtype.Int4      `json:"genres_rank"`
+	XpRank         pgtype.Int4      `json:"xp_rank"`
+	StreakRank     pgtype.Int4      `json:"streak_rank"`
+	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+}
+
 type Like struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`
@@ -200,35 +219,45 @@ type SavedList struct {
 }
 
 type User struct {
-	ID                 uuid.UUID          `json:"id"`
-	Username           string             `json:"username"`
-	Email              string             `json:"email"`
-	PasswordHash       pgtype.Text        `json:"password_hash"`
-	Name               pgtype.Text        `json:"name"`
-	AvatarUrl          pgtype.Text        `json:"avatar_url"`
-	Bio                pgtype.Text        `json:"bio"`
-	Pronouns           []string           `json:"pronouns"`
-	IsPublic           pgtype.Bool        `json:"is_public"`
-	FavoriteGenres     []string           `json:"favorite_genres"`
-	Settings           []byte             `json:"settings"`
-	FollowersCount     pgtype.Int4        `json:"followers_count"`
-	FollowingCount     pgtype.Int4        `json:"following_count"`
-	BooksReadCount     pgtype.Int4        `json:"books_read_count"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	LastActive         pgtype.Timestamptz `json:"last_active"`
-	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
-	MongoID            pgtype.Text        `json:"mongo_id"`
-	Birthday           pgtype.Date        `json:"birthday"`
-	Gender             pgtype.Text        `json:"gender"`
-	Links              []string           `json:"links"`
-	TotalPagesRead     pgtype.Int4        `json:"total_pages_read"`
-	FavoritesCount     int32              `json:"favorites_count"`
-	ListsCount         int32              `json:"lists_count"`
-	DiaryEntriesCount  int32              `json:"diary_entries_count"`
-	ReadingGoalYear    pgtype.Int4        `json:"reading_goal_year"`
-	ReadingGoalTarget  pgtype.Int4        `json:"reading_goal_target"`
-	ReadingGoalCurrent pgtype.Int4        `json:"reading_goal_current"`
+	ID                     uuid.UUID          `json:"id"`
+	Username               string             `json:"username"`
+	Email                  string             `json:"email"`
+	PasswordHash           pgtype.Text        `json:"password_hash"`
+	Name                   pgtype.Text        `json:"name"`
+	AvatarUrl              pgtype.Text        `json:"avatar_url"`
+	Bio                    pgtype.Text        `json:"bio"`
+	Pronouns               []string           `json:"pronouns"`
+	IsPublic               pgtype.Bool        `json:"is_public"`
+	FavoriteGenres         []string           `json:"favorite_genres"`
+	Settings               []byte             `json:"settings"`
+	FollowersCount         pgtype.Int4        `json:"followers_count"`
+	FollowingCount         pgtype.Int4        `json:"following_count"`
+	BooksReadCount         pgtype.Int4        `json:"books_read_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	LastActive             pgtype.Timestamptz `json:"last_active"`
+	DeletedAt              pgtype.Timestamptz `json:"deleted_at"`
+	MongoID                pgtype.Text        `json:"mongo_id"`
+	Birthday               pgtype.Date        `json:"birthday"`
+	Gender                 pgtype.Text        `json:"gender"`
+	Links                  []string           `json:"links"`
+	TotalPagesRead         pgtype.Int4        `json:"total_pages_read"`
+	FavoritesCount         int32              `json:"favorites_count"`
+	ListsCount             int32              `json:"lists_count"`
+	DiaryEntriesCount      int32              `json:"diary_entries_count"`
+	ReadingGoalYear        pgtype.Int4        `json:"reading_goal_year"`
+	ReadingGoalTarget      pgtype.Int4        `json:"reading_goal_target"`
+	ReadingGoalCurrent     pgtype.Int4        `json:"reading_goal_current"`
+	TotalXp                pgtype.Int4        `json:"total_xp"`
+	Level                  pgtype.Int4        `json:"level"`
+	CurrentStreak          pgtype.Int4        `json:"current_streak"`
+	LongestStreak          pgtype.Int4        `json:"longest_streak"`
+	LastActivityDate       pgtype.Date        `json:"last_activity_date"`
+	ShowOnLeaderboard      pgtype.Bool        `json:"show_on_leaderboard"`
+	ReferralCode           pgtype.Text        `json:"referral_code"`
+	ReferredBy             pgtype.UUID        `json:"referred_by"`
+	ReferralCount          pgtype.Int4        `json:"referral_count"`
+	ReferralRewardsClaimed []string           `json:"referral_rewards_claimed"`
 }
 
 type UserAuthorsRead struct {
@@ -246,4 +275,14 @@ type UserPreferencesLegacy struct {
 	Payload        []byte             `json:"payload"`
 	MongoUpdatedAt pgtype.Timestamptz `json:"mongo_updated_at"`
 	MigratedAt     pgtype.Timestamptz `json:"migrated_at"`
+}
+
+type XpTransaction struct {
+	ID          uuid.UUID        `json:"id"`
+	UserID      uuid.UUID        `json:"user_id"`
+	ActionType  string           `json:"action_type"`
+	XpAmount    int32            `json:"xp_amount"`
+	ReferenceID pgtype.UUID      `json:"reference_id"`
+	Metadata    []byte           `json:"metadata"`
+	CreatedAt   pgtype.Timestamp `json:"created_at"`
 }

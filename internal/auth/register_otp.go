@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +23,7 @@ type registerMetadata struct {
 	Name         string `json:"name"`
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"`
+	ReferralCode string `json:"referral_code,omitempty"`
 }
 
 // SendRegistrationOTP handles POST /api/v1/auth/register/send-otp.
@@ -29,10 +32,11 @@ type registerMetadata struct {
 // the Next.js proxy can email it via Resend without Resend config in Go.
 func (h *Handler) SendRegistrationOTP(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		Username string `json:"username"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Name         string `json:"name"`
+		Username     string `json:"username"`
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		ReferralCode string `json:"referral_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
@@ -98,6 +102,7 @@ func (h *Handler) SendRegistrationOTP(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		Username:     req.Username,
 		PasswordHash: hash,
+		ReferralCode: strings.ToUpper(strings.TrimSpace(req.ReferralCode)),
 	})
 	if err != nil {
 		slog.Error("register otp: marshal metadata", "error", err)
@@ -204,6 +209,22 @@ func (h *Handler) VerifyRegistrationOTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	_ = h.queries.MarkOTPUsed(r.Context(), otp.ID)
+
+	if meta.ReferralCode != "" {
+		referrer, refErr := h.queries.GetUserByReferralCode(r.Context(), pgtype.Text{String: meta.ReferralCode, Valid: true})
+		if refErr == nil {
+			_ = h.queries.SetUserReferredBy(r.Context(), db.SetUserReferredByParams{
+				ID:         user.ID,
+				ReferredBy: pgtype.UUID{Bytes: referrer.ID, Valid: true},
+			})
+			referrerID := referrer.ID
+			newUserID := user.ID
+			go func() {
+				refSvc := service.NewReferralService(h.queries, service.NewXPService(h.queries))
+				_ = refSvc.ProcessReferralSignup(context.Background(), referrerID, newUserID)
+			}()
+		}
+	}
 
 	accessToken, refreshToken, err := h.issueTokens(r, user.ID)
 	if err != nil {

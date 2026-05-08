@@ -15,6 +15,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -147,12 +148,22 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bID := bookID
+	status := req.Status
 	go func() {
 		_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
 			UserID:       userID,
 			ActivityType: "added_book",
-			BookID:       pgtype.UUID{Bytes: bookID, Valid: true},
+			BookID:       pgtype.UUID{Bytes: bID, Valid: true},
 		})
+		xpSvc := service.NewXPService(h.Queries)
+		switch status {
+		case "read":
+			_ = xpSvc.AwardXP(context.Background(), userID, "book_read", service.XPBookRead, &bID)
+			_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
+		case "to-read":
+			_ = xpSvc.AwardXP(context.Background(), userID, "add_to_tbr", service.XPAddToTBR, &bID)
+		}
 	}()
 
 	types.WriteJSON(w, http.StatusOK, entry)
@@ -698,6 +709,12 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	bID := bookID
+	go func() {
+		xpSvc := service.NewXPService(h.Queries)
+		_ = xpSvc.AwardXP(context.Background(), userID, "read_progress", service.XPReadProgress, &bID)
+	}()
+
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
@@ -749,6 +766,18 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
+
+	bID := bookID
+	go func() {
+		xpSvc := service.NewXPService(h.Queries)
+		_ = xpSvc.AwardXP(context.Background(), userID, "book_read", service.XPBookRead, &bID)
+		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
+		count, _ := h.Queries.CountUserBooks(context.Background(), db.CountUserBooksParams{UserID: userID, Status: "read"})
+		if count == 1 {
+			refSvc := service.NewReferralService(h.Queries, xpSvc)
+			_ = refSvc.CheckAndAwardReferralMilestone(context.Background(), userID, "first_book")
+		}
+	}()
 
 	types.WriteJSON(w, http.StatusOK, entry)
 }
