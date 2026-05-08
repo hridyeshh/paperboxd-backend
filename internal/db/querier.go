@@ -16,6 +16,10 @@ type Querier interface {
 	AddBookToList(ctx context.Context, arg AddBookToListParams) (ListBook, error)
 	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
 	AddToFavorites(ctx context.Context, arg AddToFavoritesParams) (Favorite, error)
+	// ============================================================================
+	// USER XP AND LEVEL MANAGEMENT
+	// ============================================================================
+	AddXP(ctx context.Context, arg AddXPParams) error
 	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
 	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
 	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
@@ -71,7 +75,13 @@ type Querier interface {
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
 	GetFollowingActivities(ctx context.Context, arg GetFollowingActivitiesParams) ([]GetFollowingActivitiesRow, error)
+	// ============================================================================
+	// LEADERBOARD QUERIES
+	// ============================================================================
+	GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeaderboardParams) ([]LeaderboardStat, error)
+	GetGlobalLeaderboard(ctx context.Context, limit int32) ([]LeaderboardStat, error)
 	GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error)
+	GetLeaderboardByDimension(ctx context.Context, arg GetLeaderboardByDimensionParams) ([]LeaderboardStat, error)
 	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
 	GetListBooks(ctx context.Context, listID uuid.UUID) ([]GetListBooksRow, error)
 	GetListByID(ctx context.Context, id uuid.UUID) (List, error)
@@ -82,32 +92,52 @@ type Querier interface {
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
+	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	GetUserByReferralCode(ctx context.Context, referralCode pgtype.Text) (GetUserByReferralCodeRow, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserDiaryEntries(ctx context.Context, arg GetUserDiaryEntriesParams) ([]GetUserDiaryEntriesRow, error)
 	GetUserFavorites(ctx context.Context, userID uuid.UUID) ([]GetUserFavoritesRow, error)
+	// ============================================================================
+	// LEADERBOARD STATS QUERIES
+	// ============================================================================
+	GetUserLeaderboardStats(ctx context.Context, userID uuid.UUID) (LeaderboardStat, error)
 	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
 	GetUserLists(ctx context.Context, arg GetUserListsParams) ([]GetUserListsRow, error)
+	GetUserReferralCode(ctx context.Context, id uuid.UUID) (GetUserReferralCodeRow, error)
+	GetUserReferrals(ctx context.Context, arg GetUserReferralsParams) ([]GetUserReferralsRow, error)
 	GetUserSavedLists(ctx context.Context, arg GetUserSavedListsParams) ([]GetUserSavedListsRow, error)
 	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
+	GetUserXP(ctx context.Context, id uuid.UUID) (GetUserXPRow, error)
+	GetUserXPHistory(ctx context.Context, arg GetUserXPHistoryParams) ([]GetUserXPHistoryRow, error)
+	GetUserXPToday(ctx context.Context, userID uuid.UUID) (int32, error)
 	// Access Control
 	GrantListAccess(ctx context.Context, arg GrantListAccessParams) (ListAccess, error)
+	HasClaimedReferralReward(ctx context.Context, arg HasClaimedReferralRewardParams) (bool, error)
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
 	IncrementOTPAttempts(ctx context.Context, id uuid.UUID) error
+	IncrementReferralCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserListsCount(ctx context.Context, id uuid.UUID) error
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
 	// Likes
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
+	// ============================================================================
+	// XP TRANSACTION LOGGING
+	// ============================================================================
+	LogXPTransaction(ctx context.Context, arg LogXPTransactionParams) error
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
 	MarkOTPUsed(ctx context.Context, id uuid.UUID) error
 	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
+	MarkReferralRewardClaimed(ctx context.Context, arg MarkReferralRewardClaimedParams) error
+	RebuildAllLeaderboardStats(ctx context.Context) error
+	RebuildUserLeaderboardStats(ctx context.Context, id uuid.UUID) (LeaderboardStat, error)
 	RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
@@ -120,6 +150,12 @@ type Querier interface {
 	SaveList(ctx context.Context, arg SaveListParams) (SavedList, error)
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
+	SetUserReferredBy(ctx context.Context, arg SetUserReferredByParams) error
+	// Soft-delete the user and free their email/username so they (or anyone) can
+	// re-register with the same identifiers. The original values are preserved in
+	// the account_deletions audit table by RecordAccountDeletion (called first).
+	// The UUID-based placeholders are deterministic and lowercase, satisfying the
+	// column-level UNIQUE constraints and the username_lowercase CHECK.
 	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
@@ -128,6 +164,7 @@ type Querier interface {
 	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
 	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
+	UpdateLeaderboardRankings(ctx context.Context) error
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
@@ -136,6 +173,10 @@ type Querier interface {
 	UpdateUserGenres(ctx context.Context, arg UpdateUserGenresParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error
 	UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) error
+	// ============================================================================
+	// STREAK MANAGEMENT
+	// ============================================================================
+	UpdateUserStreak(ctx context.Context, id uuid.UUID) error
 	UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error)
 	UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -170,10 +171,12 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	entryID := entry.ID
+	isBookSpecific := entry.BookID.Valid
 	go func() {
 		_ = h.Queries.IncrementUserDiaryCount(context.Background(), userID)
 		if !req.IsPrivate {
-			entryPgID := uuidToPgtype(entry.ID)
+			entryPgID := uuidToPgtype(entryID)
 			_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
 				UserID:       userID,
 				ActivityType: "created_diary_entry",
@@ -181,6 +184,13 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 				EntryID:      entryPgID,
 			})
 		}
+		xpSvc := service.NewXPService(h.Queries)
+		xpAmount := service.XPDiaryEntry
+		if isBookSpecific {
+			xpAmount = service.XPBookDiary
+		}
+		_ = xpSvc.AwardXP(context.Background(), userID, "diary_entry", xpAmount, &entryID)
+		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
 	}()
 
 	likesCount, _ := h.Queries.CountEntryLikes(r.Context(), entry.ID)

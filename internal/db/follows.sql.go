@@ -74,7 +74,7 @@ func (q *Queries) FollowUser(ctx context.Context, arg FollowUserParams) (Follow,
 }
 
 const getFollowers = `-- name: GetFollowers :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed FROM follows f
 JOIN users u ON f.follower_id = u.id
 WHERE f.following_id = $1
 ORDER BY f.created_at DESC
@@ -126,6 +126,16 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 			&i.ReadingGoalYear,
 			&i.ReadingGoalTarget,
 			&i.ReadingGoalCurrent,
+			&i.TotalXp,
+			&i.Level,
+			&i.CurrentStreak,
+			&i.LongestStreak,
+			&i.LastActivityDate,
+			&i.ShowOnLeaderboard,
+			&i.ReferralCode,
+			&i.ReferredBy,
+			&i.ReferralCount,
+			&i.ReferralRewardsClaimed,
 		); err != nil {
 			return nil, err
 		}
@@ -138,7 +148,7 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 }
 
 const getFollowing = `-- name: GetFollowing :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed FROM follows f
 JOIN users u ON f.following_id = u.id
 WHERE f.follower_id = $1
 ORDER BY f.created_at DESC
@@ -190,6 +200,16 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]U
 			&i.ReadingGoalYear,
 			&i.ReadingGoalTarget,
 			&i.ReadingGoalCurrent,
+			&i.TotalXp,
+			&i.Level,
+			&i.CurrentStreak,
+			&i.LongestStreak,
+			&i.LastActivityDate,
+			&i.ShowOnLeaderboard,
+			&i.ReferralCode,
+			&i.ReferredBy,
+			&i.ReferralCount,
+			&i.ReferralRewardsClaimed,
 		); err != nil {
 			return nil, err
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -301,6 +302,57 @@ func (h *UserHandler) Search(w http.ResponseWriter, r *http.Request) {
 		TotalCount: int64(len(resp)),
 		Page:       page,
 		PageSize:   pageSize,
+	})
+}
+
+// RecordDailyOpen tracks daily app usage and awards XP once per day.
+// POST /api/v1/users/me/daily-open
+func (h *UserHandler) RecordDailyOpen(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	xpSvc := service.NewXPService(h.Queries)
+	info, err := xpSvc.GetUserXPInfo(r.Context(), userID)
+	if err != nil {
+		slog.Error("record daily open: get xp info", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	alreadyOpened := info.LastActivityDate.Valid && info.LastActivityDate.Time.UTC().Format("2006-01-02") == today
+
+	if !alreadyOpened {
+		if err := xpSvc.AwardXP(r.Context(), userID, "daily_open", service.XPDailyOpen, nil); err != nil {
+			slog.Error("record daily open: award xp", "error", err)
+		}
+		// Reload after update
+		info, err = xpSvc.GetUserXPInfo(r.Context(), userID)
+		if err != nil {
+			slog.Error("record daily open: reload xp info", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		// Check streak milestone bonus
+		go func() {
+			_ = xpSvc.CheckAndAwardStreakBonus(r.Context(), userID, int(info.CurrentStreak.Int32))
+		}()
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"daily_open_awarded": !alreadyOpened,
+		"current_streak":     info.CurrentStreak.Int32,
+		"total_xp":           info.TotalXp.Int32,
+		"level":              info.Level.Int32,
+		"level_name":         service.GetLevelName(int(info.Level.Int32)),
 	})
 }
 
