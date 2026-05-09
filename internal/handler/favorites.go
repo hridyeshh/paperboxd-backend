@@ -16,19 +16,22 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // FavoritesHandler holds dependencies for favorites endpoints.
 type FavoritesHandler struct {
 	Queries     *db.Queries
+	Pool        *pgxpool.Pool
 	ISBNdb      *external.ISBNdbClient
 	GoogleBooks *external.GoogleBooksClient
 }
 
 // NewFavoritesHandler creates a FavoritesHandler.
-func NewFavoritesHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient) *FavoritesHandler {
+func NewFavoritesHandler(pool *pgxpool.Pool, queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient) *FavoritesHandler {
 	return &FavoritesHandler{
 		Queries:     queries,
+		Pool:        pool,
 		ISBNdb:      isbndb,
 		GoogleBooks: google,
 	}
@@ -293,32 +296,84 @@ func (h *FavoritesHandler) ReorderFavorites(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	for _, fav := range req.Favorites {
-		if fav.DisplayOrder < 1 || fav.DisplayOrder > 4 {
-			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "display_order must be between 1 and 4")
+	if len(req.Favorites) == 0 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "favorites list is empty")
+		return
+	}
+
+	// Parse and validate all book IDs upfront before touching the DB.
+	type entry struct {
+		bookID       uuid.UUID
+		displayOrder int32
+		note         pgtype.Text
+	}
+	entries := make([]entry, 0, len(req.Favorites))
+	for i, fav := range req.Favorites {
+		bookID, parseErr := uuid.Parse(fav.BookID)
+		if parseErr != nil {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "invalid book_id: "+fav.BookID)
+			return
+		}
+		entries = append(entries, entry{bookID: bookID, displayOrder: int32(i + 1)})
+	}
+
+	// Fetch existing favorites to preserve notes.
+	existing, err := h.Queries.GetUserFavorites(r.Context(), userID)
+	if err != nil {
+		slog.Error("get favorites for reorder", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	noteMap := make(map[uuid.UUID]pgtype.Text, len(existing))
+	for _, f := range existing {
+		noteMap[f.BookID] = f.FavoriteNote
+	}
+	for i := range entries {
+		entries[i].note = noteMap[entries[i].bookID]
+	}
+
+	// The UNIQUE(user_id, display_order) constraint makes sequential UPDATEs
+	// conflict mid-loop (e.g. swapping positions 2 and 4 is impossible without
+	// a temporary free slot). Fix: delete all then re-insert in new order inside
+	// a single transaction so the constraint is satisfied at commit time.
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("begin tx for reorder favorites", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	defer tx.Rollback(r.Context()) //nolint:errcheck
+
+	qtx := h.Queries.WithTx(tx)
+
+	for _, f := range existing {
+		if err := qtx.RemoveFromFavorites(r.Context(), db.RemoveFromFavoritesParams{
+			UserID: userID,
+			BookID: f.BookID,
+		}); err != nil {
+			slog.Error("delete favorite for reorder", "error", err)
+			types.WriteInternalError(w)
 			return
 		}
 	}
 
-	for _, fav := range req.Favorites {
-		bookID, parseErr := uuid.Parse(fav.BookID)
-		if parseErr != nil {
-			continue
+	for _, e := range entries {
+		if _, err := qtx.AddToFavorites(r.Context(), db.AddToFavoritesParams{
+			UserID:       userID,
+			BookID:       e.bookID,
+			DisplayOrder: e.displayOrder,
+			FavoriteNote: e.note,
+		}); err != nil {
+			slog.Error("re-insert favorite for reorder", "error", err)
+			types.WriteInternalError(w)
+			return
 		}
-		existing, favErr := h.Queries.GetFavoriteByUserAndBook(r.Context(), db.GetFavoriteByUserAndBookParams{
-			UserID: userID,
-			BookID: bookID,
-		})
-		if favErr != nil {
-			slog.Warn("get favorite for reorder", "book_id", fav.BookID, "error", favErr)
-			continue
-		}
-		if reorderErr := h.Queries.ReorderFavorites(r.Context(), db.ReorderFavoritesParams{
-			ID:           existing.ID,
-			DisplayOrder: int32(fav.DisplayOrder),
-		}); reorderErr != nil {
-			slog.Warn("reorder favorite", "error", reorderErr)
-		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit reorder favorites", "error", err)
+		types.WriteInternalError(w)
+		return
 	}
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Favorites reordered"})

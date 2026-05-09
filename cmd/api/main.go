@@ -113,7 +113,7 @@ func main() {
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
-	favoritesHandler := handler.NewFavoritesHandler(queries, isbndbClient, googleBooksClient)
+	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient)
 	activitiesHandler := handler.NewActivitiesHandler(queries)
