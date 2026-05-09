@@ -543,7 +543,18 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Parse title from frontend slug and search DB cache
+	// 2. If slug has no + or spaces it may be an ISBN or Google Books ID — try
+	//    resolveBookIDParam which handles both before falling back to title search.
+	if !strings.Contains(slug, "+") && !strings.Contains(slug, " ") {
+		if bookID, resolveErr := resolveBookIDParam(ctx, h.Queries, h.GoogleBooks, h.ISBNdb, slug); resolveErr == nil {
+			if resolved, fetchErr := h.Queries.GetBookByID(ctx, bookID); fetchErr == nil {
+				types.WriteJSON(w, http.StatusOK, bookToResponse(resolved))
+				return
+			}
+		}
+	}
+
+	// 3. Parse title from frontend slug and search DB cache
 	title := titleFromSlug(slug)
 	dbBooks, err := h.Queries.SearchBooksInDB(ctx, db.SearchBooksInDBParams{
 		Column1: pgtype.Text{String: title, Valid: true},
@@ -555,7 +566,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. ISBNdb external search + cache result in DB
+	// 4. ISBNdb external search + cache result in DB
 	if h.ISBNdb != nil {
 		isbndbBooks, isbndbErr := h.ISBNdb.Search(ctx, title, 1, 1)
 		if isbndbErr == nil && len(isbndbBooks) > 0 {
@@ -575,7 +586,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Google Books fallback + cache result in DB
+	// 5. Google Books fallback + cache result in DB
 	if h.GoogleBooks != nil {
 		googleBooks, gbErr := h.GoogleBooks.Search(ctx, title, 1)
 		if gbErr == nil && len(googleBooks) > 0 {
