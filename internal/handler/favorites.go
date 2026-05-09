@@ -108,9 +108,31 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Auto-assign next slot when caller omits display_order
+	// Auto-assign next slot when caller omits display_order.
+	// We cannot use count+1 because removals leave gaps (e.g. positions 1,3
+	// after position 2 was deleted → count=2, count+1=3 collides).
 	if req.DisplayOrder < 1 || req.DisplayOrder > 4 {
-		req.DisplayOrder = int(count) + 1
+		existingFavs, favErr := h.Queries.GetUserFavorites(r.Context(), userID)
+		if favErr != nil {
+			slog.Error("get favorites for slot assignment", "error", favErr)
+			types.WriteInternalError(w)
+			return
+		}
+		used := make(map[int]bool)
+		for _, f := range existingFavs {
+			used[int(f.DisplayOrder)] = true
+		}
+		req.DisplayOrder = 0
+		for i := 1; i <= 4; i++ {
+			if !used[i] {
+				req.DisplayOrder = i
+				break
+			}
+		}
+		if req.DisplayOrder == 0 {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
+			return
+		}
 	}
 
 	// Resolve book
