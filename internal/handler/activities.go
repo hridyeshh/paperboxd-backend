@@ -1,25 +1,30 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hridyesh/paperboxd-backend/internal/cache"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activityCheckCacheTTL = 30 * time.Second
+
 // ActivitiesHandler holds dependencies for activity feed endpoints.
 type ActivitiesHandler struct {
 	Queries *db.Queries
+	Cache   *cache.Client
 }
 
 // NewActivitiesHandler creates an ActivitiesHandler.
-func NewActivitiesHandler(queries *db.Queries) *ActivitiesHandler {
-	return &ActivitiesHandler{Queries: queries}
+func NewActivitiesHandler(queries *db.Queries, cache *cache.Client) *ActivitiesHandler {
+	return &ActivitiesHandler{Queries: queries, Cache: cache}
 }
 
 // GetUserActivities handles GET /api/v1/activities/me.
@@ -111,10 +116,20 @@ func (h *ActivitiesHandler) CheckNewActivities(w http.ResponseWriter, r *http.Re
 	}
 	userID, _ := uuid.Parse(userIDStr)
 
+	sinceStr := r.URL.Query().Get("since")
 	since := time.Now().Add(-24 * time.Hour)
-	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+	if sinceStr != "" {
 		if t, err := time.Parse(time.RFC3339, sinceStr); err == nil {
 			since = t
+		}
+	}
+
+	// Cache keyed by user + since-minute (truncate to minute for better hit rate).
+	cacheKey := fmt.Sprintf("activities:check:%s:%s", userIDStr, since.Truncate(time.Minute).Format(time.RFC3339))
+	if h.Cache != nil {
+		if cached, err := h.Cache.Get(r.Context(), cacheKey); err == nil {
+			types.WriteJSON(w, http.StatusOK, map[string]bool{"has_new": cached == "true"})
+			return
 		}
 	}
 
@@ -126,6 +141,16 @@ func (h *ActivitiesHandler) CheckNewActivities(w http.ResponseWriter, r *http.Re
 		slog.Error("check new activities", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	if h.Cache != nil {
+		val := "false"
+		if hasNew {
+			val = "true"
+		}
+		if err := h.Cache.Set(r.Context(), cacheKey, val, activityCheckCacheTTL); err != nil {
+			slog.Warn("set activity check cache", "error", err)
+		}
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]bool{"has_new": hasNew})

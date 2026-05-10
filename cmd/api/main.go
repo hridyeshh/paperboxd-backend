@@ -19,6 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
+	"github.com/hridyesh/paperboxd-backend/internal/cache"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
@@ -105,6 +106,9 @@ func main() {
 	// ── Queries ────────────────────────────────────────────────────────────────
 	queries := db.New(dbPool)
 
+	// ── Cache ──────────────────────────────────────────────────────────────────
+	cacheClient := cache.New(redisClient)
+
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(queries, cfg)
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
@@ -116,9 +120,9 @@ func main() {
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient)
-	activitiesHandler := handler.NewActivitiesHandler(queries)
+	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
 	xpHandler := handler.NewXPHandler(queries)
-	leaderboardHandler := handler.NewLeaderboardHandler(queries)
+	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
 	userHandler := &handler.UserHandler{
 		Queries:     queries,

@@ -2,12 +2,15 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/hridyesh/paperboxd-backend/internal/cache"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
@@ -16,13 +19,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const leaderboardCacheTTL = 5 * time.Minute
+
 // LeaderboardHandler holds dependencies for leaderboard endpoints.
 type LeaderboardHandler struct {
 	Queries *db.Queries
+	Cache   *cache.Client
 }
 
-func NewLeaderboardHandler(queries *db.Queries) *LeaderboardHandler {
-	return &LeaderboardHandler{Queries: queries}
+func NewLeaderboardHandler(queries *db.Queries, cache *cache.Client) *LeaderboardHandler {
+	return &LeaderboardHandler{Queries: queries, Cache: cache}
 }
 
 // validLeaderboardDimensions lists the accepted dimension strings.
@@ -94,6 +100,18 @@ func (h *LeaderboardHandler) RebuildLeaderboard(w http.ResponseWriter, r *http.R
 		types.WriteInternalError(w)
 		return
 	}
+	// Invalidate cached leaderboards so next read gets fresh data.
+	if h.Cache != nil {
+		keys := []string{
+			"leaderboard:global:100",
+			"leaderboard:dim:books:100", "leaderboard:dim:pages:100",
+			"leaderboard:dim:diary:100", "leaderboard:dim:genres:100",
+			"leaderboard:dim:xp:100", "leaderboard:dim:streak:100",
+		}
+		if err := h.Cache.Del(r.Context(), keys...); err != nil {
+			slog.Warn("invalidate leaderboard cache", "error", err)
+		}
+	}
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Leaderboard rebuilt successfully",
@@ -112,6 +130,15 @@ func (h *LeaderboardHandler) GetMyLeaderboardStats(w http.ResponseWriter, r *htt
 	if err != nil {
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
 		return
+	}
+
+	cacheKey := fmt.Sprintf("user:stats:%s", userIDStr)
+	if h.Cache != nil {
+		var cached map[string]any
+		if err := h.Cache.GetJSON(r.Context(), cacheKey, &cached); err == nil {
+			types.WriteJSON(w, http.StatusOK, cached)
+			return
+		}
 	}
 
 	stat, err := h.Queries.GetUserLeaderboardStats(r.Context(), userID)
@@ -133,7 +160,15 @@ func (h *LeaderboardHandler) GetMyLeaderboardStats(w http.ResponseWriter, r *htt
 
 	levelName := service.GetLevelName(int(stat.Level.Int32))
 	levelBadge := service.GetLevelBadge(int(stat.Level.Int32))
-	types.WriteJSON(w, http.StatusOK, statToMap(stat, levelName, levelBadge))
+	resp := statToMap(stat, levelName, levelBadge)
+
+	if h.Cache != nil {
+		if err := h.Cache.SetJSON(r.Context(), cacheKey, resp, leaderboardCacheTTL); err != nil {
+			slog.Warn("set user stats cache", "error", err)
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GetFriendsLeaderboard returns the leaderboard for users the caller follows.
@@ -175,6 +210,16 @@ func (h *LeaderboardHandler) GetFriendsLeaderboard(w http.ResponseWriter, r *htt
 // GET /api/v1/leaderboard/global?limit=100
 func (h *LeaderboardHandler) GetGlobalLeaderboard(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r, 100, 100)
+	cacheKey := fmt.Sprintf("leaderboard:global:%d", limit)
+
+	if h.Cache != nil {
+		var cached map[string]any
+		if err := h.Cache.GetJSON(r.Context(), cacheKey, &cached); err == nil {
+			types.WriteJSON(w, http.StatusOK, cached)
+			return
+		}
+	}
+
 	stats, err := h.Queries.GetGlobalLeaderboard(r.Context(), limit)
 	if err != nil {
 		slog.Error("get global leaderboard", "error", err)
@@ -186,10 +231,15 @@ func (h *LeaderboardHandler) GetGlobalLeaderboard(w http.ResponseWriter, r *http
 	for i, s := range stats {
 		results[i] = statToMap(s, service.GetLevelName(int(s.Level.Int32)), service.GetLevelBadge(int(s.Level.Int32)))
 	}
-	types.WriteJSON(w, http.StatusOK, map[string]any{
-		"leaderboard": results,
-		"count":       len(results),
-	})
+	resp := map[string]any{"leaderboard": results, "count": len(results)}
+
+	if h.Cache != nil {
+		if err := h.Cache.SetJSON(r.Context(), cacheKey, resp, leaderboardCacheTTL); err != nil {
+			slog.Warn("set global leaderboard cache", "error", err)
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GetLeaderboardByDimension returns the leaderboard sorted by a specific stat dimension.
@@ -202,6 +252,16 @@ func (h *LeaderboardHandler) GetLeaderboardByDimension(w http.ResponseWriter, r 
 	}
 
 	limit := parseLimit(r, 100, 100)
+	cacheKey := fmt.Sprintf("leaderboard:dim:%s:%d", dimension, limit)
+
+	if h.Cache != nil {
+		var cached map[string]any
+		if err := h.Cache.GetJSON(r.Context(), cacheKey, &cached); err == nil {
+			types.WriteJSON(w, http.StatusOK, cached)
+			return
+		}
+	}
+
 	stats, err := h.Queries.GetLeaderboardByDimension(r.Context(), db.GetLeaderboardByDimensionParams{
 		Column1: dimension,
 		Limit:   limit,
@@ -216,9 +276,13 @@ func (h *LeaderboardHandler) GetLeaderboardByDimension(w http.ResponseWriter, r 
 	for i, s := range stats {
 		results[i] = statToMap(s, service.GetLevelName(int(s.Level.Int32)), service.GetLevelBadge(int(s.Level.Int32)))
 	}
-	types.WriteJSON(w, http.StatusOK, map[string]any{
-		"dimension":   dimension,
-		"leaderboard": results,
-		"count":       len(results),
-	})
+	resp := map[string]any{"dimension": dimension, "leaderboard": results, "count": len(results)}
+
+	if h.Cache != nil {
+		if err := h.Cache.SetJSON(r.Context(), cacheKey, resp, leaderboardCacheTTL); err != nil {
+			slog.Warn("set dimension leaderboard cache", "error", err)
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
 }
