@@ -57,10 +57,7 @@ func (e *CohereEmbedder) EmbedTexts(texts []string, inputType string) ([][]float
 	result := make([][]float32, 0, len(texts))
 
 	for start := 0; start < len(texts); start += cohereBatchSize {
-		end := start + cohereBatchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
+		end := min(start+cohereBatchSize, len(texts))
 		batch := texts[start:end]
 
 		vecs, err := e.embedBatch(batch, inputType)
