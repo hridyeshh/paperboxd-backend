@@ -288,52 +288,71 @@ func (s *RecommendationService) getSameAuthorBooks(ctx context.Context, bookID u
 // fallback returns popular books in the user's favourite genres (cold start).
 // Never returns an error — always returns something.
 func (s *RecommendationService) fallback(ctx context.Context, userID string) []BookCandidate {
-	// Try genre-based fallback first.
+	// Try genre-based fallback first; if it returns 0 results, always run the
+	// general recent-books query so the list is never empty just because the user's
+	// genres don't overlap with the current catalogue.
 	genres := s.getUserGenres(ctx, userID)
 
-	var rows pgx.Rows
-	var err error
-
 	if len(genres) > 0 {
-		// Build a simple $1, $2, ... placeholder list.
-		placeholders := make([]string, len(genres))
-		args := make([]any, len(genres)+1)
-		for i, g := range genres {
-			placeholders[i] = fmt.Sprintf("$%d", i+1)
-			args[i] = strings.ToLower(g)
+		out := s.queryByGenres(ctx, genres)
+		if len(out) > 0 {
+			return out
 		}
-		args[len(genres)] = 20
-
-		query := fmt.Sprintf(`
-			SELECT b.id::text, b.title, b.authors, COALESCE(b.cover_url, ''), b.categories, 0.0::float8
-			FROM books b
-			WHERE EXISTS (
-			  SELECT 1 FROM unnest(b.categories) c
-			  WHERE lower(c) = ANY(ARRAY[%s])
-			)
-			ORDER BY b.created_at DESC
-			LIMIT $%d
-		`, strings.Join(placeholders, ","), len(genres)+1)
-
-		rows, err = s.pool.Query(ctx, query, args...)
 	}
 
-	if err != nil || rows == nil {
-		// Last resort: most recently added books.
-		rows, err = s.pool.Query(ctx, `
-			SELECT id::text, title, authors, COALESCE(cover_url, ''), categories, 0.0::float8
-			FROM books ORDER BY created_at DESC LIMIT 20
-		`)
+	return s.queryRecentBooks(ctx)
+}
+
+func (s *RecommendationService) queryByGenres(ctx context.Context, genres []string) []BookCandidate {
+	placeholders := make([]string, len(genres))
+	args := make([]any, len(genres)+1)
+	for i, g := range genres {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = strings.ToLower(g)
 	}
+	args[len(genres)] = 20
+
+	query := fmt.Sprintf(`
+		SELECT b.id::text, b.title, b.authors, COALESCE(b.cover_url, ''), b.categories, 0.0::float8
+		FROM books b
+		WHERE EXISTS (
+		  SELECT 1 FROM unnest(b.categories) c
+		  WHERE lower(c) = ANY(ARRAY[%s])
+		)
+		ORDER BY b.created_at DESC
+		LIMIT $%d
+	`, strings.Join(placeholders, ","), len(genres)+1)
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
+		slog.Warn("fallback genre query failed", "error", err)
 		return nil
 	}
 	defer rows.Close()
+	return scanBookCandidates(rows)
+}
 
+func (s *RecommendationService) queryRecentBooks(ctx context.Context) []BookCandidate {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, title, authors, COALESCE(cover_url, ''), categories, 0.0::float8
+		FROM books
+		ORDER BY created_at DESC
+		LIMIT 20
+	`)
+	if err != nil {
+		slog.Warn("fallback recent-books query failed", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	return scanBookCandidates(rows)
+}
+
+func scanBookCandidates(rows pgx.Rows) []BookCandidate {
 	var out []BookCandidate
 	for rows.Next() {
 		var c BookCandidate
 		if err := rows.Scan(&c.ID, &c.Title, &c.Authors, &c.CoverURL, &c.Categories, &c.SimilarityScore); err != nil {
+			slog.Warn("scan book candidate", "error", err)
 			continue
 		}
 		out = append(out, c)
