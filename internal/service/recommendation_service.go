@@ -78,6 +78,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 		}
 	}
 
+	candidates = deduplicateByTitle(candidates)
 	candidates = mmrDiversify(candidates, 20)
 	return candidates, "vector", nil
 }
@@ -92,16 +93,17 @@ func (s *RecommendationService) GetSimilarBooks(ctx context.Context, bookID, use
 	embedding, err := s.getBookEmbedding(ctx, bid)
 	if err != nil || embedding == nil {
 		// No embedding — fall back to same-author books.
-		return s.getSameAuthorBooks(ctx, bid, bookID, 10)
+		return s.getSameAuthorBooks(ctx, bid, 10)
 	}
 
 	uid, _ := uuid.Parse(userID)
 	candidates, err := s.getVectorCandidatesForBook(ctx, uid, bid, embedding, 10)
 	if err != nil {
 		slog.Error("get similar books vector candidates", "error", err)
-		return s.getSameAuthorBooks(ctx, bid, bookID, 10)
+		return s.getSameAuthorBooks(ctx, bid, 10)
 	}
 
+	candidates = deduplicateByTitle(candidates)
 	return candidates, nil
 }
 
@@ -258,7 +260,7 @@ func (s *RecommendationService) getBookEmbedding(ctx context.Context, bookID uui
 	return parsePGVectorLiteral(lit)
 }
 
-func (s *RecommendationService) getSameAuthorBooks(ctx context.Context, bookID uuid.UUID, excludeID string, limit int) ([]BookCandidate, error) {
+func (s *RecommendationService) getSameAuthorBooks(ctx context.Context, bookID uuid.UUID, limit int) ([]BookCandidate, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT b2.id::text, b2.title, b2.authors, COALESCE(b2.cover_url, ''), b2.categories, 0.5::float8
 		FROM books b1
@@ -435,6 +437,29 @@ func float32SliceToLiteral(v []float32) string {
 	}
 	sb.WriteByte(']')
 	return sb.String()
+}
+
+// deduplicateByTitle removes duplicate editions of the same book.
+// It normalises each title to its base form by stripping subtitles after ":" or "(",
+// then keeps only the first occurrence of each normalised key.
+func deduplicateByTitle(books []BookCandidate) []BookCandidate {
+	seen := make(map[string]bool, len(books))
+	result := make([]BookCandidate, 0, len(books))
+	for _, b := range books {
+		key := strings.ToLower(b.Title)
+		if idx := strings.Index(key, ":"); idx != -1 {
+			key = key[:idx]
+		}
+		if idx := strings.Index(key, "("); idx != -1 {
+			key = key[:idx]
+		}
+		key = strings.TrimSpace(key)
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, b)
+		}
+	}
+	return result
 }
 
 // parsePGVectorLiteral parses '[0.1,0.2,...]' returned by pgvector::text cast.
