@@ -265,9 +265,9 @@ func main() {
 			})
 		})
 
-		// Recommendations
+		// Recommendations — optional auth so expired/missing tokens still get fallback results
 		r.Route("/recommendations", func(r chi.Router) {
-			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Use(appMiddleware.OptionalAuthenticate(cfg.JWTSecret))
 			r.Get("/home", recommendationHandler.GetHomeRecommendations)
 			r.Get("/similar/{bookId}", recommendationHandler.GetSimilarBooks)
 			r.Post("/feedback", recommendationHandler.PostFeedback)
