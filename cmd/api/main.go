@@ -25,6 +25,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/handler"
 	appMiddleware "github.com/hridyesh/paperboxd-backend/internal/middleware"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 )
 
 func main() {
@@ -124,6 +125,17 @@ func main() {
 	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
+
+	var embedder service.Embedder
+	if cfg.CohereAPIKey != "" {
+		embedder = service.NewCohereEmbedder(cfg.CohereAPIKey)
+	} else {
+		slog.Warn("COHERE_API_KEY not set; recommendation embeddings disabled")
+		embedder = service.NoopEmbedder{}
+	}
+	recommendationSvc := service.NewRecommendationService(dbPool, embedder)
+	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
+
 	userHandler := &handler.UserHandler{
 		Queries:     queries,
 		Config:      cfg,
@@ -251,6 +263,14 @@ func main() {
 				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 				r.Get("/friends", leaderboardHandler.GetFriendsLeaderboard)
 			})
+		})
+
+		// Recommendations
+		r.Route("/recommendations", func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Get("/home", recommendationHandler.GetHomeRecommendations)
+			r.Get("/similar/{bookId}", recommendationHandler.GetSimilarBooks)
+			r.Post("/feedback", recommendationHandler.PostFeedback)
 		})
 
 		// Admin

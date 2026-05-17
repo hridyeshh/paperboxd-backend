@@ -26,6 +26,7 @@ type Config struct {
 
 	GoogleBooksAPIKey string
 	ISBNdbAPIKey      string
+	CohereAPIKey      string
 
 	RateLimitPerMinute int
 }
@@ -57,6 +58,7 @@ func Load() (*Config, error) {
 
 		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
 		ISBNdbAPIKey:      getEnv("ISBNDB_API_KEY", ""),
+		CohereAPIKey:      getEnv("COHERE_API_KEY", ""),
 
 		RateLimitPerMinute: getEnvAsInt("RATE_LIMIT_PER_MINUTE", defaultRateLimit),
 	}, nil
