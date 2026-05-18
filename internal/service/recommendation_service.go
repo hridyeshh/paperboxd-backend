@@ -25,6 +25,7 @@ type BookCandidate struct {
 	CoverURL        string   `json:"cover_url"`
 	Categories      []string `json:"categories"`
 	SimilarityScore float64  `json:"similarity_score"`
+	Reason          string   `json:"reason,omitempty"`
 }
 
 // CandidateSource identifies which retrieval path surfaced a candidate.
@@ -52,6 +53,7 @@ type Candidate struct {
 	LikeCount       int
 	TotalReads      int
 	SimilarityScore float32 // kept for backwards-compatible JSON conversion
+	Reason          string  // human-readable reason string
 }
 
 func candidateToBookCandidate(c Candidate) BookCandidate {
@@ -66,6 +68,7 @@ func candidateToBookCandidate(c Candidate) BookCandidate {
 		CoverURL:        c.CoverURL,
 		Categories:      c.Categories,
 		SimilarityScore: score,
+		Reason:          c.Reason,
 	}
 }
 
@@ -118,7 +121,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	// 1. Cache hit — apply ranking on the cached raw pool and return.
 	if cached, err := s.getCachedPool(ctx, userID); err == nil && len(cached) > 0 {
 		profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-		results := s.applySignalBoostPool(cached, profile)
+		results := rankCandidates(cached, profile)
 		results = deduplicateCandidates(results)
 		results = s.applyMMR(results, 20)
 		return toBookCandidates(results), "vector", nil
@@ -195,7 +198,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 
 	// 7. Apply signal boost + dedup + MMR.
 	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-	pool = s.applySignalBoostPool(pool, profile)
+	pool = rankCandidates(pool, profile)
 	pool = deduplicateCandidates(pool)
 	pool = s.applyMMR(pool, 20)
 
@@ -431,35 +434,102 @@ func (s *RecommendationService) InvalidateUserPool(ctx context.Context, userID s
 
 // ── Pool-level ranking helpers ────────────────────────────────────────────────
 
-// applySignalBoostPool adds genre/author affinity bonus to each candidate's
-// VectorScore and re-sorts by a combined vector+social score.
-func (s *RecommendationService) applySignalBoostPool(candidates []Candidate, profile UserSignalProfile) []Candidate {
-	if len(profile.GenreWeights) == 0 && len(profile.AuthorWeights) == 0 {
-		return candidates
-	}
+// rankCandidates computes a FinalScore from four weighted signals and sets
+// a human-readable Reason string on each candidate, then sorts by FinalScore.
+func rankCandidates(candidates []Candidate, profile UserSignalProfile) []Candidate {
 	for i := range candidates {
-		var boost float32
-		for _, cat := range candidates[i].Categories {
+		c := &candidates[i]
+
+		// Genre boost — up to 0.15
+		genreBoost := 0.0
+		for _, cat := range c.Categories {
 			if w, ok := profile.GenreWeights[cat]; ok {
-				boost += float32(w * 0.15)
+				genreBoost += w * 0.15
 			}
 		}
-		for _, author := range candidates[i].Authors {
+		if genreBoost > 0.15 {
+			genreBoost = 0.15
+		}
+
+		// Author boost — up to 0.10
+		authorBoost := 0.0
+		for _, author := range c.Authors {
 			if w, ok := profile.AuthorWeights[author]; ok {
-				boost += float32(w * 0.10)
+				authorBoost += w * 0.10
 			}
 		}
-		if boost > 0.20 {
-			boost = 0.20
+		if authorBoost > 0.10 {
+			authorBoost = 0.10
 		}
-		candidates[i].VectorScore += boost
+
+		// Social boost — up to 0.20, normalised over 5 friends
+		socialBoost := 0.0
+		if c.SocialScore > 0 {
+			socialBoost = math.Min(float64(c.SocialScore)/5.0, 1.0) * 0.20
+		}
+
+		// Recency/popularity boost — up to 0.05
+		recencyBoost := 0.0
+		if c.LikeCount+c.TotalReads > 0 {
+			recencyBoost = math.Min(float64(c.LikeCount+c.TotalReads)/100.0, 1.0) * 0.05
+		}
+
+		c.FinalScore = float32(
+			float64(c.VectorScore)*0.50 +
+				socialBoost +
+				genreBoost +
+				authorBoost +
+				recencyBoost,
+		)
+
+		c.Reason = buildReason(c, profile)
 	}
+
 	sort.Slice(candidates, func(i, j int) bool {
-		si := float64(candidates[i].VectorScore) + float64(candidates[i].SocialScore)*0.3
-		sj := float64(candidates[j].VectorScore) + float64(candidates[j].SocialScore)*0.3
-		return si > sj
+		return candidates[i].FinalScore > candidates[j].FinalScore
 	})
 	return candidates
+}
+
+func buildReason(c *Candidate, profile UserSignalProfile) string {
+	// Social signal is strongest
+	if c.SocialScore > 0 && len(c.FriendNames) > 0 {
+		switch len(c.FriendNames) {
+		case 1:
+			return fmt.Sprintf("%s read this", c.FriendNames[0])
+		case 2:
+			return fmt.Sprintf("%s & %s read this", c.FriendNames[0], c.FriendNames[1])
+		default:
+			return fmt.Sprintf("%s & %d others read this", c.FriendNames[0], len(c.FriendNames)-1)
+		}
+	}
+
+	// Strong author match
+	for _, author := range c.Authors {
+		if w, ok := profile.AuthorWeights[author]; ok && w > 0.7 {
+			return fmt.Sprintf("You read %s", author)
+		}
+	}
+
+	// Strong genre match — highest-weight matching genre
+	bestGenre := ""
+	bestWeight := 0.0
+	for _, cat := range c.Categories {
+		if w, ok := profile.GenreWeights[cat]; ok && w > bestWeight {
+			bestWeight = w
+			bestGenre = cat
+		}
+	}
+	if bestGenre != "" && bestWeight > 0.6 {
+		return fmt.Sprintf("Matches your %s taste", bestGenre)
+	}
+
+	// Trending
+	if c.LikeCount+c.TotalReads > 50 {
+		return "Popular right now"
+	}
+
+	return "Picked for you"
 }
 
 // deduplicateCandidates removes duplicate editions by normalising titles.
