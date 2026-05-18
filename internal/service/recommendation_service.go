@@ -122,9 +122,11 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	if cached, err := s.getCachedPool(ctx, userID); err == nil && len(cached) > 0 {
 		profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
 		results := rankCandidates(cached, profile)
+		results = s.filterSuppressed(ctx, userID, results)
 		results = deduplicateCandidates(results)
-		results = s.applyMMR(results, 20)
-		return toBookCandidates(results), "vector", nil
+		ranked := s.applyMMR(results, 20)
+		ranked = s.blendExploration(ctx, userID, profile, ranked)
+		return toBookCandidates(ranked), "vector", nil
 	}
 
 	// 2. Run both retrieval paths in parallel.
@@ -196,13 +198,15 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	copy(rawPool, pool)
 	go s.setCachedPool(context.Background(), userID, rawPool)
 
-	// 7. Apply signal boost + dedup + MMR.
+	// 7. Rank → suppress → dedup → MMR → exploration blend.
 	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
 	pool = rankCandidates(pool, profile)
+	pool = s.filterSuppressed(ctx, userID, pool)
 	pool = deduplicateCandidates(pool)
-	pool = s.applyMMR(pool, 20)
+	ranked := s.applyMMR(pool, 20)
+	ranked = s.blendExploration(ctx, userID, profile, ranked)
 
-	return toBookCandidates(pool), source, nil
+	return toBookCandidates(ranked), source, nil
 }
 
 // GetSimilarBooks returns up to 10 books similar to bookID, excluding the book itself.
@@ -735,14 +739,121 @@ func (s *RecommendationService) GetBooksWithoutEmbeddings(ctx context.Context) (
 	return books, rows.Err()
 }
 
+// filterSuppressed removes books the user has already seen 3+ times recently.
+func (s *RecommendationService) filterSuppressed(ctx context.Context, userID string, candidates []Candidate) []Candidate {
+	rows, err := s.pool.Query(ctx, `
+		SELECT book_id::text
+		FROM recommendation_impressions
+		WHERE user_id = $1
+		  AND seen_count >= 3
+		  AND suppress_until > NOW()
+	`, userID)
+	if err != nil {
+		return candidates
+	}
+	defer rows.Close()
+
+	suppressed := make(map[string]bool)
+	for rows.Next() {
+		var bookID string
+		if err := rows.Scan(&bookID); err == nil {
+			suppressed[bookID] = true
+		}
+	}
+	if len(suppressed) == 0 {
+		return candidates
+	}
+
+	filtered := candidates[:0]
+	for _, c := range candidates {
+		if !suppressed[c.BookID] {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+// getExplorationCandidates returns popular books from genres the user has never engaged with.
+func (s *RecommendationService) getExplorationCandidates(ctx context.Context, userID string, profile UserSignalProfile, limit int) []Candidate {
+	knownGenres := make([]string, 0, len(profile.GenreWeights))
+	for g := range profile.GenreWeights {
+		knownGenres = append(knownGenres, g)
+	}
+	if len(knownGenres) == 0 {
+		return nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT b.id::text, b.title, b.authors, b.categories,
+		       COALESCE(b.cover_url, ''),
+		       COALESCE(b.like_count, 0), COALESCE(b.total_reads_count, 0)
+		FROM books b
+		WHERE b.embedding IS NOT NULL
+		  AND b.id NOT IN (
+		      SELECT book_id FROM bookshelf WHERE user_id = $1
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM unnest(b.categories) AS cat
+		      WHERE cat = ANY($2::text[])
+		  )
+		ORDER BY b.total_reads_count DESC NULLS LAST
+		LIMIT $3
+	`, userID, knownGenres, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var candidates []Candidate
+	for rows.Next() {
+		var c Candidate
+		var likeCount, totalReads int32
+		if err := rows.Scan(
+			&c.BookID, &c.Title, &c.Authors, &c.Categories,
+			&c.CoverURL, &likeCount, &totalReads,
+		); err != nil {
+			continue
+		}
+		c.LikeCount = int(likeCount)
+		c.TotalReads = int(totalReads)
+		c.Source = SourceFallback
+		c.Reason = "Something different"
+		candidates = append(candidates, c)
+	}
+	return candidates
+}
+
+// blendExploration replaces the last 2 slots of ranked with exploration picks.
+func (s *RecommendationService) blendExploration(ctx context.Context, userID string, profile UserSignalProfile, ranked []Candidate) []Candidate {
+	exploration := s.getExplorationCandidates(ctx, userID, profile, 4)
+	if len(exploration) == 0 {
+		return ranked
+	}
+	cutoff := len(ranked) - 2
+	if cutoff < 0 {
+		cutoff = 0
+	}
+	end := 2
+	if len(exploration) < end {
+		end = len(exploration)
+	}
+	return append(ranked[:cutoff], exploration[:end]...)
+}
+
 // UpdateImpressions records or increments that a user saw a recommendation.
+// When seen_count reaches 3 the book is suppressed for 24 h.
 func (s *RecommendationService) UpdateImpressions(ctx context.Context, userID, bookID string) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO recommendation_impressions (user_id, book_id)
-		VALUES ($1, $2)
-		ON CONFLICT (user_id, book_id) DO UPDATE
-		  SET seen_count = recommendation_impressions.seen_count + 1,
-		      last_seen  = NOW()
+		INSERT INTO recommendation_impressions (user_id, book_id, seen_count, last_seen, suppress_until)
+		VALUES ($1, $2, 1, NOW(), NULL)
+		ON CONFLICT (user_id, book_id) DO UPDATE SET
+		    seen_count     = recommendation_impressions.seen_count + 1,
+		    last_seen      = NOW(),
+		    suppress_until = CASE
+		        WHEN recommendation_impressions.seen_count + 1 >= 3
+		        THEN NOW() + INTERVAL '24 hours'
+		        ELSE NULL
+		    END
 	`, userID, bookID)
 	return err
 }
