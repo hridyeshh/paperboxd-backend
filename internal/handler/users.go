@@ -25,10 +25,11 @@ var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
 
 // UserHandler holds dependencies for user endpoints.
 type UserHandler struct {
-	Queries     *db.Queries
-	Config      *config.Config
-	ISBNdb      *external.ISBNdbClient
-	GoogleBooks *external.GoogleBooksClient
+	Queries               *db.Queries
+	Config                *config.Config
+	ISBNdb                *external.ISBNdbClient
+	GoogleBooks           *external.GoogleBooksClient
+	RecommendationService *service.RecommendationService
 }
 
 // GetByUsername handles GET /api/v1/users/:username

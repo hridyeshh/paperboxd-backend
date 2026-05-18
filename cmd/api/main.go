@@ -21,6 +21,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
 	"github.com/hridyesh/paperboxd-backend/internal/cache"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
+	"github.com/hridyesh/paperboxd-backend/internal/cron"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/handler"
@@ -133,14 +134,16 @@ func main() {
 		slog.Warn("COHERE_API_KEY not set; recommendation embeddings disabled")
 		embedder = service.NoopEmbedder{}
 	}
-	recommendationSvc := service.NewRecommendationService(dbPool, embedder)
+	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
+	cron.StartNightlyCron(dbPool, recommendationSvc)
 
 	userHandler := &handler.UserHandler{
-		Queries:     queries,
-		Config:      cfg,
-		ISBNdb:      isbndbClient,
-		GoogleBooks: googleBooksClient,
+		Queries:               queries,
+		Config:                cfg,
+		ISBNdb:                isbndbClient,
+		GoogleBooks:           googleBooksClient,
+		RecommendationService: recommendationSvc,
 	}
 
 	// ── Router ─────────────────────────────────────────────────────────────────

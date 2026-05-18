@@ -58,7 +58,7 @@ func main() {
 	slog.Info("connected to postgres")
 
 	embedder := service.NewCohereEmbedder(cohereKey)
-	svc := service.NewRecommendationService(pool, embedder)
+	svc := service.NewRecommendationService(pool, embedder, nil)
 
 	books, err := svc.GetBooksWithoutEmbeddings(ctx)
 	if err != nil {

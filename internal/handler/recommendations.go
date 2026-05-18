@@ -85,16 +85,28 @@ func (h *RecommendationHandler) PostFeedback(w http.ResponseWriter, r *http.Requ
 	}
 
 	var body struct {
-		BookID string `json:"book_id"`
+		BookID    string `json:"book_id"`
+		EventType string `json:"event_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.BookID == "" {
 		types.WriteJSON(w, http.StatusOK, map[string]bool{"ok": false})
 		return
 	}
 
+	validEventTypes := map[string]bool{"click": true, "impression": true, "dismiss": true}
+	if body.EventType == "" || !validEventTypes[body.EventType] {
+		body.EventType = "impression"
+	}
+
 	if err := h.svc.UpdateImpressions(r.Context(), userID, body.BookID); err != nil {
 		slog.Warn("update impressions", "error", err)
 	}
+
+	go func() {
+		if err := h.svc.TrackEvent(r.Context(), userID, body.BookID, body.EventType); err != nil {
+			slog.Warn("track event", "error", err, "event_type", body.EventType)
+		}
+	}()
 
 	types.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
