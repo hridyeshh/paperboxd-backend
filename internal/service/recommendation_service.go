@@ -698,36 +698,6 @@ func (s *RecommendationService) saveSignalProfile(ctx context.Context, profile U
 	return err
 }
 
-// applySignalBoost re-ranks candidates by adding a small genre/author affinity
-// bonus on top of the vector similarity score. Capped at +0.20 to prevent
-// the signal from dominating the semantic score.
-func applySignalBoost(candidates []BookCandidate, profile UserSignalProfile) []BookCandidate {
-	if len(profile.GenreWeights) == 0 && len(profile.AuthorWeights) == 0 {
-		return candidates
-	}
-	for i := range candidates {
-		boost := 0.0
-		for _, cat := range candidates[i].Categories {
-			if w, ok := profile.GenreWeights[cat]; ok {
-				boost += w * 0.15
-			}
-		}
-		for _, author := range candidates[i].Authors {
-			if w, ok := profile.AuthorWeights[author]; ok {
-				boost += w * 0.10
-			}
-		}
-		if boost > 0.20 {
-			boost = 0.20
-		}
-		candidates[i].SimilarityScore += boost
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].SimilarityScore > candidates[j].SimilarityScore
-	})
-	return candidates
-}
-
 // ── Embedding operations ──────────────────────────────────────────────────────
 
 // SaveBookEmbedding persists a float32 slice as a pgvector in the books table.
@@ -1026,64 +996,12 @@ func (s *RecommendationService) getUserGenres(ctx context.Context, userID string
 	return nil
 }
 
-// ── MMR diversity ─────────────────────────────────────────────────────────────
-
-func mmrDiversify(candidates []BookCandidate, k int) []BookCandidate {
-	if len(candidates) <= k {
-		return candidates
-	}
-	selected := make([]BookCandidate, 0, k)
-	remaining := make([]BookCandidate, len(candidates))
-	copy(remaining, candidates)
-
-	for len(selected) < k && len(remaining) > 0 {
-		bestIdx := 0
-		bestScore := math.Inf(-1)
-		for i, c := range remaining {
-			maxSim := 0.0
-			for _, s := range selected {
-				if sim := cosineSimilarityByScore(s.SimilarityScore, c.SimilarityScore); sim > maxSim {
-					maxSim = sim
-				}
-			}
-			score := 0.5*c.SimilarityScore - 0.5*maxSim
-			if score > bestScore {
-				bestScore = score
-				bestIdx = i
-			}
-		}
-		selected = append(selected, remaining[bestIdx])
-		remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
-	}
-	return selected
-}
-
 func cosineSimilarityByScore(a, b float64) float64 {
 	diff := a - b
 	if diff < 0 {
 		diff = -diff
 	}
 	return 1.0 - diff
-}
-
-// ── Vector maths ──────────────────────────────────────────────────────────────
-
-func averageVectors(vecs [][]float32) []float32 {
-	if len(vecs) == 0 {
-		return nil
-	}
-	dim := len(vecs[0])
-	avg := make([]float32, dim)
-	for _, v := range vecs {
-		for i, x := range v {
-			avg[i] += x
-		}
-	}
-	n := float32(len(vecs))
-	for i := range avg {
-		avg[i] /= n
-	}
-	return avg
 }
 
 // float32SliceToLiteral converts []float32 to the Postgres vector literal '[a,b,c]'.
