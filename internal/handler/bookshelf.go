@@ -164,6 +164,9 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		case "to-read":
 			_ = xpSvc.AwardXP(context.Background(), userID, "add_to_tbr", service.XPAddToTBR, &bID)
 		}
+		if h.RecommendationService != nil {
+			h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
+		}
 	}()
 
 	types.WriteJSON(w, http.StatusOK, entry)
@@ -262,6 +265,10 @@ func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request
 		slog.Error("remove from bookshelf", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	if h.RecommendationService != nil {
+		go h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
 	}
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Removed from bookshelf"})
@@ -776,6 +783,9 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 		if count == 1 {
 			refSvc := service.NewReferralService(h.Queries, xpSvc)
 			_ = refSvc.CheckAndAwardReferralMilestone(context.Background(), userID, "first_book")
+		}
+		if h.RecommendationService != nil {
+			h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
 		}
 	}()
 
