@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 )
@@ -54,6 +56,12 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
+
+	followedID := target.ID
+	go func() {
+		xpSvc := service.NewXPService(h.Queries)
+		_ = xpSvc.AwardXP(context.Background(), followedID, "follow_gained", service.XPFollowGained, nil)
+	}()
 
 	followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
 	followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)

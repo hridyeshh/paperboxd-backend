@@ -126,6 +126,8 @@ func main() {
 	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
+	eventsHandler := handler.NewEventsHandler(dbPool)
+	newsletterHandler := handler.NewNewsletterHandler(dbPool)
 
 	var embedder service.Embedder
 	if cfg.CohereAPIKey != "" {
@@ -155,13 +157,9 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 
-	// CORS
+	// CORS — origins controlled by CORS_ALLOWED_ORIGINS env var
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3000",
-			"http://localhost:3001",
-			"https://*.vercel.app",
-		},
+		AllowedOrigins: cfg.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -183,6 +181,9 @@ func main() {
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
+		// Public routes (no auth)
+		r.Post("/newsletter/subscribe", newsletterHandler.Subscribe)
+
 		// Auth routes (no auth middleware)
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", authHandler.Register)
@@ -209,6 +210,8 @@ func main() {
 			r.Get("/users/me/leaderboard-stats", leaderboardHandler.GetMyLeaderboardStats)
 			r.Get("/users/me/referral", referralHandler.GetMyReferralCode)
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
+			r.Patch("/users/me/avatar", userHandler.UpdateAvatar)
+			r.Post("/events", eventsHandler.Track)
 		})
 
 		// TEMPORARY TEST ROUTES - DELETE BEFORE PRODUCTION

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -29,6 +30,8 @@ type Config struct {
 	CohereAPIKey      string
 
 	RateLimitPerMinute int
+
+	CORSAllowedOrigins []string
 }
 
 func Load() (*Config, error) {
@@ -61,6 +64,9 @@ func Load() (*Config, error) {
 		CohereAPIKey:      getEnv("COHERE_API_KEY", ""),
 
 		RateLimitPerMinute: getEnvAsInt("RATE_LIMIT_PER_MINUTE", defaultRateLimit),
+
+		CORSAllowedOrigins: getEnvAsStringSlice("CORS_ALLOWED_ORIGINS",
+			"http://localhost:3000,http://localhost:3001"),
 	}, nil
 }
 
@@ -98,4 +104,16 @@ func getEnvAsInt(key string, defaultVal int) int {
 		return val
 	}
 	return defaultVal
+}
+
+func getEnvAsStringSlice(key, defaultVal string) []string {
+	raw := getEnv(key, defaultVal)
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
