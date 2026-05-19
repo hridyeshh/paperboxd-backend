@@ -42,14 +42,6 @@ func uuidToPgtype(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }
 
-// optionalUUIDToPgtype converts a *uuid.UUID to pgtype.UUID (null when nil).
-func optionalUUIDToPgtype(id *uuid.UUID) pgtype.UUID {
-	if id == nil {
-		return pgtype.UUID{}
-	}
-	return pgtype.UUID{Bytes: *id, Valid: true}
-}
-
 // resolveBookForDiary resolves a book from the request (book_id / isbn / google_books_id).
 // Returns pgtype.UUID{} (null) if no book fields are set.
 func (h *DiaryHandler) resolveBookForDiary(ctx context.Context, bookID, isbn, googleBooksID *string) (pgtype.UUID, error) {
@@ -590,6 +582,9 @@ func (h *DiaryHandler) LikeDiaryEntry(w http.ResponseWriter, r *http.Request) {
 			EntryID:      uuidToPgtype(entryID),
 			TargetUserID: uuidToPgtype(ownerID),
 		})
+		xpSvc := service.NewXPService(h.Queries)
+		eid := entryID
+		_ = xpSvc.AwardXP(context.Background(), ownerID, "diary_liked", service.XPDiaryLiked, &eid)
 	}()
 
 	likesCount, _ := h.Queries.CountEntryLikes(r.Context(), entryID)

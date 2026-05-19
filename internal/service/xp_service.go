@@ -24,6 +24,9 @@ const (
 	XPCreateListMore = 5
 	XPAddToList     = 1
 
+	XPFollowGained = 5  // awarded to the person being followed
+	XPDiaryLiked   = 5  // awarded to the diary entry author
+
 	XPStreak7   = 50
 	XPStreak30  = 200
 	XPStreak100 = 1000
@@ -143,6 +146,10 @@ func (s *XPService) GetXPForAction(actionType string, metadata map[string]any) i
 		return XPReferralBook
 	case "referral_30day":
 		return XPReferral30Day
+	case "follow_gained":
+		return XPFollowGained
+	case "diary_liked":
+		return XPDiaryLiked
 	case "new_genre":
 		return XPNewGenre
 	case "genre_diversity":

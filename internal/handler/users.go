@@ -357,6 +357,45 @@ func (h *UserHandler) RecordDailyOpen(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateAvatar handles PATCH /api/v1/users/me/avatar
+// Updates only the avatar_url for the authenticated user.
+// Body: { avatar_url: string } — empty string clears the avatar.
+func (h *UserHandler) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	var body struct {
+		AvatarURL string `json:"avatar_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	// Valid:true with empty string clears the column; non-empty sets it.
+	// Other UpdateUserParams fields default to pgtype.Text{Valid:false} (NULL),
+	// which the COALESCE SQL leaves unchanged.
+	updated, err := h.Queries.UpdateUser(r.Context(), db.UpdateUserParams{
+		ID:        userID,
+		AvatarUrl: pgtype.Text{String: body.AvatarURL, Valid: true},
+	})
+	if err != nil {
+		slog.Error("update avatar", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 func userToResponse(u db.User) types.UserResponse {
