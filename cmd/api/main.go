@@ -161,7 +161,7 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Internal-Secret"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -197,6 +197,7 @@ func main() {
 			r.Post("/otp/verify", authHandler.VerifyOTP)
 			r.Post("/register/send-otp", authHandler.SendRegistrationOTP)
 			r.Post("/register/verify-otp", authHandler.VerifyRegistrationOTP)
+			r.Post("/google", authHandler.GoogleAuth)
 		})
 
 		// Protected routes
