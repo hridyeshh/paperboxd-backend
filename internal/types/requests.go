@@ -153,3 +153,11 @@ type UpdateDiaryEntryRequest struct {
 	IsPrivate *bool   `json:"is_private"`
 	Rating    *int    `json:"rating"` // 1–5; pass null to clear
 }
+
+// GoogleAuthRequest is the payload for POST /api/v1/auth/google.
+// Only accepted from the Next.js server with the correct X-Internal-Secret header.
+type GoogleAuthRequest struct {
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+}

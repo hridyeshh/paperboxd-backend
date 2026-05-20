@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -376,6 +377,142 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Logged out successfully"})
+}
+
+// GoogleAuth handles POST /api/v1/auth/google
+// Server-to-server only. Next.js calls this after verifying Google identity via NextAuth.
+// Finds or creates a user by email, then issues Go JWT tokens.
+func (h *Handler) GoogleAuth(w http.ResponseWriter, r *http.Request) {
+	// Verify shared secret
+	if h.cfg.InternalSecret == "" || r.Header.Get("X-Internal-Secret") != h.cfg.InternalSecret {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req types.GoogleAuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" || !emailRegex.MatchString(req.Email) {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Valid email is required")
+		return
+	}
+
+	// Try to find existing user
+	user, err := h.queries.GetUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Error("google auth: get user by email", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+
+		// New user — auto-create from Google profile
+		username, genErr := h.generateUniqueUsername(r.Context(), req.Email)
+		if genErr != nil {
+			slog.Error("google auth: generate username", "error", genErr)
+			types.WriteInternalError(w)
+			return
+		}
+
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			name = username
+		}
+
+		user, err = h.queries.CreateUser(r.Context(), db.CreateUserParams{
+			Username:       username,
+			Email:          req.Email,
+			PasswordHash:   pgtype.Text{}, // no password for OAuth users
+			Name:           pgtype.Text{String: name, Valid: true},
+			FavoriteGenres: []string{},
+		})
+		if err != nil {
+			if isUniqueViolation(err) {
+				// Race condition: another request created the user between our check and insert.
+				// Retry the lookup.
+				user, err = h.queries.GetUserByEmail(r.Context(), req.Email)
+				if err != nil {
+					slog.Error("google auth: retry get user", "error", err)
+					types.WriteInternalError(w)
+					return
+				}
+			} else {
+				slog.Error("google auth: create user", "error", err)
+				types.WriteInternalError(w)
+				return
+			}
+		}
+	}
+
+	accessToken, refreshToken, err := h.issueTokens(r, user.ID)
+	if err != nil {
+		slog.Error("google auth: issue tokens", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	go func() {
+		_ = h.queries.UpdateUserLastActive(r.Context(), user.ID)
+	}()
+
+	types.WriteJSON(w, http.StatusOK, types.AuthResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(h.cfg.AccessTokenExpiry.Seconds()),
+		User:         toUserResponse(user),
+	})
+}
+
+var invalidUsernameChars = regexp.MustCompile(`[^a-z0-9_\-]`)
+var multiUnderscore = regexp.MustCompile(`_+`)
+
+func usernameFromEmail(email string) string {
+	atIdx := strings.Index(email, "@")
+	if atIdx <= 0 {
+		return "user"
+	}
+	base := strings.ToLower(email[:atIdx])
+	base = invalidUsernameChars.ReplaceAllString(base, "_")
+	base = multiUnderscore.ReplaceAllString(base, "_")
+	base = strings.Trim(base, "_-")
+	if len(base) < 3 {
+		base += "_user"
+	}
+	if len(base) > 45 {
+		base = base[:45]
+	}
+	return base
+}
+
+func (h *Handler) generateUniqueUsername(ctx context.Context, email string) (string, error) {
+	base := usernameFromEmail(email)
+	for i := 0; i <= 99; i++ {
+		candidate := base
+		if i > 0 {
+			candidate = fmt.Sprintf("%s%d", base, i)
+		}
+		_, err := h.queries.GetUserByUsername(ctx, candidate)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return candidate, nil
+			}
+			return "", fmt.Errorf("check username availability: %w", err)
+		}
+	}
+	// Last resort: random hex suffix
+	b := make([]byte, 4)
+	if _, randErr := rand.Read(b); randErr != nil {
+		return "", randErr
+	}
+	suffix := base
+	if len(suffix) > 38 {
+		suffix = suffix[:38]
+	}
+	return fmt.Sprintf("%s_%x", suffix, b), nil
 }
 
 // issueTokens generates an access token + refresh token and persists the refresh token.

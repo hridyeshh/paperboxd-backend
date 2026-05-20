@@ -32,6 +32,8 @@ type Config struct {
 	RateLimitPerMinute int
 
 	CORSAllowedOrigins []string
+
+	InternalSecret string
 }
 
 func Load() (*Config, error) {
@@ -67,6 +69,8 @@ func Load() (*Config, error) {
 
 		CORSAllowedOrigins: getEnvAsStringSlice("CORS_ALLOWED_ORIGINS",
 			"http://localhost:3000,http://localhost:3001"),
+
+		InternalSecret: getEnv("INTERNAL_SECRET", ""),
 	}, nil
 }
 
