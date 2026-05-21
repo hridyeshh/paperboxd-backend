@@ -546,11 +546,6 @@ func (h *DiaryHandler) LikeDiaryEntry(w http.ResponseWriter, r *http.Request) {
 		types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Entry not found")
 		return
 	}
-	if entry.UserID == userID {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Cannot like your own entry")
-		return
-	}
-
 	already, err := h.Queries.CheckEntryLiked(r.Context(), db.CheckEntryLikedParams{
 		UserID:  userID,
 		EntryID: entryID,
