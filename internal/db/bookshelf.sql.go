@@ -151,7 +151,7 @@ SELECT
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = 'reading'
-ORDER BY bs.started_at DESC
+ORDER BY bs.updated_at DESC
 `
 
 type GetCurrentlyReadingRow struct {

@@ -822,6 +822,7 @@ func currentlyReadingRowToResponse(row db.GetCurrentlyReadingRow) types.Currentl
 		ProgressPercentage: progressPct,
 		PagesRemaining:     pagesRemaining,
 		CreatedAt:          row.CreatedAt.Time,
+		UpdatedAt:          row.UpdatedAt.Time,
 	}
 	if row.EstimatedFinishDate.Valid {
 		t := row.EstimatedFinishDate.Time

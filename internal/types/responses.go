@@ -187,6 +187,7 @@ type CurrentlyReadingResponse struct {
 	EstimatedFinishDate *time.Time   `json:"estimated_finish_date,omitempty"`
 	StartedAt           *time.Time   `json:"started_at,omitempty"`
 	CreatedAt           time.Time    `json:"created_at"`
+	UpdatedAt           time.Time    `json:"updated_at"`
 }
 
 // TBRResponse is returned from GET /api/v1/users/:username/tbr.
