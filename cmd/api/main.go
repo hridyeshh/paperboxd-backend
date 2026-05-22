@@ -299,6 +299,7 @@ func main() {
 				r.Get("/following", userHandler.GetFollowing)
 				r.Get("/tbr", userHandler.GetUserTBR)
 				r.Get("/reading", userHandler.GetCurrentlyReading)
+				r.Get("/reading/today", userHandler.GetTodayProgress)
 				r.Get("/favorites", favoritesHandler.GetUserFavorites)
 
 				// Favorites (auth-protected)

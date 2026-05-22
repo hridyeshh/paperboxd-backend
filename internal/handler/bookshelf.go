@@ -651,6 +651,14 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Read old page count before update so we can compute delta for reading_log.
+	oldPage := int32(0)
+	if oldEntry, err := h.Queries.GetBookshelfEntry(r.Context(), db.GetBookshelfEntryParams{
+		UserID: userID, BookID: bookID,
+	}); err == nil && oldEntry.CurrentPage.Valid {
+		oldPage = oldEntry.CurrentPage.Int32
+	}
+
 	params := db.UpdateReadingProgressParams{UserID: userID, BookID: bookID}
 
 	if req.CurrentPage != nil {
@@ -714,6 +722,19 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 				entry = updated
 			}
 		}
+	}
+
+	// Log progress delta to reading_log for home-page stats.
+	if req.CurrentPage != nil && *req.CurrentPage > oldPage {
+		delta := *req.CurrentPage - oldPage
+		logUserID, logBookID, logDelta := userID, bookID, delta
+		go func() {
+			_ = h.Queries.LogReadingProgress(context.Background(), db.LogReadingProgressParams{
+				UserID:     logUserID,
+				BookID:     logBookID,
+				PagesDelta: logDelta,
+			})
+		}()
 	}
 
 	bID := bookID
