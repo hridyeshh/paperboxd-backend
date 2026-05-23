@@ -343,7 +343,7 @@ func main() {
 					r.Post("/lists", listsHandler.CreateList)
 				})
 				r.Route("/lists/{listId}", func(r chi.Router) {
-					r.Get("/", listsHandler.GetListDetails)
+					r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/", listsHandler.GetListDetails)
 					r.Group(func(r chi.Router) {
 						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 						r.Put("/", listsHandler.UpdateList)
