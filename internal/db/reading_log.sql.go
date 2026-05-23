@@ -34,7 +34,7 @@ SELECT
     COUNT(DISTINCT book_id)::INT       AS total_books
 FROM reading_log
 WHERE user_id  = $1
-  AND logged_at >= CURRENT_DATE
+  AND (logged_at AT TIME ZONE 'UTC')::DATE = (NOW() AT TIME ZONE 'UTC')::DATE
 `
 
 type GetTodayReadingStatsRow struct {
@@ -65,7 +65,7 @@ FROM reading_log rl
 JOIN books     b  ON b.id  = rl.book_id
 JOIN bookshelf bs ON bs.user_id = rl.user_id AND bs.book_id = rl.book_id
 WHERE rl.user_id  = $1
-  AND rl.logged_at >= CURRENT_DATE
+  AND (rl.logged_at AT TIME ZONE 'UTC')::DATE = (NOW() AT TIME ZONE 'UTC')::DATE
 ORDER BY rl.logged_at DESC
 LIMIT 1
 `
@@ -101,13 +101,13 @@ func (q *Queries) GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) 
 
 const getWeeklyReadingStats = `
 SELECT
-    DATE(logged_at)                    AS log_date,
-    COALESCE(SUM(pages_delta), 0)::INT AS pages,
-    COUNT(DISTINCT book_id)::INT       AS books
+    (logged_at AT TIME ZONE 'UTC')::DATE AS log_date,
+    COALESCE(SUM(pages_delta), 0)::INT   AS pages,
+    COUNT(DISTINCT book_id)::INT         AS books
 FROM reading_log
 WHERE user_id  = $1
-  AND logged_at >= CURRENT_DATE - INTERVAL '6 days'
-GROUP BY DATE(logged_at)
+  AND (logged_at AT TIME ZONE 'UTC')::DATE >= (NOW() AT TIME ZONE 'UTC')::DATE - INTERVAL '6 days'
+GROUP BY (logged_at AT TIME ZONE 'UTC')::DATE
 ORDER BY log_date
 `
 

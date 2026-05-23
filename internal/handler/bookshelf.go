@@ -725,16 +725,17 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Log progress delta to reading_log for home-page stats.
+	// Synchronous so insert failures surface in logs (was async goroutine that
+	// silently swallowed errors when the reading_log table wasn't migrated).
 	if req.CurrentPage != nil && *req.CurrentPage > oldPage {
 		delta := *req.CurrentPage - oldPage
-		logUserID, logBookID, logDelta := userID, bookID, delta
-		go func() {
-			_ = h.Queries.LogReadingProgress(context.Background(), db.LogReadingProgressParams{
-				UserID:     logUserID,
-				BookID:     logBookID,
-				PagesDelta: logDelta,
-			})
-		}()
+		if logErr := h.Queries.LogReadingProgress(r.Context(), db.LogReadingProgressParams{
+			UserID:     userID,
+			BookID:     bookID,
+			PagesDelta: delta,
+		}); logErr != nil {
+			slog.Error("log reading progress", "error", logErr, "user_id", userID, "book_id", bookID, "delta", delta)
+		}
 	}
 
 	bID := bookID
