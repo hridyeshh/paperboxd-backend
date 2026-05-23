@@ -51,7 +51,18 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(user))
+	resp := userToResponse(user)
+
+	// Live follower / following counts — the cached counters on `users` can drift
+	// because Follow/Unfollow inserts into `follows` without updating them.
+	if followers, err := h.Queries.CountFollowers(r.Context(), user.ID); err == nil {
+		resp.FollowersCount = int32(followers)
+	}
+	if following, err := h.Queries.CountFollowing(r.Context(), user.ID); err == nil {
+		resp.FollowingCount = int32(following)
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
 }
 
 // Update handles PUT/PATCH /api/v1/users/:username (owner only)
