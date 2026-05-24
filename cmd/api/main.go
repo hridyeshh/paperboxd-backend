@@ -128,6 +128,7 @@ func main() {
 	referralHandler := handler.NewReferralHandler(queries)
 	eventsHandler := handler.NewEventsHandler(dbPool)
 	newsletterHandler := handler.NewNewsletterHandler(dbPool)
+	authorInfoHandler := handler.NewAuthorInfoHandler(cacheClient)
 
 	var embedder service.Embedder
 	if cfg.CohereAPIKey != "" {
@@ -221,6 +222,9 @@ func main() {
 			r.Post("/test/award-xp", xpHandler.TestAwardXP)
 			r.Get("/test/xp-info", xpHandler.TestGetXPInfo)
 		})
+
+		// Authors (public)
+		r.Get("/authors/info", authorInfoHandler.Get)
 
 		// Books
 		r.Route("/books", func(r chi.Router) {
