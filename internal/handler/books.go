@@ -908,6 +908,7 @@ func (h *BookHandler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
 		Rating     *int    `json:"rating"`
 		Review     *string `json:"review"`
 		ReviewedAt *string `json:"reviewed_at"`
+		Edited     bool    `json:"edited"`
 	}
 
 	items := make([]ReviewItem, len(rows))
@@ -915,6 +916,7 @@ func (h *BookHandler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
 		item := ReviewItem{
 			UserID:   row.UserID.String(),
 			Username: row.Username,
+			Edited:   row.ReviewEdited,
 		}
 		if row.AvatarUrl.Valid {
 			item.AvatarURL = &row.AvatarUrl.String

@@ -310,6 +310,7 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"rating": ratingPtr,
 		"review": reviewPtr,
+		"edited": entry.ReviewEdited,
 	})
 }
 

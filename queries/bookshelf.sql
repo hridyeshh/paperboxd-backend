@@ -150,7 +150,20 @@ UPDATE bookshelf
 SET
     rating = $3,
     review = $4,
-    reviewed_at = CASE WHEN $3::int IS NOT NULL OR ($4::text IS NOT NULL AND $4::text != '') THEN NOW() ELSE reviewed_at END,
+    reviewed_at = CASE
+        WHEN $3::int IS NULL AND ($4::text IS NULL OR $4::text = '')
+            THEN NULL
+        WHEN reviewed_at IS NULL AND ($3::int IS NOT NULL OR ($4::text IS NOT NULL AND $4::text != ''))
+            THEN NOW()
+        ELSE reviewed_at
+    END,
+    review_edited = CASE
+        WHEN reviewed_at IS NOT NULL AND ($3::int IS NOT NULL OR ($4::text IS NOT NULL AND $4::text != ''))
+            THEN TRUE
+        WHEN $3::int IS NULL AND ($4::text IS NULL OR $4::text = '')
+            THEN FALSE
+        ELSE review_edited
+    END,
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
 RETURNING *;
@@ -161,6 +174,7 @@ SELECT
     bs.rating,
     bs.review,
     bs.reviewed_at,
+    bs.review_edited,
     u.username,
     u.avatar_url
 FROM bookshelf bs

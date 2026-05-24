@@ -81,6 +81,7 @@ type Bookshelf struct {
 	Format              pgtype.Text        `json:"format"`
 	Review              pgtype.Text        `json:"review"`
 	ReviewedAt          pgtype.Timestamptz `json:"reviewed_at"`
+	ReviewEdited        bool               `json:"review_edited"`
 }
 
 type DiaryEntry struct {
