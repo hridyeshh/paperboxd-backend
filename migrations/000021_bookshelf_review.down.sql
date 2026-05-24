@@ -1,0 +1,2 @@
+ALTER TABLE bookshelf DROP COLUMN IF EXISTS review;
+ALTER TABLE bookshelf DROP COLUMN IF EXISTS reviewed_at;

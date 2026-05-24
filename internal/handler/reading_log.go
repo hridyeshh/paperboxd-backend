@@ -88,7 +88,7 @@ func (h *UserHandler) GetTodayProgress(w http.ResponseWriter, r *http.Request) {
 	weekRows, _ := h.Queries.GetWeeklyReadingStats(r.Context(), target.ID)
 	weekMap := make(map[string]db.GetWeeklyReadingStatsRow)
 	for _, wr := range weekRows {
-		weekMap[wr.LogDate.Format("2006-01-02")] = wr
+		weekMap[wr.LogDate.Time.Format("2006-01-02")] = wr
 	}
 	weekBars := make([]WeekBar, 7)
 	for i := 6; i >= 0; i-- {

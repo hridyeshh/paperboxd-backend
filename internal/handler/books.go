@@ -886,6 +886,56 @@ func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
 	}
 }
 
+// GetBookReviews handles GET /api/v1/books/{id}/reviews (public)
+func (h *BookHandler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	rows, err := h.Queries.GetBookReviews(r.Context(), bookID)
+	if err != nil {
+		slog.Error("get book reviews", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	type ReviewItem struct {
+		UserID     string  `json:"user_id"`
+		Username   string  `json:"username"`
+		AvatarURL  *string `json:"avatar_url"`
+		Rating     *int    `json:"rating"`
+		Review     *string `json:"review"`
+		ReviewedAt *string `json:"reviewed_at"`
+	}
+
+	items := make([]ReviewItem, len(rows))
+	for i, row := range rows {
+		item := ReviewItem{
+			UserID:   row.UserID.String(),
+			Username: row.Username,
+		}
+		if row.AvatarUrl.Valid {
+			item.AvatarURL = &row.AvatarUrl.String
+		}
+		if row.Rating.Valid {
+			v := int(row.Rating.Int32)
+			item.Rating = &v
+		}
+		if row.Review.Valid && row.Review.String != "" {
+			item.Review = &row.Review.String
+		}
+		if row.ReviewedAt.Valid {
+			s := row.ReviewedAt.Time.Format(time.RFC3339)
+			item.ReviewedAt = &s
+		}
+		items[i] = item
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{"reviews": items})
+}
+
 // CleanupStaleBooks handles DELETE /api/v1/admin/cleanup-books
 // Removes books older than 15 days that are not in any user's collection.
 func (h *BookHandler) CleanupStaleBooks(w http.ResponseWriter, r *http.Request) {

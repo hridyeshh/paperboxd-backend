@@ -7,6 +7,7 @@ package db
 import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 type AccountDeletion struct {
@@ -57,6 +58,7 @@ type Book struct {
 	PreviewLink     pgtype.Text        `json:"preview_link"`
 	TotalReadsCount pgtype.Int4        `json:"total_reads_count"`
 	TotalTbrCount   pgtype.Int4        `json:"total_tbr_count"`
+	Embedding       pgvector.Vector    `json:"embedding"`
 }
 
 type Bookshelf struct {
@@ -77,6 +79,8 @@ type Bookshelf struct {
 	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
 	Notes               pgtype.Text        `json:"notes"`
 	Format              pgtype.Text        `json:"format"`
+	Review              pgtype.Text        `json:"review"`
+	ReviewedAt          pgtype.Timestamptz `json:"reviewed_at"`
 }
 
 type DiaryEntry struct {
@@ -96,6 +100,15 @@ type DiaryEntryLike struct {
 	UserID    uuid.UUID        `json:"user_id"`
 	EntryID   uuid.UUID        `json:"entry_id"`
 	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
+type Event struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	BookID    pgtype.UUID        `json:"book_id"`
+	EventType string             `json:"event_type"`
+	Metadata  []byte             `json:"metadata"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type Favorite struct {
@@ -179,6 +192,12 @@ type Newsletter struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type NewsletterSubscription struct {
+	ID        uuid.UUID          `json:"id"`
+	Email     string             `json:"email"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type OtpCode struct {
 	ID          uuid.UUID          `json:"id"`
 	Email       string             `json:"email"`
@@ -198,6 +217,22 @@ type PasswordResetToken struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	UsedAt    pgtype.Timestamptz `json:"used_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type ReadingLog struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	BookID     uuid.UUID          `json:"book_id"`
+	PagesDelta int32              `json:"pages_delta"`
+	LoggedAt   pgtype.Timestamptz `json:"logged_at"`
+}
+
+type RecommendationImpression struct {
+	UserID        uuid.UUID          `json:"user_id"`
+	BookID        uuid.UUID          `json:"book_id"`
+	SeenCount     pgtype.Int4        `json:"seen_count"`
+	LastSeen      pgtype.Timestamptz `json:"last_seen"`
+	SuppressUntil pgtype.Timestamptz `json:"suppress_until"`
 }
 
 type RefreshToken struct {
@@ -275,6 +310,14 @@ type UserPreferencesLegacy struct {
 	Payload        []byte             `json:"payload"`
 	MongoUpdatedAt pgtype.Timestamptz `json:"mongo_updated_at"`
 	MigratedAt     pgtype.Timestamptz `json:"migrated_at"`
+}
+
+type UserSignalProfile struct {
+	UserID        uuid.UUID          `json:"user_id"`
+	GenreWeights  []byte             `json:"genre_weights"`
+	AuthorWeights []byte             `json:"author_weights"`
+	ComputedAt    pgtype.Timestamptz `json:"computed_at"`
+	BookshelfHash pgtype.Text        `json:"bookshelf_hash"`
 }
 
 type XpTransaction struct {

@@ -144,3 +144,28 @@ SET
     updated_at = NOW()
 WHERE user_id = $1 AND book_id = $2
 RETURNING *;
+
+-- name: UpdateBookshelfRating :one
+UPDATE bookshelf
+SET
+    rating = $3,
+    review = $4,
+    reviewed_at = CASE WHEN $3::int IS NOT NULL OR ($4::text IS NOT NULL AND $4::text != '') THEN NOW() ELSE reviewed_at END,
+    updated_at = NOW()
+WHERE user_id = $1 AND book_id = $2
+RETURNING *;
+
+-- name: GetBookReviews :many
+SELECT
+    bs.user_id,
+    bs.rating,
+    bs.review,
+    bs.reviewed_at,
+    u.username,
+    u.avatar_url
+FROM bookshelf bs
+JOIN users u ON bs.user_id = u.id
+WHERE bs.book_id = $1
+  AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
+ORDER BY bs.reviewed_at DESC NULLS LAST
+LIMIT 50;

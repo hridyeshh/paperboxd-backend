@@ -242,6 +242,7 @@ func main() {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", bookHandler.GetByID)
 				r.Get("/diary", diaryHandler.GetBookDiaryEntries)
+				r.Get("/reviews", bookHandler.GetBookReviews)
 
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
@@ -374,6 +375,7 @@ func main() {
 						r.Group(func(r chi.Router) {
 							r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 							r.Delete("/", userHandler.RemoveFromBookshelf)
+							r.Patch("/", userHandler.UpdateBookshelfRating)
 							r.Put("/tbr", userHandler.UpdateTBRNotes)
 							r.Put("/progress", userHandler.UpdateReadingProgress)
 							r.Post("/start", userHandler.MarkAsStarted)

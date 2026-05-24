@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 const checkUserLikedBook = `-- name: CheckUserLikedBook :one
@@ -29,7 +30,7 @@ func (q *Queries) CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBook
 }
 
 const getUserLikes = `-- name: GetUserLikes :many
-SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, l.created_at as liked_at
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, l.created_at as liked_at
 FROM likes l
 JOIN books b ON l.book_id = b.id
 WHERE l.user_id = $1
@@ -70,6 +71,7 @@ type GetUserLikesRow struct {
 	PreviewLink     pgtype.Text        `json:"preview_link"`
 	TotalReadsCount pgtype.Int4        `json:"total_reads_count"`
 	TotalTbrCount   pgtype.Int4        `json:"total_tbr_count"`
+	Embedding       pgvector.Vector    `json:"embedding"`
 	LikedAt         pgtype.Timestamptz `json:"liked_at"`
 }
 
@@ -109,6 +111,7 @@ func (q *Queries) GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]G
 			&i.PreviewLink,
 			&i.TotalReadsCount,
 			&i.TotalTbrCount,
+			&i.Embedding,
 			&i.LikedAt,
 		); err != nil {
 			return nil, err

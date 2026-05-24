@@ -66,6 +66,7 @@ type Querier interface {
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
+	GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBookReviewsRow, error)
 	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
@@ -80,6 +81,7 @@ type Querier interface {
 	// ============================================================================
 	GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeaderboardParams) ([]LeaderboardStat, error)
 	GetGlobalLeaderboard(ctx context.Context, limit int32) ([]LeaderboardStat, error)
+	GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookTodayRow, error)
 	GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error)
 	GetLeaderboardByDimension(ctx context.Context, arg GetLeaderboardByDimensionParams) ([]LeaderboardStat, error)
 	GetListAccessUsers(ctx context.Context, listID uuid.UUID) ([]GetListAccessUsersRow, error)
@@ -94,6 +96,7 @@ type Querier interface {
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
+	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -115,6 +118,7 @@ type Querier interface {
 	GetUserXP(ctx context.Context, id uuid.UUID) (GetUserXPRow, error)
 	GetUserXPHistory(ctx context.Context, arg GetUserXPHistoryParams) ([]GetUserXPHistoryRow, error)
 	GetUserXPToday(ctx context.Context, userID uuid.UUID) (int32, error)
+	GetWeeklyReadingStats(ctx context.Context, userID uuid.UUID) ([]GetWeeklyReadingStatsRow, error)
 	// Access Control
 	GrantListAccess(ctx context.Context, arg GrantListAccessParams) (ListAccess, error)
 	HasClaimedReferralReward(ctx context.Context, arg HasClaimedReferralRewardParams) (bool, error)
@@ -127,6 +131,7 @@ type Querier interface {
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
 	// Likes
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
+	LogReadingProgress(ctx context.Context, arg LogReadingProgressParams) error
 	// ============================================================================
 	// XP TRANSACTION LOGGING
 	// ============================================================================
@@ -161,6 +166,7 @@ type Querier interface {
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
 	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error
 	UnsaveList(ctx context.Context, arg UnsaveListParams) error
+	UpdateBookshelfRating(ctx context.Context, arg UpdateBookshelfRatingParams) (Bookshelf, error)
 	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
 	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)

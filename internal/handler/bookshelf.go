@@ -245,6 +245,74 @@ func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.G
 }
 
 
+// UpdateBookshelfRating handles PATCH /api/v1/users/:username/bookshelf/:bookId
+func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	var req struct {
+		Rating *int    `json:"rating"`
+		Review *string `json:"review"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid JSON body")
+		return
+	}
+
+	if req.Rating != nil && (*req.Rating < 0 || *req.Rating > 5) {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "rating must be between 0 and 5 (0 clears)")
+		return
+	}
+	if req.Review != nil && len([]rune(*req.Review)) > 500 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "review must be 500 characters or fewer")
+		return
+	}
+
+	params := db.UpdateBookshelfRatingParams{
+		UserID: userID,
+		BookID: bookID,
+	}
+	if req.Rating != nil && *req.Rating > 0 {
+		params.Rating = pgtype.Int4{Int32: int32(*req.Rating), Valid: true}
+	}
+	if req.Review != nil {
+		params.Review = pgtype.Text{String: *req.Review, Valid: true}
+	}
+
+	entry, err := h.Queries.UpdateBookshelfRating(r.Context(), params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not in bookshelf")
+		return
+	}
+	if err != nil {
+		slog.Error("update bookshelf rating", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	var ratingPtr *int
+	if entry.Rating.Valid {
+		v := int(entry.Rating.Int32)
+		ratingPtr = &v
+	}
+	var reviewPtr *string
+	if entry.Review.Valid {
+		reviewPtr = &entry.Review.String
+	}
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"rating": ratingPtr,
+		"review": reviewPtr,
+	})
+}
+
 // RemoveFromBookshelf handles DELETE /api/v1/users/:username/bookshelf/:bookId
 func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := h.resolveOwner(w, r)
