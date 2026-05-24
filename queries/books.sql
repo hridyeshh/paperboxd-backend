@@ -31,7 +31,7 @@ SELECT * FROM books WHERE google_books_id = $1;
 -- name: SearchBooksInDB :many
 SELECT * FROM books
 WHERE title ILIKE '%' || $1 || '%'
-   OR $1 = ANY(authors)
+   OR $1 ILIKE ANY(authors)
 ORDER BY view_count DESC
 LIMIT $2 OFFSET $3;
 
