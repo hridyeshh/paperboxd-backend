@@ -297,7 +297,7 @@ func (q *Queries) GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const getUserBookshelf = `-- name: GetUserBookshelf :many
-SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = $2
@@ -313,37 +313,39 @@ type GetUserBookshelfParams struct {
 }
 
 type GetUserBookshelfRow struct {
-	ID              uuid.UUID          `json:"id"`
-	Title           string             `json:"title"`
-	Slug            string             `json:"slug"`
-	Authors         []string           `json:"authors"`
-	Isbn13          pgtype.Text        `json:"isbn_13"`
-	GoogleBooksID   pgtype.Text        `json:"google_books_id"`
-	Metadata        []byte             `json:"metadata"`
-	ViewCount       pgtype.Int4        `json:"view_count"`
-	LikeCount       pgtype.Int4        `json:"like_count"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	Description     pgtype.Text        `json:"description"`
-	PublishedDate   pgtype.Date        `json:"published_date"`
-	PageCount       pgtype.Int4        `json:"page_count"`
-	Language        pgtype.Text        `json:"language"`
-	CoverUrl        pgtype.Text        `json:"cover_url"`
-	Categories      []string           `json:"categories"`
-	Subtitle        pgtype.Text        `json:"subtitle"`
-	Publisher       pgtype.Text        `json:"publisher"`
-	IsbndbID        pgtype.Text        `json:"isbndb_id"`
-	OpenLibraryID   pgtype.Text        `json:"open_library_id"`
-	AverageRating   pgtype.Float8      `json:"average_rating"`
-	RatingsCount    pgtype.Int4        `json:"ratings_count"`
-	PreviewLink     pgtype.Text        `json:"preview_link"`
-	TotalReadsCount pgtype.Int4        `json:"total_reads_count"`
-	TotalTbrCount   pgtype.Int4        `json:"total_tbr_count"`
-	Embedding       pgvector.Vector    `json:"embedding"`
-	Status          string             `json:"status"`
-	Rating          pgtype.Int4        `json:"rating"`
-	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
-	AddedAt         pgtype.Timestamptz `json:"added_at"`
+	ID                uuid.UUID          `json:"id"`
+	Title             string             `json:"title"`
+	Slug              string             `json:"slug"`
+	Authors           []string           `json:"authors"`
+	Isbn13            pgtype.Text        `json:"isbn_13"`
+	GoogleBooksID     pgtype.Text        `json:"google_books_id"`
+	Metadata          []byte             `json:"metadata"`
+	ViewCount         pgtype.Int4        `json:"view_count"`
+	LikeCount         pgtype.Int4        `json:"like_count"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	Description       pgtype.Text        `json:"description"`
+	PublishedDate     pgtype.Date        `json:"published_date"`
+	PageCount         pgtype.Int4        `json:"page_count"`
+	Language          pgtype.Text        `json:"language"`
+	CoverUrl          pgtype.Text        `json:"cover_url"`
+	Categories        []string           `json:"categories"`
+	Subtitle          pgtype.Text        `json:"subtitle"`
+	Publisher         pgtype.Text        `json:"publisher"`
+	IsbndbID          pgtype.Text        `json:"isbndb_id"`
+	OpenLibraryID     pgtype.Text        `json:"open_library_id"`
+	AverageRating     pgtype.Float8      `json:"average_rating"`
+	RatingsCount      pgtype.Int4        `json:"ratings_count"`
+	PreviewLink       pgtype.Text        `json:"preview_link"`
+	TotalReadsCount   pgtype.Int4        `json:"total_reads_count"`
+	TotalTbrCount     pgtype.Int4        `json:"total_tbr_count"`
+	Embedding         pgvector.Vector    `json:"embedding"`
+	EmbeddingText     pgtype.Text        `json:"embedding_text"`
+	DescriptionSource pgtype.Text        `json:"description_source"`
+	Status            string             `json:"status"`
+	Rating            pgtype.Int4        `json:"rating"`
+	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
+	AddedAt           pgtype.Timestamptz `json:"added_at"`
 }
 
 func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error) {
@@ -388,6 +390,8 @@ func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfPara
 			&i.TotalReadsCount,
 			&i.TotalTbrCount,
 			&i.Embedding,
+			&i.EmbeddingText,
+			&i.DescriptionSource,
 			&i.Status,
 			&i.Rating,
 			&i.FinishedAt,

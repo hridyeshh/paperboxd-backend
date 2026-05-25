@@ -66,10 +66,13 @@ type Querier interface {
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
+	GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string) ([]GetBookEmbeddingsByIDsRow, error)
 	GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBookReviewsRow, error)
 	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
+	GetDiaryEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetDiaryEmbeddingsForUserRow, error)
+	GetDiaryEntriesWithoutEmbedding(ctx context.Context) ([]GetDiaryEntriesWithoutEmbeddingRow, error)
 	GetDiaryEntryByID(ctx context.Context, id uuid.UUID) (DiaryEntry, error)
 	GetEntryLikes(ctx context.Context, entryID uuid.UUID) ([]GetEntryLikesRow, error)
 	GetFavoriteByUserAndBook(ctx context.Context, arg GetFavoriteByUserAndBookParams) (Favorite, error)
@@ -169,6 +172,7 @@ type Querier interface {
 	UpdateBookshelfRating(ctx context.Context, arg UpdateBookshelfRatingParams) (Bookshelf, error)
 	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
 	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
+	UpdateDiaryEntryEmbedding(ctx context.Context, arg UpdateDiaryEntryEmbeddingParams) error
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
 	UpdateLeaderboardRankings(ctx context.Context) error
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
@@ -185,6 +189,7 @@ type Querier interface {
 	UpdateUserStreak(ctx context.Context, id uuid.UUID) error
 	UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error)
 	UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error)
+	VibeSearchBooks(ctx context.Context, arg VibeSearchBooksParams) ([]VibeSearchBooksRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

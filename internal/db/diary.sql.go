@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 const checkEntryLiked = `-- name: CheckEntryLiked :one
@@ -70,7 +71,7 @@ func (q *Queries) CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (
 const createDiaryEntry = `-- name: CreateDiaryEntry :one
 INSERT INTO diary_entries (user_id, book_id, title, content, is_private, rating)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, book_id, title, content, is_private, rating, created_at, updated_at
+RETURNING id, user_id, book_id, title, content, is_private, rating, created_at, updated_at, embedding, embedding_text
 `
 
 type CreateDiaryEntryParams struct {
@@ -102,6 +103,8 @@ func (q *Queries) CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryPara
 		&i.Rating,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Embedding,
+		&i.EmbeddingText,
 	)
 	return i, err
 }
@@ -202,8 +205,93 @@ func (q *Queries) GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntri
 	return items, nil
 }
 
+const getDiaryEmbeddingsForUser = `-- name: GetDiaryEmbeddingsForUser :many
+SELECT id, embedding_text, embedding
+FROM diary_entries
+WHERE user_id = $1
+  AND embedding IS NOT NULL
+ORDER BY created_at DESC
+LIMIT 50
+`
+
+type GetDiaryEmbeddingsForUserRow struct {
+	ID            uuid.UUID       `json:"id"`
+	EmbeddingText pgtype.Text     `json:"embedding_text"`
+	Embedding     pgvector.Vector `json:"embedding"`
+}
+
+func (q *Queries) GetDiaryEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetDiaryEmbeddingsForUserRow, error) {
+	rows, err := q.db.Query(ctx, getDiaryEmbeddingsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetDiaryEmbeddingsForUserRow{}
+	for rows.Next() {
+		var i GetDiaryEmbeddingsForUserRow
+		if err := rows.Scan(&i.ID, &i.EmbeddingText, &i.Embedding); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDiaryEntriesWithoutEmbedding = `-- name: GetDiaryEntriesWithoutEmbedding :many
+SELECT
+    de.id,
+    de.user_id,
+    de.content,
+    de.embedding_text,
+    b.title   AS book_title,
+    b.authors AS book_authors
+FROM diary_entries de
+LEFT JOIN books b ON de.book_id = b.id
+WHERE de.embedding IS NULL
+ORDER BY de.created_at DESC
+`
+
+type GetDiaryEntriesWithoutEmbeddingRow struct {
+	ID            uuid.UUID   `json:"id"`
+	UserID        uuid.UUID   `json:"user_id"`
+	Content       string      `json:"content"`
+	EmbeddingText pgtype.Text `json:"embedding_text"`
+	BookTitle     pgtype.Text `json:"book_title"`
+	BookAuthors   []string    `json:"book_authors"`
+}
+
+func (q *Queries) GetDiaryEntriesWithoutEmbedding(ctx context.Context) ([]GetDiaryEntriesWithoutEmbeddingRow, error) {
+	rows, err := q.db.Query(ctx, getDiaryEntriesWithoutEmbedding)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetDiaryEntriesWithoutEmbeddingRow{}
+	for rows.Next() {
+		var i GetDiaryEntriesWithoutEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Content,
+			&i.EmbeddingText,
+			&i.BookTitle,
+			&i.BookAuthors,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDiaryEntryByID = `-- name: GetDiaryEntryByID :one
-SELECT id, user_id, book_id, title, content, is_private, rating, created_at, updated_at FROM diary_entries
+SELECT id, user_id, book_id, title, content, is_private, rating, created_at, updated_at, embedding, embedding_text FROM diary_entries
 WHERE id = $1
 `
 
@@ -220,6 +308,8 @@ func (q *Queries) GetDiaryEntryByID(ctx context.Context, id uuid.UUID) (DiaryEnt
 		&i.Rating,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Embedding,
+		&i.EmbeddingText,
 	)
 	return i, err
 }
@@ -422,7 +512,7 @@ SET
     rating = $5,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, user_id, book_id, title, content, is_private, rating, created_at, updated_at
+RETURNING id, user_id, book_id, title, content, is_private, rating, created_at, updated_at, embedding, embedding_text
 `
 
 type UpdateDiaryEntryParams struct {
@@ -452,6 +542,25 @@ func (q *Queries) UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryPara
 		&i.Rating,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Embedding,
+		&i.EmbeddingText,
 	)
 	return i, err
+}
+
+const updateDiaryEntryEmbedding = `-- name: UpdateDiaryEntryEmbedding :exec
+UPDATE diary_entries
+SET embedding = $2::vector, embedding_text = $3
+WHERE id = $1
+`
+
+type UpdateDiaryEntryEmbeddingParams struct {
+	ID            uuid.UUID       `json:"id"`
+	Column2       pgvector.Vector `json:"column_2"`
+	EmbeddingText pgtype.Text     `json:"embedding_text"`
+}
+
+func (q *Queries) UpdateDiaryEntryEmbedding(ctx context.Context, arg UpdateDiaryEntryEmbeddingParams) error {
+	_, err := q.db.Exec(ctx, updateDiaryEntryEmbedding, arg.ID, arg.Column2, arg.EmbeddingText)
+	return err
 }

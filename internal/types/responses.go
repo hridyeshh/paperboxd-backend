@@ -290,6 +290,30 @@ type ActivityResponse struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// VibeBookResult is a single result from vibe/semantic search.
+// Embeds the same volumeInfo shape as BookResponse so the frontend
+// BookSearchItem component can render it without changes.
+type VibeBookResult struct {
+	ID              string         `json:"id"`
+	Slug            string         `json:"slug"`
+	APISource       string         `json:"apiSource"`
+	FromCache       bool           `json:"fromCache"`
+	VolumeInfo      VolumeInfo     `json:"volumeInfo"`
+	PaperboxdStats  PaperboxdStats `json:"paperboxdStats"`
+	SimilarityScore float64        `json:"similarityScore"`
+	MatchReason     string         `json:"matchReason"`
+	ReasonType      string         `json:"reasonType,omitempty"`
+}
+
+// VibeSearchResponse is the response from POST /api/v1/search/vibe.
+type VibeSearchResponse struct {
+	Kind         string           `json:"kind"`
+	Query        string           `json:"query"`
+	TotalItems   int              `json:"totalItems"`
+	Personalised bool             `json:"personalised"`
+	Items        []VibeBookResult `json:"items"`
+}
+
 // WriteJSON writes a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, statusCode int, v any) {
 	w.Header().Set("Content-Type", "application/json")

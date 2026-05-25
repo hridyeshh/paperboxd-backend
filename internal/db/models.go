@@ -32,33 +32,35 @@ type Activity struct {
 }
 
 type Book struct {
-	ID              uuid.UUID          `json:"id"`
-	Title           string             `json:"title"`
-	Slug            string             `json:"slug"`
-	Authors         []string           `json:"authors"`
-	Isbn13          pgtype.Text        `json:"isbn_13"`
-	GoogleBooksID   pgtype.Text        `json:"google_books_id"`
-	Metadata        []byte             `json:"metadata"`
-	ViewCount       pgtype.Int4        `json:"view_count"`
-	LikeCount       pgtype.Int4        `json:"like_count"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	Description     pgtype.Text        `json:"description"`
-	PublishedDate   pgtype.Date        `json:"published_date"`
-	PageCount       pgtype.Int4        `json:"page_count"`
-	Language        pgtype.Text        `json:"language"`
-	CoverUrl        pgtype.Text        `json:"cover_url"`
-	Categories      []string           `json:"categories"`
-	Subtitle        pgtype.Text        `json:"subtitle"`
-	Publisher       pgtype.Text        `json:"publisher"`
-	IsbndbID        pgtype.Text        `json:"isbndb_id"`
-	OpenLibraryID   pgtype.Text        `json:"open_library_id"`
-	AverageRating   pgtype.Float8      `json:"average_rating"`
-	RatingsCount    pgtype.Int4        `json:"ratings_count"`
-	PreviewLink     pgtype.Text        `json:"preview_link"`
-	TotalReadsCount pgtype.Int4        `json:"total_reads_count"`
-	TotalTbrCount   pgtype.Int4        `json:"total_tbr_count"`
-	Embedding       pgvector.Vector    `json:"embedding"`
+	ID                uuid.UUID          `json:"id"`
+	Title             string             `json:"title"`
+	Slug              string             `json:"slug"`
+	Authors           []string           `json:"authors"`
+	Isbn13            pgtype.Text        `json:"isbn_13"`
+	GoogleBooksID     pgtype.Text        `json:"google_books_id"`
+	Metadata          []byte             `json:"metadata"`
+	ViewCount         pgtype.Int4        `json:"view_count"`
+	LikeCount         pgtype.Int4        `json:"like_count"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	Description       pgtype.Text        `json:"description"`
+	PublishedDate     pgtype.Date        `json:"published_date"`
+	PageCount         pgtype.Int4        `json:"page_count"`
+	Language          pgtype.Text        `json:"language"`
+	CoverUrl          pgtype.Text        `json:"cover_url"`
+	Categories        []string           `json:"categories"`
+	Subtitle          pgtype.Text        `json:"subtitle"`
+	Publisher         pgtype.Text        `json:"publisher"`
+	IsbndbID          pgtype.Text        `json:"isbndb_id"`
+	OpenLibraryID     pgtype.Text        `json:"open_library_id"`
+	AverageRating     pgtype.Float8      `json:"average_rating"`
+	RatingsCount      pgtype.Int4        `json:"ratings_count"`
+	PreviewLink       pgtype.Text        `json:"preview_link"`
+	TotalReadsCount   pgtype.Int4        `json:"total_reads_count"`
+	TotalTbrCount     pgtype.Int4        `json:"total_tbr_count"`
+	Embedding         pgvector.Vector    `json:"embedding"`
+	EmbeddingText     pgtype.Text        `json:"embedding_text"`
+	DescriptionSource pgtype.Text        `json:"description_source"`
 }
 
 type Bookshelf struct {
@@ -85,15 +87,17 @@ type Bookshelf struct {
 }
 
 type DiaryEntry struct {
-	ID        uuid.UUID        `json:"id"`
-	UserID    uuid.UUID        `json:"user_id"`
-	BookID    pgtype.UUID      `json:"book_id"`
-	Title     pgtype.Text      `json:"title"`
-	Content   string           `json:"content"`
-	IsPrivate bool             `json:"is_private"`
-	Rating    pgtype.Int4      `json:"rating"`
-	CreatedAt pgtype.Timestamp `json:"created_at"`
-	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+	ID            uuid.UUID        `json:"id"`
+	UserID        uuid.UUID        `json:"user_id"`
+	BookID        pgtype.UUID      `json:"book_id"`
+	Title         pgtype.Text      `json:"title"`
+	Content       string           `json:"content"`
+	IsPrivate     bool             `json:"is_private"`
+	Rating        pgtype.Int4      `json:"rating"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	Embedding     pgvector.Vector  `json:"embedding"`
+	EmbeddingText pgtype.Text      `json:"embedding_text"`
 }
 
 type DiaryEntryLike struct {
@@ -120,6 +124,13 @@ type Favorite struct {
 	FavoriteNote pgtype.Text      `json:"favorite_note"`
 	CreatedAt    pgtype.Timestamp `json:"created_at"`
 	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
+}
+
+type FeatureFlag struct {
+	Key         string             `json:"key"`
+	Value       string             `json:"value"`
+	Description pgtype.Text        `json:"description"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Follow struct {
@@ -314,11 +325,17 @@ type UserPreferencesLegacy struct {
 }
 
 type UserSignalProfile struct {
-	UserID        uuid.UUID          `json:"user_id"`
-	GenreWeights  []byte             `json:"genre_weights"`
-	AuthorWeights []byte             `json:"author_weights"`
-	ComputedAt    pgtype.Timestamptz `json:"computed_at"`
-	BookshelfHash pgtype.Text        `json:"bookshelf_hash"`
+	UserID              uuid.UUID          `json:"user_id"`
+	GenreWeights        []byte             `json:"genre_weights"`
+	AuthorWeights       []byte             `json:"author_weights"`
+	ComputedAt          pgtype.Timestamptz `json:"computed_at"`
+	BookshelfHash       pgtype.Text        `json:"bookshelf_hash"`
+	VelocitySignal      []byte             `json:"velocity_signal"`
+	DiarySignal         []byte             `json:"diary_signal"`
+	DiaryEmbedding      pgvector.Vector    `json:"diary_embedding"`
+	SocialSignal        []byte             `json:"social_signal"`
+	SignalVersion       int32              `json:"signal_version"`
+	FastFinishEmbedding pgvector.Vector    `json:"fast_finish_embedding"`
 }
 
 type XpTransaction struct {

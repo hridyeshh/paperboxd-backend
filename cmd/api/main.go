@@ -121,7 +121,6 @@ func main() {
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
-	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
 	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
@@ -140,6 +139,8 @@ func main() {
 	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
 	cron.StartNightlyCron(dbPool, recommendationSvc)
+
+	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc)
 
 	userHandler := &handler.UserHandler{
 		Queries:               queries,
@@ -284,6 +285,9 @@ func main() {
 			r.Get("/similar/{bookId}", recommendationHandler.GetSimilarBooks)
 			r.Post("/feedback", recommendationHandler.PostFeedback)
 		})
+
+		// Vibe / semantic search — no auth required, personalised when logged in
+		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/vibe", bookHandler.VibeSearch)
 
 		// Admin
 		r.Route("/admin", func(r chi.Router) {

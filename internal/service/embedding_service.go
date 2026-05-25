@@ -111,25 +111,30 @@ func (e *CohereEmbedder) embedBatch(texts []string, inputType string) ([][]float
 	return cohereResp.Embeddings.Float, nil
 }
 
-// BookEmbedText builds the text fed to Cohere for a book. Description is nullable.
-func BookEmbedText(title, subtitle, primaryAuthor string, categories []string, description string) string {
-	sb := strings.Builder{}
-	sb.WriteString(title)
-	sb.WriteString(" by ")
-	sb.WriteString(primaryAuthor)
-	if subtitle != "" {
-		sb.WriteString(" | ")
-		sb.WriteString(subtitle)
+// BookEmbedText builds the composite string fed to Cohere for a book.
+// Uses all authors, publisher, and full description for richer semantic signal.
+func BookEmbedText(title, subtitle string, authors []string, publisher string, categories []string, description string) string {
+	var parts []string
+
+	parts = append(parts, "Title: "+title)
+
+	if len(authors) > 0 {
+		parts = append(parts, "Authors: "+strings.Join(authors, ", "))
+	}
+	if publisher != "" {
+		parts = append(parts, "Publisher: "+publisher)
 	}
 	if len(categories) > 0 {
-		sb.WriteString(" | ")
-		sb.WriteString(strings.Join(categories, ", "))
+		parts = append(parts, "Categories: "+strings.Join(categories, ", "))
+	}
+	if subtitle != "" {
+		parts = append(parts, "Subtitle: "+subtitle)
 	}
 	if description != "" {
-		sb.WriteString(" | ")
-		sb.WriteString(description)
+		parts = append(parts, "Description: "+description)
 	}
-	return sb.String()
+
+	return strings.Join(parts, "\n")
 }
 
 // NoopEmbedder returns zero vectors — used when COHERE_API_KEY is absent.

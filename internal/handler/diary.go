@@ -21,17 +21,19 @@ import (
 
 // DiaryHandler holds dependencies for diary entry endpoints.
 type DiaryHandler struct {
-	Queries     *db.Queries
-	ISBNdb      *external.ISBNdbClient
-	GoogleBooks *external.GoogleBooksClient
+	Queries               *db.Queries
+	ISBNdb                *external.ISBNdbClient
+	GoogleBooks           *external.GoogleBooksClient
+	RecommendationService *service.RecommendationService
 }
 
 // NewDiaryHandler creates a DiaryHandler.
-func NewDiaryHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient) *DiaryHandler {
+func NewDiaryHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient, rec *service.RecommendationService) *DiaryHandler {
 	return &DiaryHandler{
-		Queries:     queries,
-		ISBNdb:      isbndb,
-		GoogleBooks: google,
+		Queries:               queries,
+		ISBNdb:                isbndb,
+		GoogleBooks:           google,
+		RecommendationService: rec,
 	}
 }
 
@@ -62,7 +64,7 @@ func (h *DiaryHandler) resolveBookForDiary(ctx context.Context, bookID, isbn, go
 	case googleBooksID != nil:
 		book, err := h.Queries.GetBookByGoogleID(ctx, pgtype.Text{String: *googleBooksID, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
-			book, err = cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, *googleBooksID)
+			book, err = cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, *googleBooksID, nil)
 		}
 		if err != nil {
 			return pgtype.UUID{}, err
@@ -72,7 +74,7 @@ func (h *DiaryHandler) resolveBookForDiary(ctx context.Context, bookID, isbn, go
 	case isbn != nil:
 		book, err := h.Queries.GetBookByISBN(ctx, pgtype.Text{String: *isbn, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
-			book, err = cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, *isbn)
+			book, err = cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, *isbn, nil)
 		}
 		if err != nil {
 			return pgtype.UUID{}, err
@@ -184,6 +186,22 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 		_ = xpSvc.AwardXP(context.Background(), userID, "diary_entry", xpAmount, &entryID)
 		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
 	}()
+
+	if h.RecommendationService != nil && entry.BookID.Valid {
+		entryIDStr := entryID.String()
+		bookUUID := entry.BookID.Bytes
+		content := req.Content
+		go func() {
+			ctx := context.Background()
+			var bookTitle string
+			var bookAuthors []string
+			if book, err := h.Queries.GetBookByID(ctx, bookUUID); err == nil {
+				bookTitle = book.Title
+				bookAuthors = book.Authors
+			}
+			h.RecommendationService.EmbedDiaryEntryAsync(entryIDStr, bookTitle, bookAuthors, content)
+		}()
+	}
 
 	likesCount, _ := h.Queries.CountEntryLikes(r.Context(), entry.ID)
 	resp := diaryEntryToResponse(entry, username, target.Name.String, target.AvatarUrl, likesCount, false, true)

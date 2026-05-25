@@ -5,6 +5,77 @@ import (
 	"time"
 )
 
+// VelocitySignal captures reading speed behaviour for a user.
+type VelocitySignal struct {
+	AvgDaysToFinish    float64            `json:"avg_days_to_finish"`
+	VelocityBucket     string             `json:"velocity_bucket"` // "fast"(<7d), "medium"(7-21d), "slow"(>21d)
+	GenreVelocity      map[string]float64 `json:"genre_velocity,omitempty"`
+	FastFinishBookIDs  []string           `json:"fast_finish_book_ids,omitempty"`
+	AbandonedBookIDs   []string           `json:"abandoned_book_ids,omitempty"`
+	ComputedFromNBooks int                `json:"computed_from_n_books"`
+}
+
+// computeVelocitySignal derives reading-speed signals from bookshelf entries.
+// Abandoned = status "reading", started_at non-null, finished_at IS NULL, started > 60 days ago.
+func computeVelocitySignal(books []BookshelfEntry) VelocitySignal {
+	sig := VelocitySignal{GenreVelocity: map[string]float64{}}
+
+	var totalDays float64
+	genreDays := map[string][]float64{}
+	genreCount := map[string]int{}
+
+	for _, b := range books {
+		if b.FinishedAt == nil {
+			// Check abandoned: reading, started > 60 days ago
+			if b.Status == "reading" {
+				startedAt := b.CreatedAt
+				if time.Since(startedAt) > 60*24*time.Hour {
+					sig.AbandonedBookIDs = append(sig.AbandonedBookIDs, b.BookID)
+				}
+			}
+			continue
+		}
+		startedAt := b.CreatedAt
+		days := b.FinishedAt.Sub(startedAt).Hours() / 24
+		if days < 0 {
+			days = 0
+		}
+		totalDays += days
+		sig.ComputedFromNBooks++
+
+		if days < 7 {
+			sig.FastFinishBookIDs = append(sig.FastFinishBookIDs, b.BookID)
+		}
+		for _, g := range b.Categories {
+			genreDays[g] = append(genreDays[g], days)
+			genreCount[g]++
+		}
+	}
+
+	if sig.ComputedFromNBooks > 0 {
+		sig.AvgDaysToFinish = totalDays / float64(sig.ComputedFromNBooks)
+	}
+
+	switch {
+	case sig.AvgDaysToFinish < 7:
+		sig.VelocityBucket = "fast"
+	case sig.AvgDaysToFinish <= 21:
+		sig.VelocityBucket = "medium"
+	default:
+		sig.VelocityBucket = "slow"
+	}
+
+	for genre, days := range genreDays {
+		var sum float64
+		for _, d := range days {
+			sum += d
+		}
+		sig.GenreVelocity[genre] = sum / float64(genreCount[genre])
+	}
+
+	return sig
+}
+
 // Signal weights for explicit vs implicit signals.
 const (
 	SignalRating5   = 5.0
@@ -32,12 +103,15 @@ type BookshelfEntry struct {
 	CreatedAt  time.Time
 }
 
-// UserSignalProfile holds computed, normalized genre/author preferences.
+// UserSignalProfile holds computed, normalized genre/author preferences and velocity signals.
 type UserSignalProfile struct {
-	UserID        string
-	GenreWeights  map[string]float64
-	AuthorWeights map[string]float64
-	ComputedAt    time.Time
+	UserID              string
+	GenreWeights        map[string]float64
+	AuthorWeights       map[string]float64
+	VelocitySignal      *VelocitySignal
+	DiaryEmbedding      []float32 // mean of embedded diary entries; nil = cold-start
+	FastFinishEmbedding []float32 // mean of fast-finish book embeddings; nil = cold-start
+	ComputedAt          time.Time
 }
 
 // DecayedWeight applies exponential decay to an implicit signal.
@@ -100,11 +174,13 @@ func ComputeUserSignalProfile(books []BookshelfEntry) UserSignalProfile {
 		}
 	}
 
+	vel := computeVelocitySignal(books)
 	return UserSignalProfile{
-		UserID:        books[0].UserID,
-		GenreWeights:  normalizeWeights(genreWeights),
-		AuthorWeights: normalizeWeights(authorWeights),
-		ComputedAt:    time.Now(),
+		UserID:         books[0].UserID,
+		GenreWeights:   normalizeWeights(genreWeights),
+		AuthorWeights:  normalizeWeights(authorWeights),
+		VelocitySignal: &vel,
+		ComputedAt:     time.Now(),
 	}
 }
 

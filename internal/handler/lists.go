@@ -507,7 +507,7 @@ func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
 	case req.GoogleBooksID != nil:
 		book, fetchErr := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: *req.GoogleBooksID, Valid: true})
 		if errors.Is(fetchErr, pgx.ErrNoRows) {
-			book, fetchErr = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID)
+			book, fetchErr = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID, nil)
 		}
 		resolveErr = fetchErr
 		if resolveErr == nil {
@@ -516,7 +516,7 @@ func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
 	case req.ISBN != nil:
 		book, fetchErr := h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: *req.ISBN, Valid: true})
 		if errors.Is(fetchErr, pgx.ErrNoRows) {
-			book, fetchErr = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN)
+			book, fetchErr = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN, nil)
 		}
 		resolveErr = fetchErr
 		if resolveErr == nil {

@@ -73,7 +73,7 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		book, err := h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: *req.GoogleBooksID, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Not cached — fetch and store
-			book, err = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID)
+			book, err = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID, h.embedCallback())
 			if err != nil {
 				slog.Error("auto-cache from google books", "error", err, "google_books_id", *req.GoogleBooksID)
 				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in Google Books")
@@ -90,7 +90,7 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		book, err := h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: *req.ISBN, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Not cached — fetch and store
-			book, err = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN)
+			book, err = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN, h.embedCallback())
 			if err != nil {
 				slog.Error("auto-cache from isbndb", "error", err, "isbn", *req.ISBN)
 				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found in ISBNdb")
@@ -173,7 +173,8 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 }
 
 // cacheBookFromISBNdb fetches a book from ISBNdb by ISBN and persists it to the DB.
-func cacheBookFromISBNdb(ctx context.Context, q *db.Queries, isbndb *external.ISBNdbClient, isbn string) (db.Book, error) {
+// onCreated, if non-nil, is called in a goroutine after successful DB write (e.g. to trigger embedding).
+func cacheBookFromISBNdb(ctx context.Context, q *db.Queries, isbndb *external.ISBNdbClient, isbn string, onCreated func(db.Book)) (db.Book, error) {
 	if isbndb == nil {
 		return db.Book{}, fmt.Errorf("isbndb client not configured")
 	}
@@ -226,11 +227,19 @@ func cacheBookFromISBNdb(ctx context.Context, q *db.Queries, isbndb *external.IS
 		}
 	}
 
-	return q.CreateBookFromISBNdb(ctx, params)
+	created, err := q.CreateBookFromISBNdb(ctx, params)
+	if err != nil {
+		return db.Book{}, err
+	}
+	if onCreated != nil {
+		go onCreated(created)
+	}
+	return created, nil
 }
 
 // cacheBookFromGoogleBooks fetches a book from Google Books by volume ID and persists it to the DB.
-func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.GoogleBooksClient, volumeID string) (db.Book, error) {
+// onCreated, if non-nil, is called in a goroutine after successful DB write (e.g. to trigger embedding).
+func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.GoogleBooksClient, volumeID string, onCreated func(db.Book)) (db.Book, error) {
 	if gb == nil {
 		return db.Book{}, fmt.Errorf("google books client not configured")
 	}
@@ -241,7 +250,14 @@ func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.G
 	}
 
 	params := googleBookToCreateParams(book)
-	return q.CreateBook(ctx, params)
+	created, err := q.CreateBook(ctx, params)
+	if err != nil {
+		return db.Book{}, err
+	}
+	if onCreated != nil {
+		go onCreated(created)
+	}
+	return created, nil
 }
 
 

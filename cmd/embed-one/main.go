@@ -34,11 +34,10 @@ func main() {
 		log.Fatal("book not found:", err)
 	}
 
-	primaryAuthor := ""
-	if len(authors) > 0 {
-		primaryAuthor = authors[0]
-	}
-	text := service.BookEmbedText(title, subtitle, primaryAuthor, categories, description)
+	var publisher string
+	pool.QueryRow(ctx, `SELECT COALESCE(publisher,'') FROM books WHERE id = $1`, bookID).Scan(&publisher)
+
+	text := service.BookEmbedText(title, subtitle, authors, publisher, categories, description)
 	vecs, err := embedder.EmbedTexts([]string{text}, "search_document")
 	if err != nil {
 		log.Fatal("embed:", err)

@@ -83,3 +83,36 @@ WHERE created_at < NOW() - INTERVAL '15 days'
       UNION
       SELECT DISTINCT book_id FROM likes
   );
+
+-- name: VibeSearchBooks :many
+SELECT
+  b.id,
+  b.title,
+  b.slug,
+  b.authors,
+  b.subtitle,
+  b.publisher,
+  b.published_date,
+  b.description,
+  b.page_count,
+  b.categories,
+  b.language,
+  b.cover_url,
+  b.average_rating,
+  b.ratings_count,
+  b.total_reads_count,
+  b.total_tbr_count,
+  b.google_books_id,
+  b.isbndb_id,
+  b.embedding,
+  (1 - (b.embedding <=> sqlc.arg(query_vec)::vector))::float8 AS similarity_score
+FROM books b
+WHERE b.embedding IS NOT NULL
+ORDER BY b.embedding <=> sqlc.arg(query_vec)::vector
+LIMIT sqlc.arg(lim)::int;
+
+-- name: GetBookEmbeddingsByIDs :many
+SELECT id::text AS id, embedding
+FROM books
+WHERE id::text = ANY($1::text[])
+  AND embedding IS NOT NULL;

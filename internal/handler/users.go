@@ -30,6 +30,19 @@ type UserHandler struct {
 	ISBNdb                *external.ISBNdbClient
 	GoogleBooks           *external.GoogleBooksClient
 	RecommendationService *service.RecommendationService
+	Enricher              *service.Enricher
+}
+
+// embedCallback returns a fire-and-forget func for newly cached books, or nil if embedding is disabled.
+func (h *UserHandler) embedCallback() func(db.Book) {
+	if h.RecommendationService == nil {
+		return nil
+	}
+	svc := h.RecommendationService
+	enricher := h.Enricher
+	return func(book db.Book) {
+		svc.EmbedBookAsync(bookToEnrichable(book), enricher)
+	}
 }
 
 // GetByUsername handles GET /api/v1/users/:username

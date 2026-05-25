@@ -15,6 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/util"
 )
 
 // BookCandidate is a recommendation result returned to the handler.
@@ -26,6 +29,7 @@ type BookCandidate struct {
 	Categories      []string `json:"categories"`
 	SimilarityScore float64  `json:"similarity_score"`
 	Reason          string   `json:"reason,omitempty"`
+	ReasonType      string   `json:"reasonType,omitempty"`
 }
 
 // CandidateSource identifies which retrieval path surfaced a candidate.
@@ -45,21 +49,31 @@ type Candidate struct {
 	Authors         []string
 	Categories      []string
 	CoverURL        string
+	Embedding       []float32       // book embedding; populated before ranking for scoreV2
 	VectorScore     float32         // cosine similarity from Path A
 	SocialScore     float32         // friend-read score from Path B
-	FinalScore      float32         // set during Phase 4 ranking
+	FinalScore      float32         // set during ranking
 	Source          CandidateSource
 	FriendNames     []string // friends who read/liked this book
 	LikeCount       int
 	TotalReads      int
 	SimilarityScore float32 // kept for backwards-compatible JSON conversion
 	Reason          string  // human-readable reason string
+	ReasonType      string  // set by ReasonEngine, read by candidateToBookCandidate
+	// scoreV2 outputs — set by rankCandidates, read by reason engine (Phase 5)
+	VelocityBoost float32
+	DiaryBoost    float32
+	IsAbandoned   bool
 }
 
 func candidateToBookCandidate(c Candidate) BookCandidate {
 	score := float64(c.VectorScore)
 	if c.FinalScore > 0 {
 		score = float64(c.FinalScore)
+	}
+	rt := c.ReasonType
+	if rt == "" {
+		rt = fallbackReasonType(c.Reason)
 	}
 	return BookCandidate{
 		ID:              c.BookID,
@@ -69,6 +83,26 @@ func candidateToBookCandidate(c Candidate) BookCandidate {
 		Categories:      c.Categories,
 		SimilarityScore: score,
 		Reason:          c.Reason,
+		ReasonType:      rt,
+	}
+}
+
+// fallbackReasonType infers a ReasonType from a legacy Reason string.
+// Used for cached candidates that predate Phase 5.
+func fallbackReasonType(reason string) string {
+	switch {
+	case strings.Contains(reason, "read this"):
+		return "social"
+	case strings.HasPrefix(reason, "You read"):
+		return "author"
+	case strings.HasPrefix(reason, "Matches your"):
+		return "genre"
+	case reason == "Picked for you":
+		return "favorites"
+	case reason == "Something different":
+		return "explore"
+	default:
+		return "cold"
 	}
 }
 
@@ -100,13 +134,24 @@ type vectorRow struct {
 // RecommendationService provides home and similar-book recommendations.
 type RecommendationService struct {
 	pool        *pgxpool.Pool
+	queries     *db.Queries
 	embedder    Embedder
 	redisClient *redis.Client
+	flags       *FeatureFlags
 }
 
 func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client) *RecommendationService {
-	return &RecommendationService{pool: pool, embedder: embedder, redisClient: redisClient}
+	return &RecommendationService{
+		pool:        pool,
+		queries:     db.New(pool),
+		embedder:    embedder,
+		redisClient: redisClient,
+		flags:       NewFeatureFlags(pool),
+	}
 }
+
+// Embedder exposes the underlying embedder for use by CLI tools.
+func (s *RecommendationService) Embedder() Embedder { return s.embedder }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -121,7 +166,10 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	// 1. Cache hit — apply ranking on the cached raw pool and return.
 	if cached, err := s.getCachedPool(ctx, userID); err == nil && len(cached) > 0 {
 		profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-		results := rankCandidates(cached, profile)
+		if s.flags.Bool(ctx, "ranking_v2") {
+			_ = s.fetchCandidateEmbeddings(ctx, cached)
+		}
+		results := s.rankCandidates(ctx, cached, profile)
 		results = s.filterSuppressed(ctx, userID, results)
 		results = deduplicateCandidates(results)
 		ranked := s.applyMMR(results, 20)
@@ -200,7 +248,12 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 
 	// 7. Rank → suppress → dedup → MMR → exploration blend.
 	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-	pool = rankCandidates(pool, profile)
+	if s.flags.Bool(ctx, "ranking_v2") {
+		if err := s.fetchCandidateEmbeddings(ctx, pool); err != nil {
+			slog.Warn("fetch candidate embeddings", "error", err)
+		}
+	}
+	pool = s.rankCandidates(ctx, pool, profile)
 	pool = s.filterSuppressed(ctx, userID, pool)
 	pool = deduplicateCandidates(pool)
 	ranked := s.applyMMR(pool, 20)
@@ -438,103 +491,137 @@ func (s *RecommendationService) InvalidateUserPool(ctx context.Context, userID s
 
 // ── Pool-level ranking helpers ────────────────────────────────────────────────
 
-// rankCandidates computes a FinalScore from four weighted signals and sets
-// a human-readable Reason string on each candidate, then sorts by FinalScore.
-func rankCandidates(candidates []Candidate, profile UserSignalProfile) []Candidate {
+// rankCandidates scores and sorts candidates using scoreV1 or scoreV2 based
+// on the ranking_v2 feature flag.
+func (s *RecommendationService) rankCandidates(ctx context.Context, candidates []Candidate, profile UserSignalProfile) []Candidate {
+	useV2 := s.flags.Bool(ctx, "ranking_v2")
+	if useV2 {
+		slog.Debug("ranking using scoreV2", "candidates", len(candidates))
+	}
+	re := &ReasonEngine{}
 	for i := range candidates {
 		c := &candidates[i]
-
-		// Genre boost — up to 0.15
-		genreBoost := 0.0
-		for _, cat := range c.Categories {
-			if w, ok := profile.GenreWeights[cat]; ok {
-				genreBoost += w * 0.15
-			}
+		if useV2 {
+			c.FinalScore = s.scoreV2(c, &profile)
+		} else {
+			c.FinalScore = scoreV1(*c, profile)
 		}
-		if genreBoost > 0.15 {
-			genreBoost = 0.15
-		}
-
-		// Author boost — up to 0.10
-		authorBoost := 0.0
-		for _, author := range c.Authors {
-			if w, ok := profile.AuthorWeights[author]; ok {
-				authorBoost += w * 0.10
-			}
-		}
-		if authorBoost > 0.10 {
-			authorBoost = 0.10
-		}
-
-		// Social boost — up to 0.20, normalised over 5 friends
-		socialBoost := 0.0
-		if c.SocialScore > 0 {
-			socialBoost = math.Min(float64(c.SocialScore)/5.0, 1.0) * 0.20
-		}
-
-		// Recency/popularity boost — up to 0.05
-		recencyBoost := 0.0
-		if c.LikeCount+c.TotalReads > 0 {
-			recencyBoost = math.Min(float64(c.LikeCount+c.TotalReads)/100.0, 1.0) * 0.05
-		}
-
-		c.FinalScore = float32(
-			float64(c.VectorScore)*0.50 +
-				socialBoost +
-				genreBoost +
-				authorBoost +
-				recencyBoost,
-		)
-
-		c.Reason = buildReason(c, profile)
+		result := re.Build(*c, &profile, "")
+		c.Reason = result.Text
+		c.ReasonType = result.Type
 	}
-
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].FinalScore > candidates[j].FinalScore
 	})
 	return candidates
 }
 
-func buildReason(c *Candidate, profile UserSignalProfile) string {
-	// Social signal is strongest
-	if c.SocialScore > 0 && len(c.FriendNames) > 0 {
-		switch len(c.FriendNames) {
-		case 1:
-			return fmt.Sprintf("%s read this", c.FriendNames[0])
-		case 2:
-			return fmt.Sprintf("%s & %s read this", c.FriendNames[0], c.FriendNames[1])
-		default:
-			return fmt.Sprintf("%s & %d others read this", c.FriendNames[0], len(c.FriendNames)-1)
-		}
-	}
-
-	// Strong author match
-	for _, author := range c.Authors {
-		if w, ok := profile.AuthorWeights[author]; ok && w > 0.7 {
-			return fmt.Sprintf("You read %s", author)
-		}
-	}
-
-	// Strong genre match — highest-weight matching genre
-	bestGenre := ""
-	bestWeight := 0.0
+// scoreV1 is the original ranking formula (four signals).
+func scoreV1(c Candidate, profile UserSignalProfile) float32 {
+	genreBoost := 0.0
 	for _, cat := range c.Categories {
-		if w, ok := profile.GenreWeights[cat]; ok && w > bestWeight {
-			bestWeight = w
-			bestGenre = cat
+		if w, ok := profile.GenreWeights[cat]; ok {
+			genreBoost += w * 0.15
 		}
 	}
-	if bestGenre != "" && bestWeight > 0.6 {
-		return fmt.Sprintf("Matches your %s taste", bestGenre)
+	if genreBoost > 0.15 {
+		genreBoost = 0.15
 	}
 
-	// Trending
-	if c.LikeCount+c.TotalReads > 50 {
-		return "Popular right now"
+	authorBoost := 0.0
+	for _, author := range c.Authors {
+		if w, ok := profile.AuthorWeights[author]; ok {
+			authorBoost += w * 0.10
+		}
+	}
+	if authorBoost > 0.10 {
+		authorBoost = 0.10
 	}
 
-	return "Picked for you"
+	socialBoost := 0.0
+	if c.SocialScore > 0 {
+		socialBoost = math.Min(float64(c.SocialScore)/5.0, 1.0) * 0.20
+	}
+
+	recencyBoost := 0.0
+	if c.LikeCount+c.TotalReads > 0 {
+		recencyBoost = math.Min(float64(c.LikeCount+c.TotalReads)/100.0, 1.0) * 0.05
+	}
+
+	return float32(float64(c.VectorScore)*0.50 + socialBoost + genreBoost + authorBoost + recencyBoost)
 }
+
+// scoreV2 is the Phase 4 multi-signal formula. Sets VelocityBoost, DiaryBoost,
+// and IsAbandoned on c as side effects for the reason engine.
+func (s *RecommendationService) scoreV2(c *Candidate, profile *UserSignalProfile) float32 {
+	vectorScore := c.VectorScore * 0.43
+
+	socialBoost := float32(0)
+	if c.SocialScore > 0 {
+		socialBoost = util.Min32(c.SocialScore/5.0, 1.0) * 0.18
+	}
+
+	genreBoost := float32(0)
+	if profile.GenreWeights != nil {
+		for _, cat := range c.Categories {
+			if w, ok := profile.GenreWeights[cat]; ok {
+				genreBoost += float32(w)
+			}
+		}
+		genreBoost = util.Min32(genreBoost, 1.0) * 0.12
+	}
+
+	authorBoost := float32(0)
+	if profile.AuthorWeights != nil {
+		for _, a := range c.Authors {
+			if w, ok := profile.AuthorWeights[a]; ok {
+				authorBoost += float32(w)
+			}
+		}
+		authorBoost = util.Min32(authorBoost, 1.0) * 0.08
+	}
+
+	recencyBoost := float32(0)
+	if c.LikeCount+c.TotalReads > 0 {
+		recencyBoost = util.Min32(float32(c.LikeCount+c.TotalReads)/100.0, 1.0) * 0.04
+	}
+
+	velocityBoost := float32(0)
+	if profile.FastFinishEmbedding != nil && c.Embedding != nil {
+		sim := float32(util.CosineSimilarity(c.Embedding, profile.FastFinishEmbedding))
+		velocityBoost = sim * 0.08
+		c.VelocityBoost = velocityBoost
+	}
+
+	diaryBoost := float32(0)
+	if profile.DiaryEmbedding != nil && c.Embedding != nil {
+		sim := float32(util.CosineSimilarity(c.Embedding, profile.DiaryEmbedding))
+		diaryBoost = sim * 0.07
+		c.DiaryBoost = diaryBoost
+	}
+
+	abandonedPenalty := float32(0)
+	if profile.VelocitySignal != nil {
+		for _, id := range profile.VelocitySignal.AbandonedBookIDs {
+			if id == c.BookID {
+				abandonedPenalty = 0.10
+				c.IsAbandoned = true
+				break
+			}
+		}
+	}
+
+	score := vectorScore + socialBoost + genreBoost + authorBoost +
+		recencyBoost + velocityBoost + diaryBoost - abandonedPenalty
+	if score < 0 {
+		score = 0
+	}
+	if score > 1 {
+		score = 1
+	}
+	return score
+}
+
 
 // deduplicateCandidates removes duplicate editions by normalising titles.
 func deduplicateCandidates(candidates []Candidate) []Candidate {
@@ -608,6 +695,15 @@ func (s *RecommendationService) GetOrComputeSignalProfile(ctx context.Context, u
 
 	profile := ComputeUserSignalProfile(entries)
 
+	if profile.VelocitySignal != nil {
+		ffEmb, ffErr := s.ComputeFastFinishEmbedding(ctx, profile.VelocitySignal)
+		if ffErr != nil {
+			slog.Warn("compute fast finish embedding", "error", ffErr, "user_id", userID)
+		} else {
+			profile.FastFinishEmbedding = ffEmb
+		}
+	}
+
 	go func() {
 		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -671,35 +767,111 @@ func (s *RecommendationService) getBookshelfWithMetadata(ctx context.Context, us
 
 func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, userID string) (UserSignalProfile, error) {
 	var profile UserSignalProfile
-	var genreJSON, authorJSON []byte
+	var genreJSON, authorJSON, velocityJSON []byte
+	var diaryVecLit, fastFinishVecLit *string
 
 	err := s.pool.QueryRow(ctx, `
-		SELECT user_id::text, genre_weights, author_weights, computed_at
+		SELECT user_id::text, genre_weights, author_weights, computed_at,
+		       velocity_signal,
+		       CASE WHEN diary_embedding IS NOT NULL THEN diary_embedding::text END,
+		       CASE WHEN fast_finish_embedding IS NOT NULL THEN fast_finish_embedding::text END
 		FROM user_signal_profiles
 		WHERE user_id = $1
-	`, userID).Scan(&profile.UserID, &genreJSON, &authorJSON, &profile.ComputedAt)
+	`, userID).Scan(
+		&profile.UserID, &genreJSON, &authorJSON, &profile.ComputedAt,
+		&velocityJSON, &diaryVecLit, &fastFinishVecLit,
+	)
 	if err != nil {
 		return UserSignalProfile{}, err
 	}
 
 	_ = json.Unmarshal(genreJSON, &profile.GenreWeights)
 	_ = json.Unmarshal(authorJSON, &profile.AuthorWeights)
+	if len(velocityJSON) > 0 {
+		var vel VelocitySignal
+		if json.Unmarshal(velocityJSON, &vel) == nil {
+			profile.VelocitySignal = &vel
+		}
+	}
+	if diaryVecLit != nil {
+		if vec, err := parsePGVectorLiteral(*diaryVecLit); err == nil {
+			profile.DiaryEmbedding = vec
+		}
+	}
+	if fastFinishVecLit != nil {
+		if vec, err := parsePGVectorLiteral(*fastFinishVecLit); err == nil {
+			profile.FastFinishEmbedding = vec
+		}
+	}
 	return profile, nil
 }
 
 func (s *RecommendationService) saveSignalProfile(ctx context.Context, profile UserSignalProfile) error {
 	genreJSON, _ := json.Marshal(profile.GenreWeights)
 	authorJSON, _ := json.Marshal(profile.AuthorWeights)
+	velocityJSON, _ := json.Marshal(profile.VelocitySignal)
+
+	var fastFinishArg interface{}
+	if profile.FastFinishEmbedding != nil {
+		fastFinishArg = float32SliceToLiteral(profile.FastFinishEmbedding)
+	}
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, computed_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, velocity_signal, fast_finish_embedding, computed_at, signal_version)
+		VALUES ($1, $2, $3, $4, $5::vector, $6, 1)
 		ON CONFLICT (user_id) DO UPDATE SET
-		    genre_weights  = EXCLUDED.genre_weights,
-		    author_weights = EXCLUDED.author_weights,
-		    computed_at    = EXCLUDED.computed_at
-	`, profile.UserID, genreJSON, authorJSON, profile.ComputedAt)
+		    genre_weights         = EXCLUDED.genre_weights,
+		    author_weights        = EXCLUDED.author_weights,
+		    velocity_signal       = EXCLUDED.velocity_signal,
+		    fast_finish_embedding = EXCLUDED.fast_finish_embedding,
+		    signal_version        = user_signal_profiles.signal_version + 1,
+		    computed_at           = EXCLUDED.computed_at
+	`, profile.UserID, genreJSON, authorJSON, velocityJSON, fastFinishArg, profile.ComputedAt)
 	return err
+}
+
+// ComputeFastFinishEmbedding returns the centroid of fast-finish book embeddings.
+// Returns nil, nil when the user has no fast-finish books or none have embeddings.
+func (s *RecommendationService) ComputeFastFinishEmbedding(ctx context.Context, vel *VelocitySignal) ([]float32, error) {
+	if vel == nil || len(vel.FastFinishBookIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.queries.GetBookEmbeddingsByIDs(ctx, vel.FastFinishBookIDs)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	vecs := make([][]float32, 0, len(rows))
+	for _, row := range rows {
+		if slice := row.Embedding.Slice(); len(slice) > 0 {
+			vecs = append(vecs, slice)
+		}
+	}
+	return util.ComputeCentroid(vecs), nil
+}
+
+// fetchCandidateEmbeddings bulk-fetches book embeddings for all candidates
+// and sets Candidate.Embedding. Missing books are silently skipped.
+func (s *RecommendationService) fetchCandidateEmbeddings(ctx context.Context, candidates []Candidate) error {
+	ids := make([]string, len(candidates))
+	for i, c := range candidates {
+		ids[i] = c.BookID
+	}
+	rows, err := s.queries.GetBookEmbeddingsByIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	index := make(map[string][]float32, len(rows))
+	for _, row := range rows {
+		if slice := row.Embedding.Slice(); len(slice) > 0 {
+			index[row.ID] = slice
+		}
+	}
+	for i := range candidates {
+		if emb, ok := index[candidates[i].BookID]; ok {
+			candidates[i].Embedding = emb
+		}
+	}
+	return nil
 }
 
 // ── Embedding operations ──────────────────────────────────────────────────────
@@ -712,6 +884,55 @@ func (s *RecommendationService) SaveBookEmbedding(ctx context.Context, bookID st
 		vec, bookID,
 	)
 	return err
+}
+
+// SaveBookEmbeddingWithText persists the embedding vector and the composite text that was embedded.
+func (s *RecommendationService) SaveBookEmbeddingWithText(ctx context.Context, bookID, embedText string, embedding []float32) error {
+	vec := float32SliceToLiteral(embedding)
+	_, err := s.pool.Exec(ctx,
+		`UPDATE books SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
+		vec, embedText, bookID,
+	)
+	return err
+}
+
+// EmbedBookAsync enriches a newly cached book's description (if thin) then embeds it.
+// Designed to run as a fire-and-forget goroutine using context.Background().
+func (s *RecommendationService) EmbedBookAsync(book EnrichableBook, enricher *Enricher) {
+	ctx := context.Background()
+
+	desc := book.Description
+	descSource := ""
+
+	// Enrich thin or missing descriptions before embedding
+	if enricher != nil && len(desc) < 200 {
+		enrichedDesc, src, err := enricher.EnrichBookDescription(ctx, book)
+		if err == nil && len(enrichedDesc) > len(desc) {
+			desc = enrichedDesc
+			descSource = src
+			if _, dbErr := s.pool.Exec(ctx,
+				`UPDATE books SET description = $1, description_source = $2 WHERE id = $3`,
+				desc, descSource, book.ID,
+			); dbErr != nil {
+				slog.Warn("save enriched description failed", "book_id", book.ID, "error", dbErr)
+			}
+		}
+	}
+
+	embedText := BookEmbedText(book.Title, book.Subtitle, book.Authors, book.Publisher, book.Categories, desc)
+
+	vecs, err := s.embedder.EmbedTexts([]string{embedText}, "search_document")
+	if err != nil || len(vecs) == 0 {
+		slog.Warn("embed book failed", "book_id", book.ID, "error", err)
+		return
+	}
+
+	if err := s.SaveBookEmbeddingWithText(ctx, book.ID, embedText, vecs[0]); err != nil {
+		slog.Warn("save book embedding failed", "book_id", book.ID, "error", err)
+		return
+	}
+
+	slog.Debug("embedded book", "book_id", book.ID, "title", book.Title, "source", descSource)
 }
 
 // GetBooksWithoutEmbeddings returns up to 500 books that have no embedding yet.
@@ -734,6 +955,49 @@ func (s *RecommendationService) GetBooksWithoutEmbeddings(ctx context.Context) (
 		if err := rows.Scan(&b.ID, &b.Title, &b.Subtitle, &b.Authors, &b.Categories, &b.Description, &b.CoverURL); err != nil {
 			return nil, err
 		}
+		books = append(books, b)
+	}
+	return books, rows.Err()
+}
+
+// GetBooksForEnrichment returns books with thin or missing descriptions (for the --enrich backfill pass).
+// limit=0 means no limit (returns all matching books).
+func (s *RecommendationService) GetBooksForEnrichment(ctx context.Context, limit int) ([]EnrichableBook, error) {
+	query := `
+		SELECT id, title, COALESCE(subtitle,''), authors, COALESCE(publisher,''),
+		       categories, COALESCE(description,''),
+		       COALESCE(open_library_id,''), COALESCE(isbndb_id,''),
+		       COALESCE(isbn_13,''), COALESCE(google_books_id,''),
+		       COALESCE(metadata, '{}')
+		FROM books
+		WHERE embedding IS NULL
+		   OR description IS NULL
+		   OR description = ''
+		   OR LENGTH(description) < 200
+	`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var books []EnrichableBook
+	for rows.Next() {
+		var b EnrichableBook
+		var metadata []byte
+		if err := rows.Scan(
+			&b.ID, &b.Title, &b.Subtitle, &b.Authors, &b.Publisher,
+			&b.Categories, &b.Description,
+			&b.OpenLibraryID, &b.ISBNdbID, &b.ISBN13, &b.GoogleBooksID,
+			&metadata,
+		); err != nil {
+			return nil, err
+		}
+		b.Metadata = metadata
 		books = append(books, b)
 	}
 	return books, rows.Err()
@@ -818,6 +1082,7 @@ func (s *RecommendationService) getExplorationCandidates(ctx context.Context, us
 		c.TotalReads = int(totalReads)
 		c.Source = SourceFallback
 		c.Reason = "Something different"
+		c.ReasonType = "explore"
 		candidates = append(candidates, c)
 	}
 	return candidates
@@ -1115,6 +1380,9 @@ func cosineSimilarityByScore(a, b float64) float64 {
 	return 1.0 - diff
 }
 
+// ExportFloat32Literal is the exported form of float32SliceToLiteral for CLI tools.
+func ExportFloat32Literal(v []float32) string { return float32SliceToLiteral(v) }
+
 // float32SliceToLiteral converts []float32 to the Postgres vector literal '[a,b,c]'.
 func float32SliceToLiteral(v []float32) string {
 	sb := strings.Builder{}
@@ -1167,4 +1435,137 @@ func parsePGVectorLiteral(s string) ([]float32, error) {
 		vec[i] = float32(f)
 	}
 	return vec, nil
+}
+
+// ── Diary embedding ───────────────────────────────────────────────────────────
+
+// DiaryEmbedText builds the composite text for a diary entry embedding.
+func DiaryEmbedText(bookTitle string, bookAuthors []string, content string) string {
+	clean := StripHTML(content)
+	var parts []string
+	if bookTitle != "" {
+		parts = append(parts, "Book: "+bookTitle)
+	}
+	if len(bookAuthors) > 0 {
+		parts = append(parts, "Authors: "+strings.Join(bookAuthors, ", "))
+	}
+	if clean != "" {
+		parts = append(parts, "Review: "+clean)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// EmbedDiaryEntryAsync embeds a diary entry and persists the vector.
+// Designed to run as a fire-and-forget goroutine.
+func (s *RecommendationService) EmbedDiaryEntryAsync(entryID, bookTitle string, bookAuthors []string, content string) {
+	ctx := context.Background()
+	embedText := DiaryEmbedText(bookTitle, bookAuthors, content)
+	if embedText == "" {
+		return
+	}
+
+	vecs, err := s.embedder.EmbedTexts([]string{embedText}, "search_document")
+	if err != nil || len(vecs) == 0 {
+		slog.Warn("embed diary entry failed", "entry_id", entryID, "error", err)
+		return
+	}
+
+	vec := float32SliceToLiteral(vecs[0])
+	_, err = s.pool.Exec(ctx,
+		`UPDATE diary_entries SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
+		vec, embedText, entryID,
+	)
+	if err != nil {
+		slog.Warn("save diary embedding failed", "entry_id", entryID, "error", err)
+		return
+	}
+	slog.Debug("embedded diary entry", "entry_id", entryID)
+}
+
+// ── Diary centroid ────────────────────────────────────────────────────────────
+
+// DiarySignal holds stats about a user's diary embedding state.
+type DiarySignal struct {
+	EntryCount         int    `json:"entry_count"`
+	EmbeddedEntryCount int    `json:"embedded_entry_count"`
+	LastEntryDate      string `json:"last_entry_date,omitempty"`
+	HasCentroid        bool   `json:"has_centroid"`
+}
+
+// computeDiaryCentroid computes the element-wise mean of a set of embeddings.
+func computeDiaryCentroid(embeddings [][]float32) []float32 {
+	return util.ComputeCentroid(embeddings)
+}
+
+// ComputeAndSaveDiaryCentroid fetches diary embeddings for a user, computes the
+// centroid, and persists it + diary_signal into user_signal_profiles.
+func (s *RecommendationService) ComputeAndSaveDiaryCentroid(ctx context.Context, userID string) error {
+	rows, err := s.pool.Query(ctx, `
+		SELECT embedding_text, embedding::text
+		FROM diary_entries
+		WHERE user_id = $1 AND embedding IS NOT NULL
+		ORDER BY created_at DESC
+		LIMIT 50
+	`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var embeddings [][]float32
+	var lastDate string
+	for rows.Next() {
+		var embedText string
+		var vecLiteral string
+		if err := rows.Scan(&embedText, &vecLiteral); err != nil {
+			continue
+		}
+		vec, err := parsePGVectorLiteral(vecLiteral)
+		if err != nil {
+			continue
+		}
+		embeddings = append(embeddings, vec)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Count all entries for the signal metadata
+	var totalEntries int
+	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM diary_entries WHERE user_id = $1`, userID).Scan(&totalEntries)
+	_ = s.pool.QueryRow(ctx, `SELECT TO_CHAR(MAX(created_at), 'YYYY-MM-DD') FROM diary_entries WHERE user_id = $1`, userID).Scan(&lastDate)
+
+	signal := DiarySignal{
+		EntryCount:         totalEntries,
+		EmbeddedEntryCount: len(embeddings),
+		LastEntryDate:      lastDate,
+		HasCentroid:        len(embeddings) > 0,
+	}
+	signalJSON, _ := json.Marshal(signal)
+
+	if len(embeddings) == 0 {
+		_, err = s.pool.Exec(ctx, `
+			INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, diary_signal, signal_version)
+			VALUES ($1, '{}', '{}', $2, 1)
+			ON CONFLICT (user_id) DO UPDATE SET
+			    diary_signal    = EXCLUDED.diary_signal,
+			    signal_version  = user_signal_profiles.signal_version + 1,
+			    computed_at     = NOW()
+		`, userID, signalJSON)
+		return err
+	}
+
+	centroid := computeDiaryCentroid(embeddings)
+	vecLiteral := float32SliceToLiteral(centroid)
+
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, diary_embedding, diary_signal, signal_version)
+		VALUES ($1, '{}', '{}', $2::vector, $3, 1)
+		ON CONFLICT (user_id) DO UPDATE SET
+		    diary_embedding = EXCLUDED.diary_embedding,
+		    diary_signal    = EXCLUDED.diary_signal,
+		    signal_version  = user_signal_profiles.signal_version + 1,
+		    computed_at     = NOW()
+	`, userID, vecLiteral, signalJSON)
+	return err
 }

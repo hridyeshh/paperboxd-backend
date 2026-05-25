@@ -116,3 +116,29 @@ WHERE entry_id = $1;
 -- name: CheckEntryOwnership :one
 SELECT user_id FROM diary_entries
 WHERE id = $1;
+
+-- name: UpdateDiaryEntryEmbedding :exec
+UPDATE diary_entries
+SET embedding = $2::vector, embedding_text = $3
+WHERE id = $1;
+
+-- name: GetDiaryEmbeddingsForUser :many
+SELECT id, embedding_text, embedding
+FROM diary_entries
+WHERE user_id = $1
+  AND embedding IS NOT NULL
+ORDER BY created_at DESC
+LIMIT 50;
+
+-- name: GetDiaryEntriesWithoutEmbedding :many
+SELECT
+    de.id,
+    de.user_id,
+    de.content,
+    de.embedding_text,
+    b.title   AS book_title,
+    b.authors AS book_authors
+FROM diary_entries de
+LEFT JOIN books b ON de.book_id = b.id
+WHERE de.embedding IS NULL
+ORDER BY de.created_at DESC;

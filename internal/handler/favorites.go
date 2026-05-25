@@ -155,12 +155,12 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 	case req.GoogleBooksID != nil:
 		book, err = h.Queries.GetBookByGoogleID(r.Context(), pgtype.Text{String: *req.GoogleBooksID, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
-			book, err = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID)
+			book, err = cacheBookFromGoogleBooks(r.Context(), h.Queries, h.GoogleBooks, *req.GoogleBooksID, nil)
 		}
 	case req.ISBN != nil:
 		book, err = h.Queries.GetBookByISBN(r.Context(), pgtype.Text{String: *req.ISBN, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) {
-			book, err = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN)
+			book, err = cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, *req.ISBN, nil)
 		}
 	default:
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "provide book_id, isbn, or google_books_id")

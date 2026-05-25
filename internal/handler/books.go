@@ -17,6 +17,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,10 +25,12 @@ import (
 
 // BookHandler holds dependencies for book endpoints.
 type BookHandler struct {
-	Queries     *db.Queries
-	Config      *config.Config
-	ISBNdb      *external.ISBNdbClient
-	GoogleBooks *external.GoogleBooksClient
+	Queries               *db.Queries
+	Config                *config.Config
+	ISBNdb                *external.ISBNdbClient
+	GoogleBooks           *external.GoogleBooksClient
+	RecommendationService *service.RecommendationService
+	Enricher              *service.Enricher
 }
 
 // NewBookHandler creates a BookHandler with the given clients.
@@ -37,6 +40,18 @@ func NewBookHandler(queries *db.Queries, cfg *config.Config, isbndb *external.IS
 		Config:      cfg,
 		ISBNdb:      isbndb,
 		GoogleBooks: googleBooks,
+	}
+}
+
+// embedCallback returns a fire-and-forget func for newly cached books, or nil if embedding is disabled.
+func (h *BookHandler) embedCallback() func(db.Book) {
+	if h.RecommendationService == nil {
+		return nil
+	}
+	svc := h.RecommendationService
+	enricher := h.Enricher
+	return func(book db.Book) {
+		svc.EmbedBookAsync(bookToEnrichable(book), enricher)
 	}
 }
 
@@ -183,7 +198,7 @@ func (h *BookHandler) Create(w http.ResponseWriter, r *http.Request) {
 			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "ISBN lookup is not configured")
 			return
 		}
-		book, err := cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, isbn)
+		book, err := cacheBookFromISBNdb(r.Context(), h.Queries, h.ISBNdb, isbn, h.embedCallback())
 		if err != nil {
 			slog.Error("cache book from isbn", "error", err, "isbn", isbn)
 			types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Book not found for ISBN")
@@ -223,6 +238,10 @@ func (h *BookHandler) Create(w http.ResponseWriter, r *http.Request) {
 		slog.Error("create book", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	if cb := h.embedCallback(); cb != nil {
+		go cb(book)
 	}
 
 	types.WriteJSON(w, http.StatusCreated, bookToResponse(book))
@@ -286,7 +305,7 @@ func resolveBookIDParam(
 	if !strings.ContainsAny(raw, "-") && len(raw) <= 20 {
 		book, err := q.GetBookByGoogleID(ctx, pgtype.Text{String: raw, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) && gb != nil {
-			book, err = cacheBookFromGoogleBooks(ctx, q, gb, raw)
+			book, err = cacheBookFromGoogleBooks(ctx, q, gb, raw, nil)
 		}
 		if err == nil {
 			return book.ID, nil
@@ -298,7 +317,7 @@ func resolveBookIDParam(
 	if len(isbn) == 10 || len(isbn) == 13 {
 		book, err := q.GetBookByISBN(ctx, pgtype.Text{String: isbn, Valid: true})
 		if errors.Is(err, pgx.ErrNoRows) && isbndb != nil {
-			book, err = cacheBookFromISBNdb(ctx, q, isbndb, isbn)
+			book, err = cacheBookFromISBNdb(ctx, q, isbndb, isbn, nil)
 		}
 		if err == nil {
 			return book.ID, nil
@@ -576,7 +595,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 				isbn = b.ISBN
 			}
 			if isbn != "" {
-				if cached, cacheErr := cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, isbn); cacheErr == nil {
+				if cached, cacheErr := cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, isbn, h.embedCallback()); cacheErr == nil {
 					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
 					return
 				}
@@ -592,7 +611,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		if gbErr == nil && len(googleBooks) > 0 {
 			gb := googleBooks[0]
 			if gb.ID != "" {
-				if cached, cacheErr := cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, gb.ID); cacheErr == nil {
+				if cached, cacheErr := cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, gb.ID, h.embedCallback()); cacheErr == nil {
 					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
 					return
 				}
@@ -629,6 +648,24 @@ func isHexSegment(s string) bool {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// bookToEnrichable converts a db.Book to the service.EnrichableBook used by the embedding pipeline.
+func bookToEnrichable(b db.Book) service.EnrichableBook {
+	return service.EnrichableBook{
+		ID:            b.ID.String(),
+		Title:         b.Title,
+		Subtitle:      b.Subtitle.String,
+		Authors:       b.Authors,
+		Publisher:     b.Publisher.String,
+		Categories:    b.Categories,
+		Description:   b.Description.String,
+		OpenLibraryID: b.OpenLibraryID.String,
+		ISBNdbID:      b.IsbndbID.String,
+		ISBN13:        b.Isbn13.String,
+		GoogleBooksID: b.GoogleBooksID.String,
+		Metadata:      b.Metadata,
+	}
+}
 
 var nonAlphanumRegex = regexp.MustCompile(`[^a-z0-9]+`)
 
