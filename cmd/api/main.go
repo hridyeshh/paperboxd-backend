@@ -138,6 +138,7 @@ func main() {
 	}
 	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
+	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc)
