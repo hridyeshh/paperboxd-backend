@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/pgvector/pgvector-go"
@@ -93,6 +94,18 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].score > items[j].score
 	})
+
+	// Deduplicate by normalised title — keep highest-scoring edition.
+	seen := make(map[string]bool, len(items))
+	deduped := items[:0]
+	for _, it := range items {
+		key := vibeDedupeKey(it.row.Title, it.row.Authors)
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, it)
+		}
+	}
+	items = deduped
 
 	if len(items) > limit {
 		items = items[:limit]
@@ -227,5 +240,24 @@ func vibeScore(querySim float64, bookEmb []float32, profile *UserSignalProfile, 
 		score = 1.0
 	}
 	return score
+}
+
+// vibeDedupeKey normalises title+first-author into a deduplication key.
+// Strips subtitles after ":" and "(", lowercases. Two editions of the same
+// book by the same author produce the same key.
+func vibeDedupeKey(title string, authors []string) string {
+	t := strings.ToLower(title)
+	if i := strings.Index(t, ":"); i != -1 {
+		t = t[:i]
+	}
+	if i := strings.Index(t, "("); i != -1 {
+		t = t[:i]
+	}
+	t = strings.TrimSpace(t)
+	author := ""
+	if len(authors) > 0 {
+		author = strings.ToLower(authors[0])
+	}
+	return t + "|" + author
 }
 
