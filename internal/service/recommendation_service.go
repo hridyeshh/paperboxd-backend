@@ -200,6 +200,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 
 	// 7. Rank → suppress → dedup → MMR → exploration blend.
 	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
+	slog.Debug("using scoreV2", "user_id", userID, "pool_size", len(pool))
 	pool = rankCandidates(pool, profile)
 	pool = s.filterSuppressed(ctx, userID, pool)
 	pool = deduplicateCandidates(pool)
