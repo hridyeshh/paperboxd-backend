@@ -36,7 +36,10 @@ ORDER BY view_count DESC
 LIMIT $2 OFFSET $3;
 
 -- name: IncrementBookViews :exec
-UPDATE books SET view_count = view_count + 1 WHERE id = $1;
+UPDATE books SET view_count = view_count + 1, last_accessed_at = NOW() WHERE id = $1;
+
+-- name: BumpBookAccess :exec
+UPDATE books SET last_accessed_at = NOW() WHERE id = $1;
 
 -- name: GetBookByISBN :one
 SELECT * FROM books WHERE isbn_13 = $1 OR isbndb_id = $1 LIMIT 1;
@@ -76,8 +79,10 @@ ORDER BY view_count DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CleanupStaleBooks :execrows
+-- Sliding window: deletes books whose last_accessed_at is older than 15 days,
+-- excluding any book referenced by bookshelf or likes.
 DELETE FROM books
-WHERE created_at < NOW() - INTERVAL '15 days'
+WHERE last_accessed_at < NOW() - INTERVAL '15 days'
   AND id NOT IN (
       SELECT DISTINCT book_id FROM bookshelf
       UNION

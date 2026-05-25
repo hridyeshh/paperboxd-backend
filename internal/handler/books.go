@@ -319,6 +319,12 @@ func resolveBookIDParam(
 		if errors.Is(err, pgx.ErrNoRows) && isbndb != nil {
 			book, err = cacheBookFromISBNdb(ctx, q, isbndb, isbn, nil)
 		}
+		// ISBNdb failed or not configured — fall back to Google Books isbn search.
+		if err != nil && gb != nil {
+			if results, gbErr := gb.Search(ctx, "isbn:"+isbn, 1); gbErr == nil && len(results) > 0 && results[0].ID != "" {
+				book, err = cacheBookFromGoogleBooks(ctx, q, gb, results[0].ID, nil)
+			}
+		}
 		if err == nil {
 			return book.ID, nil
 		}
@@ -553,6 +559,9 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 	// 1. Try exact slug match (handles Go-style stored slugs)
 	book, err := h.Queries.GetBookBySlug(ctx, slug)
 	if err == nil {
+		go func(id uuid.UUID) {
+			_ = h.Queries.BumpBookAccess(context.Background(), id)
+		}(book.ID)
 		types.WriteJSON(w, http.StatusOK, bookToResponse(book))
 		return
 	}
@@ -567,6 +576,9 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(slug, "+") && !strings.Contains(slug, " ") {
 		if bookID, resolveErr := resolveBookIDParam(ctx, h.Queries, h.GoogleBooks, h.ISBNdb, slug); resolveErr == nil {
 			if resolved, fetchErr := h.Queries.GetBookByID(ctx, bookID); fetchErr == nil {
+				go func(id uuid.UUID) {
+					_ = h.Queries.BumpBookAccess(context.Background(), id)
+				}(resolved.ID)
 				types.WriteJSON(w, http.StatusOK, bookToResponse(resolved))
 				return
 			}
@@ -581,6 +593,9 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		Offset:  0,
 	})
 	if err == nil && len(dbBooks) > 0 {
+		go func(id uuid.UUID) {
+			_ = h.Queries.BumpBookAccess(context.Background(), id)
+		}(dbBooks[0].ID)
 		types.WriteJSON(w, http.StatusOK, bookToResponse(dbBooks[0]))
 		return
 	}

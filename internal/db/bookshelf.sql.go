@@ -297,7 +297,7 @@ func (q *Queries) GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]
 }
 
 const getUserBookshelf = `-- name: GetUserBookshelf :many
-SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = $2
@@ -342,6 +342,7 @@ type GetUserBookshelfRow struct {
 	Embedding         pgvector.Vector    `json:"embedding"`
 	EmbeddingText     pgtype.Text        `json:"embedding_text"`
 	DescriptionSource pgtype.Text        `json:"description_source"`
+	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
 	Status            string             `json:"status"`
 	Rating            pgtype.Int4        `json:"rating"`
 	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
@@ -392,6 +393,7 @@ func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfPara
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 			&i.Status,
 			&i.Rating,
 			&i.FinishedAt,

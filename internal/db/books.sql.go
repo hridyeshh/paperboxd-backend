@@ -13,9 +13,18 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+const bumpBookAccess = `-- name: BumpBookAccess :exec
+UPDATE books SET last_accessed_at = NOW() WHERE id = $1
+`
+
+func (q *Queries) BumpBookAccess(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, bumpBookAccess, id)
+	return err
+}
+
 const cleanupStaleBooks = `-- name: CleanupStaleBooks :execrows
 DELETE FROM books
-WHERE created_at < NOW() - INTERVAL '15 days'
+WHERE last_accessed_at < NOW() - INTERVAL '15 days'
   AND id NOT IN (
       SELECT DISTINCT book_id FROM bookshelf
       UNION
@@ -23,6 +32,8 @@ WHERE created_at < NOW() - INTERVAL '15 days'
   )
 `
 
+// Sliding window: deletes books whose last_accessed_at is older than 15 days,
+// excluding any book referenced by bookshelf or likes.
 func (q *Queries) CleanupStaleBooks(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupStaleBooks)
 	if err != nil {
@@ -50,7 +61,7 @@ ON CONFLICT (google_books_id) DO UPDATE SET
     isbndb_id = EXCLUDED.isbndb_id,
     average_rating = EXCLUDED.average_rating,
     updated_at = NOW()
-RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source
+RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at
 `
 
 type CreateBookParams struct {
@@ -126,6 +137,7 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
@@ -146,7 +158,7 @@ ON CONFLICT (isbn_13) DO UPDATE SET
     publisher = EXCLUDED.publisher,
     isbndb_id = EXCLUDED.isbndb_id,
     updated_at = NOW()
-RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source
+RETURNING id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at
 `
 
 type CreateBookFromISBNdbParams struct {
@@ -212,12 +224,13 @@ func (q *Queries) CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromIS
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
 
 const getBookByGoogleID = `-- name: GetBookByGoogleID :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books WHERE google_books_id = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books WHERE google_books_id = $1
 `
 
 func (q *Queries) GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error) {
@@ -253,12 +266,13 @@ func (q *Queries) GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Te
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
 
 const getBookByID = `-- name: GetBookByID :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books WHERE id = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books WHERE id = $1
 `
 
 func (q *Queries) GetBookByID(ctx context.Context, id uuid.UUID) (Book, error) {
@@ -294,12 +308,13 @@ func (q *Queries) GetBookByID(ctx context.Context, id uuid.UUID) (Book, error) {
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
 
 const getBookByISBN = `-- name: GetBookByISBN :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books WHERE isbn_13 = $1 OR isbndb_id = $1 LIMIT 1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books WHERE isbn_13 = $1 OR isbndb_id = $1 LIMIT 1
 `
 
 func (q *Queries) GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error) {
@@ -335,12 +350,13 @@ func (q *Queries) GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, 
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
 
 const getBookBySlug = `-- name: GetBookBySlug :one
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books WHERE slug = $1
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books WHERE slug = $1
 `
 
 func (q *Queries) GetBookBySlug(ctx context.Context, slug string) (Book, error) {
@@ -376,6 +392,7 @@ func (q *Queries) GetBookBySlug(ctx context.Context, slug string) (Book, error) 
 		&i.Embedding,
 		&i.EmbeddingText,
 		&i.DescriptionSource,
+		&i.LastAccessedAt,
 	)
 	return i, err
 }
@@ -413,7 +430,7 @@ func (q *Queries) GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string)
 }
 
 const getBooksByAuthor = `-- name: GetBooksByAuthor :many
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
 WHERE array_to_string(authors, '|') ILIKE '%' || $1 || '%'
 ORDER BY view_count DESC
 LIMIT $2 OFFSET $3
@@ -464,6 +481,7 @@ func (q *Queries) GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorPara
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -476,7 +494,7 @@ func (q *Queries) GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorPara
 }
 
 const getLatestBooks = `-- name: GetLatestBooks :many
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -525,6 +543,7 @@ func (q *Queries) GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) 
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -537,7 +556,7 @@ func (q *Queries) GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) 
 }
 
 const getPopularBooks = `-- name: GetPopularBooks :many
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
 ORDER BY view_count DESC
 LIMIT $1 OFFSET $2
 `
@@ -586,6 +605,7 @@ func (q *Queries) GetPopularBooks(ctx context.Context, arg GetPopularBooksParams
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -598,7 +618,7 @@ func (q *Queries) GetPopularBooks(ctx context.Context, arg GetPopularBooksParams
 }
 
 const incrementBookViews = `-- name: IncrementBookViews :exec
-UPDATE books SET view_count = view_count + 1 WHERE id = $1
+UPDATE books SET view_count = view_count + 1, last_accessed_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) IncrementBookViews(ctx context.Context, id uuid.UUID) error {
@@ -607,7 +627,7 @@ func (q *Queries) IncrementBookViews(ctx context.Context, id uuid.UUID) error {
 }
 
 const searchBooksInDB = `-- name: SearchBooksInDB :many
-SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source FROM books
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
 WHERE title ILIKE '%' || $1 || '%'
    OR $1 ILIKE ANY(authors)
 ORDER BY view_count DESC
@@ -659,6 +679,7 @@ func (q *Queries) SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 		); err != nil {
 			return nil, err
 		}

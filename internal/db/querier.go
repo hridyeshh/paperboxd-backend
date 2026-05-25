@@ -20,6 +20,7 @@ type Querier interface {
 	// USER XP AND LEVEL MANAGEMENT
 	// ============================================================================
 	AddXP(ctx context.Context, arg AddXPParams) error
+	BumpBookAccess(ctx context.Context, id uuid.UUID) error
 	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
 	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
 	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
@@ -32,6 +33,8 @@ type Querier interface {
 	CheckListSaved(ctx context.Context, arg CheckListSavedParams) (bool, error)
 	CheckNewActivities(ctx context.Context, arg CheckNewActivitiesParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
+	// Sliding window: deletes books whose last_accessed_at is older than 15 days,
+	// excluding any book referenced by bookshelf or likes.
 	CleanupStaleBooks(ctx context.Context) (int64, error)
 	CountEntryLikes(ctx context.Context, entryID uuid.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)

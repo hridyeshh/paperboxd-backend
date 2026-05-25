@@ -30,7 +30,7 @@ func (q *Queries) CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBook
 }
 
 const getUserLikes = `-- name: GetUserLikes :many
-SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, l.created_at as liked_at
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, l.created_at as liked_at
 FROM likes l
 JOIN books b ON l.book_id = b.id
 WHERE l.user_id = $1
@@ -74,6 +74,7 @@ type GetUserLikesRow struct {
 	Embedding         pgvector.Vector    `json:"embedding"`
 	EmbeddingText     pgtype.Text        `json:"embedding_text"`
 	DescriptionSource pgtype.Text        `json:"description_source"`
+	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
 	LikedAt           pgtype.Timestamptz `json:"liked_at"`
 }
 
@@ -116,6 +117,7 @@ func (q *Queries) GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]G
 			&i.Embedding,
 			&i.EmbeddingText,
 			&i.DescriptionSource,
+			&i.LastAccessedAt,
 			&i.LikedAt,
 		); err != nil {
 			return nil, err

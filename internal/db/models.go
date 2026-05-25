@@ -61,6 +61,7 @@ type Book struct {
 	Embedding         pgvector.Vector    `json:"embedding"`
 	EmbeddingText     pgtype.Text        `json:"embedding_text"`
 	DescriptionSource pgtype.Text        `json:"description_source"`
+	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
 }
 
 type Bookshelf struct {
