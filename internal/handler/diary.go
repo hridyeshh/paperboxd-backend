@@ -345,7 +345,7 @@ func (h *DiaryHandler) GetUserDiaryEntries(w http.ResponseWriter, r *http.Reques
 		TotalCount: totalCount,
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }
 
 // GetBookDiaryEntries handles GET /api/v1/books/:id/diary.

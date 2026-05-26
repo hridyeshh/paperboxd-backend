@@ -27,6 +27,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/handler"
 	appMiddleware "github.com/hridyesh/paperboxd-backend/internal/middleware"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
+	"github.com/hridyesh/paperboxd-backend/internal/types"
 )
 
 func main() {
@@ -113,7 +114,9 @@ func main() {
 
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(queries, cfg)
+	mobileAuthHandler := auth.NewMobileHandler(authHandler, service.NoopMailer{})
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
+	mobileHealthHandler := handler.NewMobileHealthHandler()
 
 	isbndbClient := external.NewISBNdbClient(cfg.ISBNdbAPIKey)
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
@@ -160,9 +163,24 @@ func main() {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 
-	// CORS — origins controlled by CORS_ALLOWED_ORIGINS env var
+	// CORS — origins controlled by CORS_ALLOWED_ORIGINS env var.
+	// Browsers send an Origin header; native mobile clients do not. To support both
+	// without weakening the browser allowlist, we use AllowOriginFunc and treat a
+	// missing Origin as a non-browser caller (allowed). The web allowlist is enforced
+	// unchanged for any request that does send Origin.
+	allowedOrigins := make(map[string]struct{}, len(cfg.CORSAllowedOrigins))
+	for _, o := range cfg.CORSAllowedOrigins {
+		allowedOrigins[o] = struct{}{}
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: cfg.CORSAllowedOrigins,
+		AllowOriginFunc: func(_ *http.Request, origin string) bool {
+			if origin == "" {
+				// Native mobile / curl / server-to-server.
+				return true
+			}
+			_, ok := allowedOrigins[origin]
+			return ok
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Internal-Secret"},
 		ExposedHeaders:   []string{"Link"},
@@ -171,16 +189,32 @@ func main() {
 	}))
 
 	// Rate limiting: per Bearer token when present, else per IP (see KeyByAuthorizationOrIP).
+	// Returns the standard JSON error envelope so mobile + web clients parse 429 uniformly.
 	if cfg.RateLimitPerMinute > 0 {
 		r.Use(httprate.Limit(cfg.RateLimitPerMinute, time.Minute,
 			httprate.WithKeyFuncs(appMiddleware.KeyByAuthorizationOrIP),
+			httprate.WithLimitHandler(func(w http.ResponseWriter, _ *http.Request) {
+				types.WriteError(w, http.StatusTooManyRequests, types.ErrCodeRateLimited, "Too many requests")
+			}),
 		))
 	}
 
 	// ── Routes ─────────────────────────────────────────────────────────────────
 
-	// Health check (no auth)
+	// Health check (no auth). /health is the original deep-check route used by
+	// Railway. /api/health is the lightweight mobile reachability probe.
 	r.Get("/health", healthHandler.Health)
+	r.Get("/api/health", mobileHealthHandler.Get)
+
+	// Native mobile auth (no cookies, long-lived tokens, flat {token,user} shape).
+	r.Route("/api/mobile/auth", func(r chi.Router) {
+		r.Post("/login", mobileAuthHandler.MobileLogin)
+		r.Post("/register", mobileAuthHandler.MobileRegister)
+		r.Post("/otp/send", mobileAuthHandler.MobileSendOTP)
+		r.Post("/otp/verify", mobileAuthHandler.MobileVerifyOTP)
+		r.Post("/google", mobileAuthHandler.MobileGoogleAuth)
+		r.Post("/refresh", mobileAuthHandler.MobileRefresh)
+	})
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {

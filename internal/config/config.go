@@ -21,9 +21,10 @@ type Config struct {
 	RedisURL      string
 	RedisPassword string
 
-	JWTSecret          string
-	AccessTokenExpiry  time.Duration
-	RefreshTokenExpiry time.Duration
+	JWTSecret                string
+	AccessTokenExpiry        time.Duration
+	AccessTokenExpiryMobile  time.Duration // longer expiry for tokens issued by /api/mobile/auth/*
+	RefreshTokenExpiry       time.Duration
 
 	GoogleBooksAPIKey string
 	ISBNdbAPIKey      string
@@ -57,9 +58,10 @@ func Load() (*Config, error) {
 		RedisURL:      getEnv("REDIS_URL", "localhost:6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),
 
-		JWTSecret:          getEnv("JWT_SECRET", ""),
-		AccessTokenExpiry:  1 * time.Hour,
-		RefreshTokenExpiry: 30 * 24 * time.Hour,
+		JWTSecret:               getEnv("JWT_SECRET", ""),
+		AccessTokenExpiry:       1 * time.Hour,
+		AccessTokenExpiryMobile: getEnvAsDuration("TOKEN_EXPIRY_MOBILE", 30*24*time.Hour),
+		RefreshTokenExpiry:      30 * 24 * time.Hour,
 
 		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
 		ISBNdbAPIKey:      getEnv("ISBNDB_API_KEY", ""),
@@ -106,6 +108,22 @@ func getEnvAsInt(key string, defaultVal int) int {
 	valStr := getEnv(key, "")
 	if val, err := strconv.Atoi(valStr); err == nil {
 		return val
+	}
+	return defaultVal
+}
+
+// getEnvAsDuration parses either a Go duration string ("720h", "30m") or a plain
+// integer number of seconds. Returns defaultVal when env is unset or unparseable.
+func getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
+	val := getEnv(key, "")
+	if val == "" {
+		return defaultVal
+	}
+	if d, err := time.ParseDuration(val); err == nil {
+		return d
+	}
+	if secs, err := strconv.Atoi(val); err == nil {
+		return time.Duration(secs) * time.Second
 	}
 	return defaultVal
 }

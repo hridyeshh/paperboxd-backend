@@ -166,7 +166,7 @@ func (h *UserHandler) GetFollowers(w http.ResponseWriter, r *http.Request) {
 		TotalCount: total,
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }
 
 // GetFollowing handles GET /api/v1/users/:username/following
@@ -215,5 +215,5 @@ func (h *UserHandler) GetFollowing(w http.ResponseWriter, r *http.Request) {
 		TotalCount: total,
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }

@@ -431,7 +431,7 @@ func (h *UserHandler) GetBookshelf(w http.ResponseWriter, r *http.Request) {
 		TotalCount: total,
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }
 
 // GetLikes handles GET /api/v1/users/:username/likes
@@ -476,7 +476,7 @@ func (h *UserHandler) GetLikes(w http.ResponseWriter, r *http.Request) {
 		TotalCount: int64(len(books)),
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

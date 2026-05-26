@@ -51,6 +51,35 @@ type SuccessResponse struct {
 	Message string `json:"message"`
 }
 
+// PaginationMeta is the cross-platform pagination envelope mobile clients
+// rely on. It is emitted additively alongside existing legacy fields on
+// paginated responses (total_count, page, page_size) so the web frontend's
+// current shape is preserved.
+type PaginationMeta struct {
+	Page       int   `json:"page"`
+	PerPage    int   `json:"per_page"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
+}
+
+// NewPagination computes the pagination block from raw page/perPage/total.
+// Returns nil if perPage <= 0 (avoids divide-by-zero and signals "do not emit").
+func NewPagination(page, perPage int, total int64) *PaginationMeta {
+	if perPage <= 0 {
+		return nil
+	}
+	tp := int((total + int64(perPage) - 1) / int64(perPage))
+	if tp < 0 {
+		tp = 0
+	}
+	return &PaginationMeta{
+		Page:       page,
+		PerPage:    perPage,
+		Total:      total,
+		TotalPages: tp,
+	}
+}
+
 // VolumeInfo matches Google Books API structure.
 type VolumeInfo struct {
 	Title               string               `json:"title"`
@@ -110,12 +139,20 @@ type BookResponse struct {
 
 // BookListResponse matches Google Books API list format.
 type BookListResponse struct {
-	Kind       string         `json:"kind"` // "books#volumes"
-	TotalItems int            `json:"totalItems"`
-	Items      []BookResponse `json:"items"`
-	Page       int            `json:"page,omitempty"`
-	PageSize   int            `json:"pageSize,omitempty"`
-	Source     string         `json:"source,omitempty"`
+	Kind       string          `json:"kind"` // "books#volumes"
+	TotalItems int             `json:"totalItems"`
+	Items      []BookResponse  `json:"items"`
+	Page       int             `json:"page,omitempty"`
+	PageSize   int             `json:"pageSize,omitempty"`
+	Source     string          `json:"source,omitempty"`
+	Pagination *PaginationMeta `json:"pagination,omitempty"`
+}
+
+// WithPagination populates the mobile pagination block from the existing
+// Page/PageSize/TotalItems fields. Web ignores it; mobile reads it.
+func (r BookListResponse) WithPagination() BookListResponse {
+	r.Pagination = NewPagination(r.Page, r.PageSize, int64(r.TotalItems))
+	return r
 }
 
 // BookWithStatus extends BookResponse with bookshelf-specific fields.
@@ -139,6 +176,12 @@ type BookshelfResponse struct {
 	TotalCount int64            `json:"total_count"`
 	Page       int              `json:"page"`
 	PageSize   int              `json:"page_size"`
+	Pagination *PaginationMeta  `json:"pagination,omitempty"`
+}
+
+func (r BookshelfResponse) WithPagination() BookshelfResponse {
+	r.Pagination = NewPagination(r.Page, r.PageSize, r.TotalCount)
+	return r
 }
 
 // LikesResponse is returned from GET /api/v1/users/:username/likes.
@@ -147,14 +190,26 @@ type LikesResponse struct {
 	TotalCount int64             `json:"total_count"`
 	Page       int               `json:"page"`
 	PageSize   int               `json:"page_size"`
+	Pagination *PaginationMeta   `json:"pagination,omitempty"`
+}
+
+func (r LikesResponse) WithPagination() LikesResponse {
+	r.Pagination = NewPagination(r.Page, r.PageSize, r.TotalCount)
+	return r
 }
 
 // UserListResponse is returned from user list endpoints (followers, following, search).
 type UserListResponse struct {
-	Users      []UserResponse `json:"users"`
-	TotalCount int64          `json:"total_count"`
-	Page       int            `json:"page"`
-	PageSize   int            `json:"page_size"`
+	Users      []UserResponse  `json:"users"`
+	TotalCount int64           `json:"total_count"`
+	Page       int             `json:"page"`
+	PageSize   int             `json:"page_size"`
+	Pagination *PaginationMeta `json:"pagination,omitempty"`
+}
+
+func (r UserListResponse) WithPagination() UserListResponse {
+	r.Pagination = NewPagination(r.Page, r.PageSize, r.TotalCount)
+	return r
 }
 
 // FollowResponse with enriched follower/following counts.
@@ -268,6 +323,12 @@ type DiaryEntriesResponse struct {
 	TotalCount int64                `json:"total_count"`
 	Page       int                  `json:"page"`
 	PageSize   int                  `json:"page_size"`
+	Pagination *PaginationMeta      `json:"pagination,omitempty"`
+}
+
+func (r DiaryEntriesResponse) WithPagination() DiaryEntriesResponse {
+	r.Pagination = NewPagination(r.Page, r.PageSize, r.TotalCount)
+	return r
 }
 
 // ActivityResponse is a single item in the activity feed.
