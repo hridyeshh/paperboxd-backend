@@ -373,14 +373,17 @@ func main() {
 					r.Delete("/follow", userHandler.Unfollow)
 				})
 
-				// Diary routes
-				r.Get("/diary", diaryHandler.GetUserDiaryEntries)
+				// Diary routes. GETs use OptionalAuthenticate so the SQL viewer-id
+				// clause sees the requester and surfaces their own private entries
+				// (and 404s strangers correctly via the IsPrivate check in the
+				// single-entry handler).
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/diary", diaryHandler.GetUserDiaryEntries)
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 					r.Post("/diary", diaryHandler.CreateDiaryEntry)
 				})
 				r.Route("/diary/{entryId}", func(r chi.Router) {
-					r.Get("/", diaryHandler.GetDiaryEntry)
+					r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/", diaryHandler.GetDiaryEntry)
 					r.Group(func(r chi.Router) {
 						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 						r.Put("/", diaryHandler.UpdateDiaryEntry)
