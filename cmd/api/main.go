@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
@@ -62,11 +61,12 @@ func main() {
 	poolConfig.MinConns = cfg.DBMinConns
 
 	// Register pgvector type codecs on every new connection so columns of type
-	// `vector` (incl. NULLs) scan cleanly. Without this, RETURNING * inserts and
-	// SELECTs on rows where embedding is NULL fail with
-	// "unsupported data type: <nil>".
+	// `vector` (incl. NULLs) scan cleanly. We use a local wrapper around the
+	// upstream codec because pgvector-go@v0.4.0's pgx scan plan panics on NULL
+	// vector columns (slice OOB inside DecodeBinary); the wrapper short-circuits
+	// NULL src to a zero-value pgvector.Vector.
 	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvector.RegisterTypes(ctx, conn)
+		return db.RegisterPgvectorTypes(ctx, conn)
 	}
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
