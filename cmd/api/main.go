@@ -124,7 +124,14 @@ func main() {
 
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(queries, cfg)
-	mobileAuthHandler := auth.NewMobileHandler(authHandler, service.NoopMailer{})
+	// NewResendMailer returns NoopMailer when RESEND_API_KEY is empty, so dev
+	// environments still run without an email provider — the OTP path will 200
+	// but no mail goes out.
+	mailer := service.NewResendMailer(cfg.ResendAPIKey, cfg.ResendFromEmail)
+	if cfg.ResendAPIKey == "" {
+		slog.Warn("RESEND_API_KEY not set; mobile OTP emails will not be delivered")
+	}
+	mobileAuthHandler := auth.NewMobileHandler(authHandler, mailer)
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
 	mobileHealthHandler := handler.NewMobileHealthHandler()
 

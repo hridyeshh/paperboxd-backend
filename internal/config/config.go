@@ -35,6 +35,9 @@ type Config struct {
 	CORSAllowedOrigins []string
 
 	InternalSecret string
+
+	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
+	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
 }
 
 func Load() (*Config, error) {
@@ -73,6 +76,9 @@ func Load() (*Config, error) {
 			"http://localhost:3000,http://localhost:3001"),
 
 		InternalSecret: getEnv("INTERNAL_SECRET", ""),
+
+		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
+		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),
 	}, nil
 }
 
