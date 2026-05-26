@@ -15,7 +15,9 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
@@ -58,6 +60,14 @@ func main() {
 	}
 	poolConfig.MaxConns = cfg.DBMaxConns
 	poolConfig.MinConns = cfg.DBMinConns
+
+	// Register pgvector type codecs on every new connection so columns of type
+	// `vector` (incl. NULLs) scan cleanly. Without this, RETURNING * inserts and
+	// SELECTs on rows where embedding is NULL fail with
+	// "unsupported data type: <nil>".
+	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvector.RegisterTypes(ctx, conn)
+	}
 
 	dbPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
