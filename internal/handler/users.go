@@ -327,7 +327,7 @@ func (h *UserHandler) Search(w http.ResponseWriter, r *http.Request) {
 		TotalCount: int64(len(resp)),
 		Page:       page,
 		PageSize:   pageSize,
-	})
+	}.WithPagination())
 }
 
 // RecordDailyOpen tracks daily app usage and awards XP once per day.

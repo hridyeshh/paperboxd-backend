@@ -119,7 +119,7 @@ func (h *Handler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if otp.Attempts >= otp.MaxAttempts {
-		types.WriteError(w, http.StatusTooManyRequests, types.ErrCodeInvalidRequest, "Too many failed attempts. Please request a new code.")
+		types.WriteError(w, http.StatusTooManyRequests, types.ErrCodeRateLimited, "Too many failed attempts. Please request a new code.")
 		return
 	}
 

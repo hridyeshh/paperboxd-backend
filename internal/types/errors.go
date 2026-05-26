@@ -5,41 +5,44 @@ import (
 	"net/http"
 )
 
-// AppError represents a structured API error.
+// ErrorResponse is the JSON envelope for error responses.
+// Shape (mobile + web contract):
+//
+//	{ "error": "human readable message", "code": "SNAKE_CASE_CODE" }
+type ErrorResponse struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
+// Common error codes returned by all handlers.
+const (
+	ErrCodeInvalidRequest = "VALIDATION_ERROR"
+	ErrCodeValidation     = "VALIDATION_ERROR"
+	ErrCodeUnauthorized   = "UNAUTHORIZED"
+	ErrCodeForbidden      = "FORBIDDEN"
+	ErrCodeNotFound       = "NOT_FOUND"
+	ErrCodeConflict       = "CONFLICT"
+	ErrCodeRateLimited    = "RATE_LIMITED"
+	ErrCodeInternalServer = "INTERNAL_ERROR"
+	ErrCodeInvalidToken   = "INVALID_TOKEN"
+	ErrCodeExpiredToken   = "EXPIRED_TOKEN"
+)
+
+// AppError is kept for backwards source-compatibility with code that previously
+// constructed structured errors. New callers should use WriteError directly.
 type AppError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-// ErrorResponse is the JSON envelope for error responses.
-type ErrorResponse struct {
-	Error AppError `json:"error"`
-}
-
-// Common error codes.
-const (
-	ErrCodeInvalidRequest   = "INVALID_REQUEST"
-	ErrCodeUnauthorized     = "UNAUTHORIZED"
-	ErrCodeForbidden        = "FORBIDDEN"
-	ErrCodeNotFound         = "NOT_FOUND"
-	ErrCodeConflict         = "CONFLICT"
-	ErrCodeInternalServer   = "INTERNAL_SERVER_ERROR"
-	ErrCodeValidation       = "VALIDATION_ERROR"
-	ErrCodeInvalidToken     = "INVALID_TOKEN"
-	ErrCodeExpiredToken     = "EXPIRED_TOKEN"
-)
-
-// WriteError writes a JSON error response.
+// WriteError writes a JSON error response in the flat {error, code} shape.
 func WriteError(w http.ResponseWriter, statusCode int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	resp := ErrorResponse{
-		Error: AppError{
-			Code:    code,
-			Message: message,
-		},
-	}
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
+		Error: message,
+		Code:  code,
+	})
 }
 
 // WriteInternalError writes a 500 error.

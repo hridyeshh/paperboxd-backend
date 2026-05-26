@@ -102,7 +102,7 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 			Page:       page,
 			PageSize:   pageSize,
 			Source:     "db",
-		})
+		}.WithPagination())
 		return
 	}
 
@@ -123,7 +123,7 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 				Page:       page,
 				PageSize:   pageSize,
 				Source:     "isbndb",
-			})
+			}.WithPagination())
 			return
 		}
 	}
@@ -145,7 +145,7 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 				Page:       page,
 				PageSize:   pageSize,
 				Source:     "google",
-			})
+			}.WithPagination())
 			return
 		}
 	}
@@ -158,7 +158,7 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		Page:       page,
 		PageSize:   pageSize,
 		Source:     "none",
-	})
+	}.WithPagination())
 }
 
 // Create handles POST /api/v1/books
@@ -426,7 +426,7 @@ func (h *BookHandler) GetLatest(w http.ResponseWriter, r *http.Request) {
 		Page:       page,
 		PageSize:   pageSize,
 		Source:     "db",
-	})
+	}.WithPagination())
 }
 
 // GetPublic handles GET /api/v1/books/public
@@ -491,7 +491,7 @@ func (h *BookHandler) GetByAuthor(w http.ResponseWriter, r *http.Request) {
 		Page:       page,
 		PageSize:   pageSize,
 		Source:     "db",
-	})
+	}.WithPagination())
 }
 
 // ShareBook handles POST /api/v1/books/{id}/share
