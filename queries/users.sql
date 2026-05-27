@@ -48,7 +48,7 @@ ON CONFLICT (user_id, author_name) DO UPDATE SET author_name = EXCLUDED.author_n
 RETURNING *;
 
 -- name: UpdateUsername :one
-UPDATE users SET username = $2, updated_at = NOW()
+UPDATE users SET username = $2, onboarding_completed = true, updated_at = NOW()
 WHERE id = $1
 RETURNING *;
 

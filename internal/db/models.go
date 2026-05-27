@@ -306,6 +306,7 @@ type User struct {
 	ReferredBy             pgtype.UUID        `json:"referred_by"`
 	ReferralCount          pgtype.Int4        `json:"referral_count"`
 	ReferralRewardsClaimed []string           `json:"referral_rewards_claimed"`
+	OnboardingCompleted    bool               `json:"onboarding_completed"`
 }
 
 type UserAuthorsRead struct {

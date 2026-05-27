@@ -51,21 +51,23 @@ func NewMobileHandler(h *Handler, mailer service.Mailer) *MobileHandler {
 
 // mobileUser is the trimmed user payload returned by mobile auth endpoints.
 type mobileUser struct {
-	ID        string  `json:"id"`
-	Username  string  `json:"username"`
-	Email     string  `json:"email"`
-	AvatarURL *string `json:"avatar_url,omitempty"`
-	Level     int32   `json:"level"`
-	XP        int32   `json:"xp"`
+	ID                  string  `json:"id"`
+	Username            string  `json:"username"`
+	Email               string  `json:"email"`
+	AvatarURL           *string `json:"avatar_url,omitempty"`
+	Level               int32   `json:"level"`
+	XP                  int32   `json:"xp"`
+	OnboardingCompleted bool    `json:"onboarding_completed"`
 }
 
 func toMobileUser(u db.User) mobileUser {
 	mu := mobileUser{
-		ID:       u.ID.String(),
-		Username: u.Username,
-		Email:    u.Email,
-		Level:    u.Level.Int32,
-		XP:       u.TotalXp.Int32,
+		ID:                  u.ID.String(),
+		Username:            u.Username,
+		Email:               u.Email,
+		Level:               u.Level.Int32,
+		XP:                  u.TotalXp.Int32,
+		OnboardingCompleted: u.OnboardingCompleted,
 	}
 	if u.AvatarUrl.Valid {
 		v := u.AvatarUrl.String

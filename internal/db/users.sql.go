@@ -83,7 +83,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -130,6 +130,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.ReferredBy,
 		&i.ReferralCount,
 		&i.ReferralRewardsClaimed,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
@@ -508,9 +509,9 @@ func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error 
 }
 
 const updateUsername = `-- name: UpdateUsername :one
-UPDATE users SET username = $2, updated_at = NOW()
+UPDATE users SET username = $2, onboarding_completed = true, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed
 `
 
 type UpdateUsernameParams struct {
@@ -561,6 +562,7 @@ func (q *Queries) UpdateUsername(ctx context.Context, arg UpdateUsernameParams) 
 		&i.ReferredBy,
 		&i.ReferralCount,
 		&i.ReferralRewardsClaimed,
+		&i.OnboardingCompleted,
 	)
 	return i, err
 }
