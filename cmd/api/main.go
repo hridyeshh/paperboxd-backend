@@ -233,6 +233,12 @@ func main() {
 		r.Post("/refresh", mobileAuthHandler.MobileRefresh)
 	})
 
+	// Authenticated mobile endpoints (Bearer token required).
+	r.Group(func(r chi.Router) {
+		r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+		r.Patch("/api/mobile/users/me", mobileAuthHandler.MobileUpdateMe)
+	})
+
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes (no auth)

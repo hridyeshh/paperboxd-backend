@@ -14,17 +14,21 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/token"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+var usernameRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 const otpExpiry = 10 * time.Minute
 
@@ -183,11 +187,7 @@ func (m *MobileHandler) MobileRegister(w http.ResponseWriter, r *http.Request) {
 
 	types.WriteJSON(w, http.StatusCreated, map[string]any{
 		"token": tok,
-		"user": map[string]any{
-			"id":       user.ID.String(),
-			"username": user.Username,
-			"email":    user.Email,
-		},
+		"user":  toMobileUser(user),
 	})
 }
 
@@ -398,24 +398,11 @@ func (m *MobileHandler) MobileGoogleAuth(w http.ResponseWriter, r *http.Request)
 
 	go func() { _ = m.queries.UpdateUserLastActive(context.Background(), user.ID) }()
 
-	out := map[string]any{
-		"token": tok,
-		"user": map[string]any{
-			"id":         user.ID.String(),
-			"username":   user.Username,
-			"email":      user.Email,
-			"avatar_url": nullableAvatar(user),
-		},
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"token":       tok,
+		"user":        toMobileUser(user),
 		"is_new_user": isNew,
-	}
-	types.WriteJSON(w, http.StatusOK, out)
-}
-
-func nullableAvatar(u db.User) any {
-	if u.AvatarUrl.Valid {
-		return u.AvatarUrl.String
-	}
-	return nil
+	})
 }
 
 // MobileRefresh handles POST /api/mobile/auth/refresh.
@@ -449,6 +436,72 @@ func (m *MobileHandler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	types.WriteJSON(w, http.StatusOK, map[string]any{"token": tok})
+}
+
+// MobileUpdateMe handles PATCH /api/mobile/users/me.
+// Lets authenticated mobile users set or change their username. This is the
+// critical path for the onboarding flow because MobileRegister auto-generates
+// a username, so ChooseUsernameView must call this endpoint — not the web
+// PUT /api/v1/users/{slug} — to avoid path-coupling to the generated slug.
+func (m *MobileHandler) MobileUpdateMe(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Not authenticated")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Invalid user ID in token")
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid JSON body")
+		return
+	}
+	username := strings.TrimSpace(strings.ToLower(req.Username))
+	if len(username) < 3 || len(username) > 50 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Username must be 3–50 characters")
+		return
+	}
+	if !usernameRe.MatchString(username) {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Username may only contain letters, numbers, _ and -")
+		return
+	}
+
+	// Uniqueness check: if someone already owns this username and it's not us,
+	// return a 409 with a user-facing reason.
+	existing, err := m.queries.GetUserByUsername(r.Context(), username)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		slog.Error("mobile update me: check username", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if err == nil && existing.ID != userID {
+		types.WriteError(w, http.StatusConflict, types.ErrCodeConflict, "Username already taken")
+		return
+	}
+
+	updated, err := m.queries.UpdateUsername(r.Context(), db.UpdateUsernameParams{
+		ID:       userID,
+		Username: username,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			types.WriteError(w, http.StatusConflict, types.ErrCodeConflict, "Username already taken")
+			return
+		}
+		slog.Error("mobile update me: update username", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"user": toMobileUser(updated),
+	})
 }
 
 // googleClaims is the subset of fields we use from Google's tokeninfo response.
