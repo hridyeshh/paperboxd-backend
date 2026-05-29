@@ -77,6 +77,19 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 		resp.FollowingCount = int32(following)
 	}
 
+	// Attach is_following when an authenticated viewer requests another user's profile.
+	if viewerIDStr, ok := reqctx.GetUserID(r.Context()); ok {
+		if viewerID, err := uuid.Parse(viewerIDStr); err == nil && viewerID != user.ID {
+			isFollowing, err := h.Queries.CheckFollowing(r.Context(), db.CheckFollowingParams{
+				FollowerID:  viewerID,
+				FollowingID: user.ID,
+			})
+			if err == nil {
+				resp.IsFollowing = &isFollowing
+			}
+		}
+	}
+
 	types.WriteJSON(w, http.StatusOK, resp)
 }
 

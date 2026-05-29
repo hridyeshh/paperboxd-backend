@@ -44,6 +44,7 @@ type UserResponse struct {
 	FollowingCount    int32    `json:"following_count"`
 	FavoriteGenres    []string `json:"favorite_genres"`
 	CreatedAt         string   `json:"created_at"`
+	IsFollowing       *bool    `json:"is_following,omitempty"`
 }
 
 // SuccessResponse is a generic success envelope.
