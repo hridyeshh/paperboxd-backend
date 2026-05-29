@@ -54,6 +54,7 @@ type mobileUser struct {
 	ID                  string  `json:"id"`
 	Username            string  `json:"username"`
 	Email               string  `json:"email"`
+	Name                *string `json:"name,omitempty"`
 	AvatarURL           *string `json:"avatar_url,omitempty"`
 	Level               int32   `json:"level"`
 	XP                  int32   `json:"xp"`
@@ -68,6 +69,10 @@ func toMobileUser(u db.User) mobileUser {
 		Level:               u.Level.Int32,
 		XP:                  u.TotalXp.Int32,
 		OnboardingCompleted: u.OnboardingCompleted,
+	}
+	if u.Name.Valid {
+		v := u.Name.String
+		mu.Name = &v
 	}
 	if u.AvatarUrl.Valid {
 		v := u.AvatarUrl.String
@@ -457,8 +462,12 @@ func (m *MobileHandler) MobileUpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// name is an optional pointer so we can tell "field omitted" (leave name
+	// unchanged) apart from "explicit empty string". The onboarding flow sends
+	// username + display name together in one PATCH.
 	var req struct {
-		Username string `json:"username"`
+		Username string  `json:"username"`
+		Name     *string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid JSON body")
@@ -499,6 +508,25 @@ func (m *MobileHandler) MobileUpdateMe(w http.ResponseWriter, r *http.Request) {
 		slog.Error("mobile update me: update username", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	// Persist the display name when provided. UpdateUser uses COALESCE, so the
+	// other (NULL) fields are left untouched.
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if len([]rune(name)) > 100 {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Display name must be 100 characters or fewer")
+			return
+		}
+		updated, err = m.queries.UpdateUser(r.Context(), db.UpdateUserParams{
+			ID:   userID,
+			Name: pgtype.Text{String: name, Valid: true},
+		})
+		if err != nil {
+			slog.Error("mobile update me: update name", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{

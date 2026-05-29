@@ -38,6 +38,10 @@ type Config struct {
 
 	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
 	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
+
+	CloudinaryCloudName string // Cloudinary cloud name. Empty → avatar upload disabled.
+	CloudinaryAPIKey    string
+	CloudinaryAPISecret string
 }
 
 func Load() (*Config, error) {
@@ -79,6 +83,10 @@ func Load() (*Config, error) {
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),
+
+		CloudinaryCloudName: getEnv("CLOUDINARY_CLOUD_NAME", getEnv("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME", "")),
+		CloudinaryAPIKey:    getEnv("CLOUDINARY_API_KEY", ""),
+		CloudinaryAPISecret: getEnv("CLOUDINARY_API_SECRET", ""),
 	}, nil
 }
 

@@ -137,6 +137,10 @@ func main() {
 
 	isbndbClient := external.NewISBNdbClient(cfg.ISBNdbAPIKey)
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
+	cloudinaryClient := external.NewCloudinaryClient(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
+	if cloudinaryClient == nil {
+		slog.Warn("CLOUDINARY_* not set; avatar upload endpoint will return 503")
+	}
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
@@ -169,6 +173,7 @@ func main() {
 		ISBNdb:                isbndbClient,
 		GoogleBooks:           googleBooksClient,
 		RecommendationService: recommendationSvc,
+		Cloudinary:            cloudinaryClient,
 	}
 
 	// ── Router ─────────────────────────────────────────────────────────────────
@@ -272,6 +277,7 @@ func main() {
 			r.Get("/users/me/referral", referralHandler.GetMyReferralCode)
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
 			r.Patch("/users/me/avatar", userHandler.UpdateAvatar)
+			r.Post("/users/me/avatar/upload", userHandler.UploadAvatar)
 			r.Post("/events", eventsHandler.Track)
 		})
 

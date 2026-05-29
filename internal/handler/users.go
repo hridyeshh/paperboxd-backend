@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -31,6 +32,7 @@ type UserHandler struct {
 	GoogleBooks           *external.GoogleBooksClient
 	RecommendationService *service.RecommendationService
 	Enricher              *service.Enricher
+	Cloudinary            *external.CloudinaryClient
 }
 
 // embedCallback returns a fire-and-forget func for newly cached books, or nil if embedding is disabled.
@@ -413,6 +415,82 @@ func (h *UserHandler) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("update avatar", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+}
+
+// UploadAvatar handles POST /api/v1/users/me/avatar/upload
+// Accepts multipart/form-data with a `file` field (the raw image), uploads it to
+// Cloudinary (signed, server-side — the secret never reaches the client), then
+// persists the returned secure URL. Used by the iOS app, which has no Next.js
+// BFF to do the Cloudinary round-trip the web client relies on.
+func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	if h.Cloudinary == nil {
+		types.WriteError(w, http.StatusServiceUnavailable, types.ErrCodeInternalServer, "Image upload is not configured")
+		return
+	}
+
+	const maxUpload = 5 << 20 // 5 MB, matches the web upload limit.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+1024)
+	if err := r.ParseMultipartForm(maxUpload + 1024); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Image too large (max 5MB) or invalid form data")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Missing file field")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxUpload {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Image too large (max 5MB)")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(file, maxUpload+1))
+	if err != nil {
+		slog.Error("upload avatar: read file", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if len(data) == 0 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Empty image")
+		return
+	}
+	if !strings.HasPrefix(http.DetectContentType(data), "image/") {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "File must be an image")
+		return
+	}
+
+	secureURL, err := h.Cloudinary.UploadAvatar(r.Context(), userID.String(), data, header.Header.Get("Content-Type"))
+	if err != nil {
+		slog.Error("upload avatar: cloudinary", "error", err, "user_id", userID)
+		types.WriteError(w, http.StatusBadGateway, types.ErrCodeInternalServer, "Failed to upload image")
+		return
+	}
+
+	updated, err := h.Queries.UpdateUser(r.Context(), db.UpdateUserParams{
+		ID:        userID,
+		AvatarUrl: pgtype.Text{String: secureURL, Valid: true},
+	})
+	if err != nil {
+		slog.Error("upload avatar: persist url", "error", err, "user_id", userID)
 		types.WriteInternalError(w)
 		return
 	}
