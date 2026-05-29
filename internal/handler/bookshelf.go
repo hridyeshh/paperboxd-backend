@@ -479,6 +479,59 @@ func (h *UserHandler) GetLikes(w http.ResponseWriter, r *http.Request) {
 	}.WithPagination())
 }
 
+// GetBookStatus handles GET /api/v1/users/:username/bookshelf/:bookId/status.
+// Returns the authenticated user's read/like/TBR state for a single book.
+// Requires auth — callers should only fetch their own status.
+func (h *UserHandler) GetBookStatus(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookIDStr := chi.URLParam(r, "bookId")
+	bookID, err := uuid.Parse(bookIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid book_id")
+		return
+	}
+
+	// Bookshelf entry (covers isRead and isTBR)
+	var isRead, isTBR bool
+	entry, err := h.Queries.GetBookshelfEntry(r.Context(), db.GetBookshelfEntryParams{
+		UserID: userID,
+		BookID: bookID,
+	})
+	if err == nil {
+		switch entry.Status {
+		case "read":
+			isRead = true
+		case "to-read":
+			isTBR = true
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		slog.Error("get bookshelf entry for status", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	// Like status
+	isLiked, err := h.Queries.CheckUserLikedBook(r.Context(), db.CheckUserLikedBookParams{
+		UserID: userID,
+		BookID: bookID,
+	})
+	if err != nil {
+		slog.Error("check user liked book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]bool{
+		"isRead":  isRead,
+		"isLiked": isLiked,
+		"isTBR":   isTBR,
+	})
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 // resolveOwner verifies the JWT user matches the :username route param.

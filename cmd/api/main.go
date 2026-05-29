@@ -445,6 +445,7 @@ func main() {
 					r.Route("/{bookId}", func(r chi.Router) {
 						r.Group(func(r chi.Router) {
 							r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+							r.Get("/status", userHandler.GetBookStatus)
 							r.Delete("/", userHandler.RemoveFromBookshelf)
 							r.Patch("/", userHandler.UpdateBookshelfRating)
 							r.Put("/tbr", userHandler.UpdateTBRNotes)
