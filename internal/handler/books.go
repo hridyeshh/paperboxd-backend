@@ -990,6 +990,158 @@ func (h *BookHandler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, map[string]any{"reviews": items})
 }
 
+// GetFriendsReadingBook handles GET /api/v1/books/{id}/friends-reading (auth required).
+// Returns the people the viewer follows who have this book on their shelf,
+// prioritised by active readers first, plus a count of friends currently reading.
+func (h *BookHandler) GetFriendsReadingBook(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	rows, err := h.Queries.GetFriendsReadingBook(r.Context(), db.GetFriendsReadingBookParams{
+		FollowerID: userID,
+		BookID:     bookID,
+	})
+	if err != nil {
+		slog.Error("get friends reading book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	readingCount, err := h.Queries.CountFriendsReadingBook(r.Context(), db.CountFriendsReadingBookParams{
+		FollowerID: userID,
+		BookID:     bookID,
+	})
+	if err != nil {
+		slog.Error("count friends reading book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	type FriendItem struct {
+		UserID      string  `json:"user_id"`
+		Username    string  `json:"username"`
+		Name        string  `json:"name"`
+		AvatarURL   *string `json:"avatar_url"`
+		Status      string  `json:"status"`
+		CurrentPage *int    `json:"current_page"`
+		StartedAt   *string `json:"started_at"`
+	}
+
+	items := make([]FriendItem, len(rows))
+	for i, row := range rows {
+		fi := FriendItem{
+			UserID:   row.UserID.String(),
+			Username: row.Username,
+			Status:   row.Status,
+		}
+		if row.Name.Valid {
+			fi.Name = row.Name.String
+		}
+		if row.AvatarUrl.Valid {
+			fi.AvatarURL = &row.AvatarUrl.String
+		}
+		if row.CurrentPage.Valid {
+			cp := int(row.CurrentPage.Int32)
+			fi.CurrentPage = &cp
+		}
+		if row.StartedAt.Valid {
+			s := row.StartedAt.Time.Format(time.RFC3339)
+			fi.StartedAt = &s
+		}
+		items[i] = fi
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"friends":       items,
+		"reading_count": readingCount,
+	})
+}
+
+// GetBookReviewsByFriends handles GET /api/v1/books/{id}/reviews/friends (auth required).
+// Returns reviews authored by users the viewer follows.
+func (h *BookHandler) GetBookReviewsByFriends(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	rows, err := h.Queries.GetBookReviewsByFriends(r.Context(), db.GetBookReviewsByFriendsParams{
+		BookID:     bookID,
+		FollowerID: userID,
+	})
+	if err != nil {
+		slog.Error("get book reviews by friends", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	type ReviewItem struct {
+		UserID     string  `json:"user_id"`
+		Username   string  `json:"username"`
+		Name       string  `json:"name"`
+		AvatarURL  *string `json:"avatar_url"`
+		Rating     *int    `json:"rating"`
+		Review     *string `json:"review"`
+		ReviewedAt *string `json:"reviewed_at"`
+		Edited     bool    `json:"edited"`
+	}
+
+	items := make([]ReviewItem, len(rows))
+	for i, row := range rows {
+		item := ReviewItem{
+			UserID:   row.UserID.String(),
+			Username: row.Username,
+			Edited:   row.ReviewEdited,
+		}
+		if row.Name.Valid {
+			item.Name = row.Name.String
+		}
+		if row.AvatarUrl.Valid {
+			item.AvatarURL = &row.AvatarUrl.String
+		}
+		if row.Rating.Valid {
+			v := int(row.Rating.Int32)
+			item.Rating = &v
+		}
+		if row.Review.Valid && row.Review.String != "" {
+			item.Review = &row.Review.String
+		}
+		if row.ReviewedAt.Valid {
+			s := row.ReviewedAt.Time.Format(time.RFC3339)
+			item.ReviewedAt = &s
+		}
+		items[i] = item
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{"reviews": items})
+}
+
 // CleanupStaleBooks handles DELETE /api/v1/admin/cleanup-books
 // Removes books older than 15 days that are not in any user's collection.
 func (h *BookHandler) CleanupStaleBooks(w http.ResponseWriter, r *http.Request) {

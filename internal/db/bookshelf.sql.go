@@ -72,6 +72,27 @@ func (q *Queries) AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) 
 	return i, err
 }
 
+const countFriendsReadingBook = `-- name: CountFriendsReadingBook :one
+SELECT COUNT(*) FROM follows f
+JOIN bookshelf bs ON bs.user_id = f.following_id
+WHERE f.follower_id = $1
+  AND bs.book_id = $2
+  AND bs.status = 'reading'
+`
+
+type CountFriendsReadingBookParams struct {
+	FollowerID uuid.UUID `json:"follower_id"`
+	BookID     uuid.UUID `json:"book_id"`
+}
+
+// Counts friends actively reading this book right now.
+func (q *Queries) CountFriendsReadingBook(ctx context.Context, arg CountFriendsReadingBookParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countFriendsReadingBook, arg.FollowerID, arg.BookID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserBooks = `-- name: CountUserBooks :one
 SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status = $2
 `
@@ -131,6 +152,73 @@ func (q *Queries) GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBo
 			&i.ReviewedAt,
 			&i.ReviewEdited,
 			&i.Username,
+			&i.AvatarUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getBookReviewsByFriends = `-- name: GetBookReviewsByFriends :many
+SELECT
+    bs.user_id,
+    bs.rating,
+    bs.review,
+    bs.reviewed_at,
+    bs.review_edited,
+    u.username,
+    u.name,
+    u.avatar_url
+FROM bookshelf bs
+JOIN users u ON bs.user_id = u.id
+JOIN follows f ON f.following_id = bs.user_id
+WHERE bs.book_id = $1
+  AND f.follower_id = $2
+  AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
+ORDER BY bs.reviewed_at DESC NULLS LAST
+LIMIT 20
+`
+
+type GetBookReviewsByFriendsParams struct {
+	BookID     uuid.UUID `json:"book_id"`
+	FollowerID uuid.UUID `json:"follower_id"`
+}
+
+type GetBookReviewsByFriendsRow struct {
+	UserID       uuid.UUID          `json:"user_id"`
+	Rating       pgtype.Int4        `json:"rating"`
+	Review       pgtype.Text        `json:"review"`
+	ReviewedAt   pgtype.Timestamptz `json:"reviewed_at"`
+	ReviewEdited bool               `json:"review_edited"`
+	Username     string             `json:"username"`
+	Name         pgtype.Text        `json:"name"`
+	AvatarUrl    pgtype.Text        `json:"avatar_url"`
+}
+
+// Reviews on a book authored by users the current viewer follows.
+// $1 = book_id, $2 = viewer's user_id (follower).
+func (q *Queries) GetBookReviewsByFriends(ctx context.Context, arg GetBookReviewsByFriendsParams) ([]GetBookReviewsByFriendsRow, error) {
+	rows, err := q.db.Query(ctx, getBookReviewsByFriends, arg.BookID, arg.FollowerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetBookReviewsByFriendsRow{}
+	for rows.Next() {
+		var i GetBookReviewsByFriendsRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Rating,
+			&i.Review,
+			&i.ReviewedAt,
+			&i.ReviewEdited,
+			&i.Username,
+			&i.Name,
 			&i.AvatarUrl,
 		); err != nil {
 			return nil, err
@@ -294,6 +382,128 @@ func (q *Queries) GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const getFriendsReadingBook = `-- name: GetFriendsReadingBook :many
+SELECT
+    u.id AS user_id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    bs.current_page,
+    bs.started_at,
+    bs.status,
+    bs.updated_at
+FROM follows f
+JOIN bookshelf bs ON bs.user_id = f.following_id
+JOIN users u ON u.id = f.following_id
+WHERE f.follower_id = $1
+  AND bs.book_id = $2
+  AND bs.status IN ('reading', 'to-read', 'read')
+ORDER BY
+    CASE bs.status
+        WHEN 'reading' THEN 0
+        WHEN 'read' THEN 1
+        ELSE 2
+    END,
+    bs.updated_at DESC
+LIMIT 20
+`
+
+type GetFriendsReadingBookParams struct {
+	FollowerID uuid.UUID `json:"follower_id"`
+	BookID     uuid.UUID `json:"book_id"`
+}
+
+type GetFriendsReadingBookRow struct {
+	UserID      uuid.UUID          `json:"user_id"`
+	Username    string             `json:"username"`
+	Name        pgtype.Text        `json:"name"`
+	AvatarUrl   pgtype.Text        `json:"avatar_url"`
+	CurrentPage pgtype.Int4        `json:"current_page"`
+	StartedAt   pgtype.Timestamptz `json:"started_at"`
+	Status      string             `json:"status"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Friends (people the viewer follows) who have this book on their shelf
+// with status 'reading' or 'to-read', prioritised by active readers first.
+// $1 = viewer's user_id (follower), $2 = book_id.
+func (q *Queries) GetFriendsReadingBook(ctx context.Context, arg GetFriendsReadingBookParams) ([]GetFriendsReadingBookRow, error) {
+	rows, err := q.db.Query(ctx, getFriendsReadingBook, arg.FollowerID, arg.BookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetFriendsReadingBookRow{}
+	for rows.Next() {
+		var i GetFriendsReadingBookRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Username,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.CurrentPage,
+			&i.StartedAt,
+			&i.Status,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getReadingProgress = `-- name: GetReadingProgress :one
+SELECT
+    bs.current_page,
+    bs.reading_velocity,
+    bs.estimated_finish_date,
+    bs.started_at,
+    bs.finished_at,
+    bs.status,
+    bs.updated_at,
+    b.page_count AS total_pages
+FROM bookshelf bs
+JOIN books b ON b.id = bs.book_id
+WHERE bs.user_id = $1 AND bs.book_id = $2
+`
+
+type GetReadingProgressParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	BookID uuid.UUID `json:"book_id"`
+}
+
+type GetReadingProgressRow struct {
+	CurrentPage         pgtype.Int4        `json:"current_page"`
+	ReadingVelocity     pgtype.Float8      `json:"reading_velocity"`
+	EstimatedFinishDate pgtype.Date        `json:"estimated_finish_date"`
+	StartedAt           pgtype.Timestamptz `json:"started_at"`
+	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
+	Status              string             `json:"status"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	TotalPages          pgtype.Int4        `json:"total_pages"`
+}
+
+// Reading progress snapshot for a book on a single user's shelf.
+func (q *Queries) GetReadingProgress(ctx context.Context, arg GetReadingProgressParams) (GetReadingProgressRow, error) {
+	row := q.db.QueryRow(ctx, getReadingProgress, arg.UserID, arg.BookID)
+	var i GetReadingProgressRow
+	err := row.Scan(
+		&i.CurrentPage,
+		&i.ReadingVelocity,
+		&i.EstimatedFinishDate,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.UpdatedAt,
+		&i.TotalPages,
+	)
+	return i, err
 }
 
 const getUserAuthors = `-- name: GetUserAuthors :many

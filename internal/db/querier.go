@@ -39,6 +39,8 @@ type Querier interface {
 	CountEntryLikes(ctx context.Context, entryID uuid.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
+	// Counts friends actively reading this book right now.
+	CountFriendsReadingBook(ctx context.Context, arg CountFriendsReadingBookParams) (int64, error)
 	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
@@ -71,6 +73,9 @@ type Querier interface {
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
 	GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string) ([]GetBookEmbeddingsByIDsRow, error)
 	GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBookReviewsRow, error)
+	// Reviews on a book authored by users the current viewer follows.
+	// $1 = book_id, $2 = viewer's user_id (follower).
+	GetBookReviewsByFriends(ctx context.Context, arg GetBookReviewsByFriendsParams) ([]GetBookReviewsByFriendsRow, error)
 	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	GetCurrentStreak(ctx context.Context, userID uuid.UUID) (int32, error)
@@ -87,6 +92,10 @@ type Querier interface {
 	// LEADERBOARD QUERIES
 	// ============================================================================
 	GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeaderboardParams) ([]LeaderboardStat, error)
+	// Friends (people the viewer follows) who have this book on their shelf
+	// with status 'reading' or 'to-read', prioritised by active readers first.
+	// $1 = viewer's user_id (follower), $2 = book_id.
+	GetFriendsReadingBook(ctx context.Context, arg GetFriendsReadingBookParams) ([]GetFriendsReadingBookRow, error)
 	GetGlobalLeaderboard(ctx context.Context, limit int32) ([]LeaderboardStat, error)
 	GetLastLoggedBook(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookRow, error)
 	GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookTodayRow, error)
@@ -102,6 +111,8 @@ type Querier interface {
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
+	// Reading progress snapshot for a book on a single user's shelf.
+	GetReadingProgress(ctx context.Context, arg GetReadingProgressParams) (GetReadingProgressRow, error)
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)

@@ -314,6 +314,8 @@ func main() {
 					r.Post("/like", bookHandler.Like)
 					r.Delete("/like", bookHandler.Unlike)
 					r.Post("/share", bookHandler.ShareBook)
+					r.Get("/friends-reading", bookHandler.GetFriendsReadingBook)
+					r.Get("/reviews/friends", bookHandler.GetBookReviewsByFriends)
 				})
 			})
 		})
@@ -450,6 +452,7 @@ func main() {
 						r.Group(func(r chi.Router) {
 							r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 							r.Get("/status", userHandler.GetBookStatus)
+							r.Get("/progress", userHandler.GetReadingProgress)
 							r.Delete("/", userHandler.RemoveFromBookshelf)
 							r.Patch("/", userHandler.UpdateBookshelfRating)
 							r.Put("/tbr", userHandler.UpdateTBRNotes)

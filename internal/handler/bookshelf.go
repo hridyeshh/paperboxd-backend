@@ -845,6 +845,90 @@ func (h *UserHandler) GetCurrentlyReading(w http.ResponseWriter, r *http.Request
 	types.WriteJSON(w, http.StatusOK, resp)
 }
 
+// GetReadingProgress handles GET /api/v1/users/:username/bookshelf/:bookId/progress.
+// Returns the caller's current page, total pages, completion %, and finish estimate.
+// Auth-protected and owner-only — the username in the path must match the JWT user.
+func (h *UserHandler) GetReadingProgress(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.resolveOwner(w, r)
+	if !ok {
+		return
+	}
+
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, err.Error())
+		return
+	}
+
+	row, err := h.Queries.GetReadingProgress(r.Context(), db.GetReadingProgressParams{
+		UserID: userID,
+		BookID: bookID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Book not on shelf yet — return a zero-progress shape rather than 404
+			// so the client can render the empty progress card without an extra branch.
+			types.WriteJSON(w, http.StatusOK, map[string]any{
+				"on_shelf":              false,
+				"status":                "",
+				"current_page":          nil,
+				"total_pages":           nil,
+				"percent":               nil,
+				"estimated_finish_date": nil,
+				"started_at":            nil,
+				"finished_at":           nil,
+			})
+			return
+		}
+		slog.Error("get reading progress", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	var currentPage, totalPages *int
+	var percent *float64
+	if row.CurrentPage.Valid {
+		cp := int(row.CurrentPage.Int32)
+		currentPage = &cp
+	}
+	if row.TotalPages.Valid && row.TotalPages.Int32 > 0 {
+		tp := int(row.TotalPages.Int32)
+		totalPages = &tp
+		if currentPage != nil {
+			p := float64(*currentPage) / float64(tp) * 100.0
+			if p > 100 {
+				p = 100
+			}
+			percent = &p
+		}
+	}
+
+	var estimatedFinish, startedAt, finishedAt *string
+	if row.EstimatedFinishDate.Valid {
+		s := row.EstimatedFinishDate.Time.Format("2006-01-02")
+		estimatedFinish = &s
+	}
+	if row.StartedAt.Valid {
+		s := row.StartedAt.Time.Format(time.RFC3339)
+		startedAt = &s
+	}
+	if row.FinishedAt.Valid {
+		s := row.FinishedAt.Time.Format(time.RFC3339)
+		finishedAt = &s
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"on_shelf":              true,
+		"status":                row.Status,
+		"current_page":          currentPage,
+		"total_pages":           totalPages,
+		"percent":               percent,
+		"estimated_finish_date": estimatedFinish,
+		"started_at":            startedAt,
+		"finished_at":           finishedAt,
+	})
+}
+
 // UpdateReadingProgress handles PUT /api/v1/users/:username/bookshelf/:bookId/progress
 func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := h.resolveOwner(w, r)

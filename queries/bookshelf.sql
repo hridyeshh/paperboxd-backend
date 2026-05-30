@@ -232,3 +232,75 @@ WHERE bs.book_id = $1
   AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
 ORDER BY bs.reviewed_at DESC NULLS LAST
 LIMIT 50;
+
+-- name: GetBookReviewsByFriends :many
+-- Reviews on a book authored by users the current viewer follows.
+-- $1 = book_id, $2 = viewer's user_id (follower).
+SELECT
+    bs.user_id,
+    bs.rating,
+    bs.review,
+    bs.reviewed_at,
+    bs.review_edited,
+    u.username,
+    u.name,
+    u.avatar_url
+FROM bookshelf bs
+JOIN users u ON bs.user_id = u.id
+JOIN follows f ON f.following_id = bs.user_id
+WHERE bs.book_id = $1
+  AND f.follower_id = $2
+  AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
+ORDER BY bs.reviewed_at DESC NULLS LAST
+LIMIT 20;
+
+-- name: GetFriendsReadingBook :many
+-- Friends (people the viewer follows) who have this book on their shelf
+-- with status 'reading' or 'to-read', prioritised by active readers first.
+-- $1 = viewer's user_id (follower), $2 = book_id.
+SELECT
+    u.id AS user_id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    bs.current_page,
+    bs.started_at,
+    bs.status,
+    bs.updated_at
+FROM follows f
+JOIN bookshelf bs ON bs.user_id = f.following_id
+JOIN users u ON u.id = f.following_id
+WHERE f.follower_id = $1
+  AND bs.book_id = $2
+  AND bs.status IN ('reading', 'to-read', 'read')
+ORDER BY
+    CASE bs.status
+        WHEN 'reading' THEN 0
+        WHEN 'read' THEN 1
+        ELSE 2
+    END,
+    bs.updated_at DESC
+LIMIT 20;
+
+-- name: CountFriendsReadingBook :one
+-- Counts friends actively reading this book right now.
+SELECT COUNT(*) FROM follows f
+JOIN bookshelf bs ON bs.user_id = f.following_id
+WHERE f.follower_id = $1
+  AND bs.book_id = $2
+  AND bs.status = 'reading';
+
+-- name: GetReadingProgress :one
+-- Reading progress snapshot for a book on a single user's shelf.
+SELECT
+    bs.current_page,
+    bs.reading_velocity,
+    bs.estimated_finish_date,
+    bs.started_at,
+    bs.finished_at,
+    bs.status,
+    bs.updated_at,
+    b.page_count AS total_pages
+FROM bookshelf bs
+JOIN books b ON b.id = bs.book_id
+WHERE bs.user_id = $1 AND bs.book_id = $2;
