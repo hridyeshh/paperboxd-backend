@@ -296,6 +296,46 @@ func (q *Queries) GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]
 	return items, nil
 }
 
+const getUserAuthors = `-- name: GetUserAuthors :many
+SELECT
+    author::TEXT AS name,
+    COUNT(*)::INT AS book_count,
+    COALESCE(MAX(b.cover_url), '')::TEXT AS sample_cover
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+CROSS JOIN UNNEST(b.authors) AS author
+WHERE bs.user_id = $1
+  AND bs.status = 'read'
+GROUP BY author
+ORDER BY book_count DESC, name ASC
+`
+
+type GetUserAuthorsRow struct {
+	Name        string `json:"name"`
+	BookCount   int32  `json:"book_count"`
+	SampleCover string `json:"sample_cover"`
+}
+
+func (q *Queries) GetUserAuthors(ctx context.Context, userID uuid.UUID) ([]GetUserAuthorsRow, error) {
+	rows, err := q.db.Query(ctx, getUserAuthors, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUserAuthorsRow{}
+	for rows.Next() {
+		var i GetUserAuthorsRow
+		if err := rows.Scan(&i.Name, &i.BookCount, &i.SampleCover); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserBookshelf = `-- name: GetUserBookshelf :many
 SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
 FROM bookshelf bs
@@ -398,6 +438,119 @@ func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfPara
 			&i.Rating,
 			&i.FinishedAt,
 			&i.AddedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUserDNF = `-- name: GetUserDNF :many
+SELECT
+    bs.id,
+    bs.user_id,
+    bs.book_id,
+    bs.status,
+    bs.current_page,
+    bs.tbr_notes,
+    bs.tbr_priority,
+    bs.tbr_added_at,
+    bs.created_at,
+    bs.updated_at,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    b.published_date,
+    b.isbn_13,
+    b.description,
+    b.categories,
+    b.publisher,
+    b.language,
+    b.subtitle,
+    b.isbndb_id,
+    b.google_books_id,
+    b.average_rating,
+    b.ratings_count
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+WHERE bs.user_id = $1
+  AND bs.status = 'to-read'
+  AND bs.current_page IS NOT NULL
+  AND bs.current_page > 0
+ORDER BY bs.updated_at DESC
+`
+
+type GetUserDNFRow struct {
+	ID            uuid.UUID          `json:"id"`
+	UserID        uuid.UUID          `json:"user_id"`
+	BookID        uuid.UUID          `json:"book_id"`
+	Status        string             `json:"status"`
+	CurrentPage   pgtype.Int4        `json:"current_page"`
+	TbrNotes      pgtype.Text        `json:"tbr_notes"`
+	TbrPriority   pgtype.Text        `json:"tbr_priority"`
+	TbrAddedAt    pgtype.Timestamp   `json:"tbr_added_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	Title         string             `json:"title"`
+	Slug          string             `json:"slug"`
+	Authors       []string           `json:"authors"`
+	CoverUrl      pgtype.Text        `json:"cover_url"`
+	PageCount     pgtype.Int4        `json:"page_count"`
+	PublishedDate pgtype.Date        `json:"published_date"`
+	Isbn13        pgtype.Text        `json:"isbn_13"`
+	Description   pgtype.Text        `json:"description"`
+	Categories    []string           `json:"categories"`
+	Publisher     pgtype.Text        `json:"publisher"`
+	Language      pgtype.Text        `json:"language"`
+	Subtitle      pgtype.Text        `json:"subtitle"`
+	IsbndbID      pgtype.Text        `json:"isbndb_id"`
+	GoogleBooksID pgtype.Text        `json:"google_books_id"`
+	AverageRating pgtype.Float8      `json:"average_rating"`
+	RatingsCount  pgtype.Int4        `json:"ratings_count"`
+}
+
+func (q *Queries) GetUserDNF(ctx context.Context, userID uuid.UUID) ([]GetUserDNFRow, error) {
+	rows, err := q.db.Query(ctx, getUserDNF, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUserDNFRow{}
+	for rows.Next() {
+		var i GetUserDNFRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.BookID,
+			&i.Status,
+			&i.CurrentPage,
+			&i.TbrNotes,
+			&i.TbrPriority,
+			&i.TbrAddedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.CoverUrl,
+			&i.PageCount,
+			&i.PublishedDate,
+			&i.Isbn13,
+			&i.Description,
+			&i.Categories,
+			&i.Publisher,
+			&i.Language,
+			&i.Subtitle,
+			&i.IsbndbID,
+			&i.GoogleBooksID,
+			&i.AverageRating,
+			&i.RatingsCount,
 		); err != nil {
 			return nil, err
 		}

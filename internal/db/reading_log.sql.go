@@ -12,6 +12,82 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getCurrentStreak = `-- name: GetCurrentStreak :one
+WITH days AS (
+    SELECT DISTINCT (logged_at AT TIME ZONE 'UTC')::DATE AS d
+    FROM reading_log
+    WHERE user_id = $1
+),
+grouped AS (
+    SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d))::INT AS island
+    FROM days
+),
+islands AS (
+    SELECT island, MAX(d) AS last_day, COUNT(*) AS len
+    FROM grouped
+    GROUP BY island
+)
+SELECT COALESCE((
+    SELECT len
+    FROM islands
+    WHERE last_day >= (NOW() AT TIME ZONE 'UTC')::DATE - INTERVAL '1 day'
+    ORDER BY last_day DESC
+    LIMIT 1
+), 0)::INT AS streak
+`
+
+func (q *Queries) GetCurrentStreak(ctx context.Context, userID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, getCurrentStreak, userID)
+	var streak int32
+	err := row.Scan(&streak)
+	return streak, err
+}
+
+const getLastLoggedBook = `-- name: GetLastLoggedBook :one
+SELECT
+    rl.book_id,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    bs.current_page,
+    rl.logged_at
+FROM reading_log rl
+JOIN books     b  ON b.id  = rl.book_id
+JOIN bookshelf bs ON bs.user_id = rl.user_id AND bs.book_id = rl.book_id
+WHERE rl.user_id  = $1
+ORDER BY rl.logged_at DESC
+LIMIT 1
+`
+
+type GetLastLoggedBookRow struct {
+	BookID      uuid.UUID          `json:"book_id"`
+	Title       string             `json:"title"`
+	Slug        string             `json:"slug"`
+	Authors     []string           `json:"authors"`
+	CoverUrl    pgtype.Text        `json:"cover_url"`
+	PageCount   pgtype.Int4        `json:"page_count"`
+	CurrentPage pgtype.Int4        `json:"current_page"`
+	LoggedAt    pgtype.Timestamptz `json:"logged_at"`
+}
+
+func (q *Queries) GetLastLoggedBook(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookRow, error) {
+	row := q.db.QueryRow(ctx, getLastLoggedBook, userID)
+	var i GetLastLoggedBookRow
+	err := row.Scan(
+		&i.BookID,
+		&i.Title,
+		&i.Slug,
+		&i.Authors,
+		&i.CoverUrl,
+		&i.PageCount,
+		&i.CurrentPage,
+		&i.LoggedAt,
+	)
+	return i, err
+}
+
 const getLastLoggedBookToday = `-- name: GetLastLoggedBookToday :one
 SELECT
     rl.book_id,

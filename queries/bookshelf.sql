@@ -137,6 +137,55 @@ JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = 'to-read'
 ORDER BY bs.tbr_added_at DESC NULLS LAST, bs.created_at DESC;
 
+-- name: GetUserDNF :many
+SELECT
+    bs.id,
+    bs.user_id,
+    bs.book_id,
+    bs.status,
+    bs.current_page,
+    bs.tbr_notes,
+    bs.tbr_priority,
+    bs.tbr_added_at,
+    bs.created_at,
+    bs.updated_at,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    b.published_date,
+    b.isbn_13,
+    b.description,
+    b.categories,
+    b.publisher,
+    b.language,
+    b.subtitle,
+    b.isbndb_id,
+    b.google_books_id,
+    b.average_rating,
+    b.ratings_count
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+WHERE bs.user_id = $1
+  AND bs.status = 'to-read'
+  AND bs.current_page IS NOT NULL
+  AND bs.current_page > 0
+ORDER BY bs.updated_at DESC;
+
+-- name: GetUserAuthors :many
+SELECT
+    author::TEXT AS name,
+    COUNT(*)::INT AS book_count,
+    COALESCE(MAX(b.cover_url), '')::TEXT AS sample_cover
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+CROSS JOIN UNNEST(b.authors) AS author
+WHERE bs.user_id = $1
+  AND bs.status = 'read'
+GROUP BY author
+ORDER BY book_count DESC, name ASC;
+
 -- name: UpdateBookshelfStatus :one
 UPDATE bookshelf
 SET

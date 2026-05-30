@@ -109,3 +109,87 @@ func (h *UserHandler) GetTodayProgress(w http.ResponseWriter, r *http.Request) {
 		WeekBars:   weekBars,
 	})
 }
+
+// LastLoggedBookResponse is returned from GET /api/v1/users/:username/reading/last.
+// last_book is null when the user has never logged reading progress.
+type LastLoggedBookResponse struct {
+	LastBook *TodayLastBook `json:"last_book"`
+}
+
+// GetLastLoggedBook handles GET /api/v1/users/:username/reading/last.
+// Unlike /reading/today, this returns the most recently logged book regardless
+// of date, so the profile card always reflects the real last book the user read.
+func (h *UserHandler) GetLastLoggedBook(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for last logged book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	var lastBook *TodayLastBook
+	row, err := h.Queries.GetLastLoggedBook(r.Context(), target.ID)
+	if err == nil {
+		lb := &TodayLastBook{
+			BookID: row.BookID.String(),
+			Title:  row.Title,
+			Slug:   row.Slug,
+		}
+		if len(row.Authors) > 0 {
+			lb.Author = row.Authors[0]
+		}
+		if row.CoverUrl.Valid {
+			lb.Cover = row.CoverUrl.String
+		}
+		if row.CurrentPage.Valid {
+			lb.CurrentPage = int(row.CurrentPage.Int32)
+		}
+		if row.PageCount.Valid {
+			lb.TotalPages = int(row.PageCount.Int32)
+		}
+		lastBook = lb
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		slog.Error("get last logged book", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, LastLoggedBookResponse{LastBook: lastBook})
+}
+
+// StreakResponse is returned from GET /api/v1/users/:username/streak.
+type StreakResponse struct {
+	Streak int `json:"streak"`
+}
+
+// GetStreak handles GET /api/v1/users/:username/streak.
+// The streak is computed server-side from reading_log: a "streak day" is any UTC
+// calendar day with >=1 page logged; the current streak is the run of consecutive
+// UTC days ending today or yesterday. Works for both own and other users.
+func (h *UserHandler) GetStreak(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for streak", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	streak, err := h.Queries.GetCurrentStreak(r.Context(), target.ID)
+	if err != nil {
+		slog.Error("get current streak", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, StreakResponse{Streak: int(streak)})
+}

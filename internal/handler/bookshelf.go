@@ -740,6 +740,81 @@ func (h *UserHandler) UpdateTBRNotes(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
+// ── DNF handlers ──────────────────────────────────────────────────────────────
+
+// GetUserDNF handles GET /api/v1/users/:username/dnf.
+// DNF ("did not finish") books are bookshelf entries with status 'to-read' and
+// current_page > 0 — i.e. started but never finished. This mirrors the status
+// sync in UpdateReadingProgress, which marks partially-read books as 'to-read'.
+func (h *UserHandler) GetUserDNF(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for dnf", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	rows, err := h.Queries.GetUserDNF(r.Context(), target.ID)
+	if err != nil {
+		slog.Error("get user dnf", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	resp := make([]types.TBRResponse, len(rows))
+	for i, row := range rows {
+		resp[i] = tbrRowToResponse(db.GetUserTBRRow(row))
+	}
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ── Authors handlers ──────────────────────────────────────────────────────────
+
+// AuthorSummary is one entry returned from GET /api/v1/users/:username/authors.
+type AuthorSummary struct {
+	Name      string `json:"name"`
+	BookCount int    `json:"book_count"`
+	Cover     string `json:"cover,omitempty"`
+}
+
+// GetUserAuthors handles GET /api/v1/users/:username/authors.
+// Returns the distinct authors aggregated from the user's read books, most-read first.
+func (h *UserHandler) GetUserAuthors(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for authors", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	rows, err := h.Queries.GetUserAuthors(r.Context(), target.ID)
+	if err != nil {
+		slog.Error("get user authors", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	resp := make([]AuthorSummary, len(rows))
+	for i, row := range rows {
+		resp[i] = AuthorSummary{
+			Name:      row.Name,
+			BookCount: int(row.BookCount),
+			Cover:     row.SampleCover,
+		}
+	}
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
 // ── Currently Reading handlers ────────────────────────────────────────────────
 
 // GetCurrentlyReading handles GET /api/v1/users/:username/reading

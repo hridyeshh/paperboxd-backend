@@ -28,6 +28,46 @@ WHERE rl.user_id  = $1
 ORDER BY rl.logged_at DESC
 LIMIT 1;
 
+-- name: GetLastLoggedBook :one
+SELECT
+    rl.book_id,
+    b.title,
+    b.slug,
+    b.authors,
+    b.cover_url,
+    b.page_count,
+    bs.current_page,
+    rl.logged_at
+FROM reading_log rl
+JOIN books     b  ON b.id  = rl.book_id
+JOIN bookshelf bs ON bs.user_id = rl.user_id AND bs.book_id = rl.book_id
+WHERE rl.user_id  = $1
+ORDER BY rl.logged_at DESC
+LIMIT 1;
+
+-- name: GetCurrentStreak :one
+WITH days AS (
+    SELECT DISTINCT (logged_at AT TIME ZONE 'UTC')::DATE AS d
+    FROM reading_log
+    WHERE user_id = $1
+),
+grouped AS (
+    SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d))::INT AS island
+    FROM days
+),
+islands AS (
+    SELECT island, MAX(d) AS last_day, COUNT(*) AS len
+    FROM grouped
+    GROUP BY island
+)
+SELECT COALESCE((
+    SELECT len
+    FROM islands
+    WHERE last_day >= (NOW() AT TIME ZONE 'UTC')::DATE - INTERVAL '1 day'
+    ORDER BY last_day DESC
+    LIMIT 1
+), 0)::INT AS streak;
+
 -- name: GetWeeklyReadingStats :many
 SELECT
     (logged_at AT TIME ZONE 'UTC')::DATE AS log_date,
