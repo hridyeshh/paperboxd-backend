@@ -122,6 +122,9 @@ func main() {
 	// ── Cache ──────────────────────────────────────────────────────────────────
 	cacheClient := cache.New(redisClient)
 
+	// ── Analytics event service ──────────────────────────────────────────────
+	eventSvc := service.NewEventService(dbPool)
+
 	// ── Handlers ───────────────────────────────────────────────────────────────
 	authHandler := auth.NewHandler(queries, cfg)
 	// NewResendMailer returns NoopMailer when RESEND_API_KEY is empty, so dev
@@ -149,7 +152,7 @@ func main() {
 	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
-	eventsHandler := handler.NewEventsHandler(dbPool)
+	eventsHandler := handler.NewEventsHandler(dbPool, eventSvc)
 	newsletterHandler := handler.NewNewsletterHandler(dbPool)
 	authorInfoHandler := handler.NewAuthorInfoHandler(cacheClient)
 
