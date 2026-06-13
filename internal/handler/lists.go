@@ -24,14 +24,16 @@ type ListsHandler struct {
 	Queries     *db.Queries
 	ISBNdb      *external.ISBNdbClient
 	GoogleBooks *external.GoogleBooksClient
+	EventSvc    *service.EventService
 }
 
 // NewListsHandler creates a ListsHandler.
-func NewListsHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient) *ListsHandler {
+func NewListsHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient, evtSvc *service.EventService) *ListsHandler {
 	return &ListsHandler{
 		Queries:     queries,
 		ISBNdb:      isbndb,
 		GoogleBooks: google,
+		EventSvc:    evtSvc,
 	}
 }
 
@@ -168,6 +170,15 @@ func (h *ListsHandler) CreateList(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = xpSvc.AwardXP(context.Background(), userID, "create_list", xpAmount, &listID)
 		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
+	}()
+
+	go func() {
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			EventType: "list.created",
+			Source:    "server",
+			Metadata:  map[string]any{"is_private": list.IsPrivate},
+		})
 	}()
 
 	types.WriteJSON(w, http.StatusCreated, listToResponse(list, username, 0, 0, false, true, true))
@@ -569,6 +580,16 @@ func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
 		_ = xpSvc.AwardXP(context.Background(), userID, "add_to_list", service.XPAddToList, nil)
 	}()
 
+	go func() {
+		bIDCopy := bookID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "list.book_added",
+			Source:    "server",
+		})
+	}()
+
 	types.WriteJSON(w, http.StatusCreated, entry)
 }
 
@@ -642,6 +663,14 @@ func (h *ListsHandler) ShareList(w http.ResponseWriter, r *http.Request) {
 			}()
 		}
 	}
+
+	go func() {
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			EventType: "list.shared",
+			Source:    "server",
+		})
+	}()
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"message": "List shared",

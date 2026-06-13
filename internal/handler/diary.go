@@ -25,15 +25,17 @@ type DiaryHandler struct {
 	ISBNdb                *external.ISBNdbClient
 	GoogleBooks           *external.GoogleBooksClient
 	RecommendationService *service.RecommendationService
+	EventSvc              *service.EventService
 }
 
 // NewDiaryHandler creates a DiaryHandler.
-func NewDiaryHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient, rec *service.RecommendationService) *DiaryHandler {
+func NewDiaryHandler(queries *db.Queries, isbndb *external.ISBNdbClient, google *external.GoogleBooksClient, rec *service.RecommendationService, evtSvc *service.EventService) *DiaryHandler {
 	return &DiaryHandler{
 		Queries:               queries,
 		ISBNdb:                isbndb,
 		GoogleBooks:           google,
 		RecommendationService: rec,
+		EventSvc:              evtSvc,
 	}
 }
 
@@ -202,6 +204,21 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 			h.RecommendationService.EmbedDiaryEntryAsync(entryIDStr, bookTitle, bookAuthors, content)
 		}()
 	}
+
+	go func() {
+		var bookIDPtr *uuid.UUID
+		if entry.BookID.Valid {
+			bid := uuid.UUID(entry.BookID.Bytes)
+			bookIDPtr = &bid
+		}
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    bookIDPtr,
+			EventType: "diary.entry_created",
+			Source:    "server",
+			Metadata:  map[string]any{"has_book": entry.BookID.Valid},
+		})
+	}()
 
 	likesCount, _ := h.Queries.CountEntryLikes(r.Context(), entry.ID)
 	resp := diaryEntryToResponse(entry, username, target.Name.String, target.AvatarUrl, likesCount, false, true)
@@ -598,6 +615,14 @@ func (h *DiaryHandler) LikeDiaryEntry(w http.ResponseWriter, r *http.Request) {
 		xpSvc := service.NewXPService(h.Queries)
 		eid := entryID
 		_ = xpSvc.AwardXP(context.Background(), ownerID, "diary_liked", service.XPDiaryLiked, &eid)
+	}()
+
+	go func() {
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			EventType: "diary.entry_liked",
+			Source:    "server",
+		})
 	}()
 
 	likesCount, _ := h.Queries.CountEntryLikes(r.Context(), entryID)

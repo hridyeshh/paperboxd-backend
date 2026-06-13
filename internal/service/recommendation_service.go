@@ -138,15 +138,17 @@ type RecommendationService struct {
 	embedder    Embedder
 	redisClient *redis.Client
 	flags       *FeatureFlags
+	eventSvc    *EventService
 }
 
-func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client) *RecommendationService {
+func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client, eventSvc *EventService) *RecommendationService {
 	return &RecommendationService{
 		pool:        pool,
 		queries:     db.New(pool),
 		embedder:    embedder,
 		redisClient: redisClient,
 		flags:       NewFeatureFlags(pool),
+		eventSvc:    eventSvc,
 	}
 }
 
@@ -305,11 +307,26 @@ func (s *RecommendationService) GetSimilarBooks(ctx context.Context, bookID, use
 
 // TrackEvent records a user interaction event (click, impression, dismiss).
 func (s *RecommendationService) TrackEvent(ctx context.Context, userID, bookID, eventType string) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO events (user_id, book_id, event_type)
-		VALUES ($1, $2, $3)
-	`, userID, bookID, eventType)
-	return err
+	if s.eventSvc == nil {
+		return nil
+	}
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil
+	}
+	var bookIDPtr *uuid.UUID
+	if bookID != "" {
+		if bid, parseErr := uuid.Parse(bookID); parseErr == nil {
+			bookIDPtr = &bid
+		}
+	}
+	s.eventSvc.Emit(ctx, EmitParams{
+		UserID:    uid,
+		BookID:    bookIDPtr,
+		EventType: eventType,
+		Source:    "server",
+	})
+	return nil
 }
 
 // ── Social graph retrieval ────────────────────────────────────────────────────

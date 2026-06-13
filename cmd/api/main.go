@@ -145,9 +145,9 @@ func main() {
 		slog.Warn("CLOUDINARY_* not set; avatar upload endpoint will return 503")
 	}
 
-	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient)
+	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient, eventSvc)
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
-	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient)
+	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient, eventSvc)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
 	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
@@ -164,12 +164,12 @@ func main() {
 		slog.Warn("COHERE_API_KEY not set; recommendation embeddings disabled")
 		embedder = service.NoopEmbedder{}
 	}
-	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient)
+	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient, eventSvc)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
-	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc)
+	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
 
 	userHandler := &handler.UserHandler{
 		Queries:               queries,
@@ -178,6 +178,7 @@ func main() {
 		GoogleBooks:           googleBooksClient,
 		RecommendationService: recommendationSvc,
 		Cloudinary:            cloudinaryClient,
+		EventSvc:              eventSvc,
 	}
 
 	// ── Router ─────────────────────────────────────────────────────────────────

@@ -169,6 +169,17 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	go func() {
+		bIDCopy := bID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "book.added_to_shelf",
+			Source:    "server",
+			Metadata:  map[string]any{"shelf": status},
+		})
+	}()
+
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
@@ -355,6 +366,16 @@ func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request
 	if h.RecommendationService != nil {
 		go h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
 	}
+
+	go func() {
+		bIDCopy := bookID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "book.removed_from_shelf",
+			Source:    "server",
+		})
+	}()
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Removed from bookshelf"})
 }
@@ -1041,6 +1062,17 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		_ = xpSvc.AwardXP(context.Background(), userID, "read_progress", service.XPReadProgress, &bID)
 	}()
 
+	go func() {
+		bIDCopy := bID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "reading.progress_updated",
+			Source:    "server",
+			Metadata:  map[string]any{"progress": req.CurrentPage},
+		})
+	}()
+
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
@@ -1106,6 +1138,16 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 		if h.RecommendationService != nil {
 			h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
 		}
+	}()
+
+	go func() {
+		bIDCopy := bID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "book.finished",
+			Source:    "server",
+		})
 	}()
 
 	types.WriteJSON(w, http.StatusOK, entry)

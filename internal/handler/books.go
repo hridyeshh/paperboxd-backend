@@ -31,15 +31,17 @@ type BookHandler struct {
 	GoogleBooks           *external.GoogleBooksClient
 	RecommendationService *service.RecommendationService
 	Enricher              *service.Enricher
+	EventSvc              *service.EventService
 }
 
 // NewBookHandler creates a BookHandler with the given clients.
-func NewBookHandler(queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient, googleBooks *external.GoogleBooksClient) *BookHandler {
+func NewBookHandler(queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient, googleBooks *external.GoogleBooksClient, evtSvc *service.EventService) *BookHandler {
 	return &BookHandler{
 		Queries:     queries,
 		Config:      cfg,
 		ISBNdb:      isbndb,
 		GoogleBooks: googleBooks,
+		EventSvc:    evtSvc,
 	}
 }
 
@@ -75,6 +77,19 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	page, pageSize := parsePagination(r)
 	ctx := r.Context()
+
+	if userIDStr, ok := reqctx.GetUserID(ctx); ok {
+		if userUID, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+			go func() {
+				h.EventSvc.Emit(context.Background(), service.EmitParams{
+					UserID:    userUID,
+					EventType: "book.searched",
+					Source:    "server",
+					Metadata:  map[string]any{"query_length": len(query)},
+				})
+			}()
+		}
+	}
 
 	// 1. DB cache first
 	offset := int32((page - 1) * pageSize)
@@ -272,6 +287,21 @@ func (h *BookHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		_ = h.Queries.IncrementBookViews(context.Background(), bookID)
 	}()
 
+	if userIDStr, ok := reqctx.GetUserID(r.Context()); ok {
+		if userUID, parseErr := uuid.Parse(userIDStr); parseErr == nil {
+			bIDCopy := bookID
+			go func() {
+				h.EventSvc.Emit(context.Background(), service.EmitParams{
+					UserID:    userUID,
+					BookID:    &bIDCopy,
+					EventType: "book.viewed",
+					Source:    "server",
+					Metadata:  map[string]any{"source": "direct"},
+				})
+			}()
+		}
+	}
+
 	types.WriteJSON(w, http.StatusOK, bookToResponse(book))
 }
 
@@ -368,6 +398,16 @@ func (h *BookHandler) Like(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go func() {
+		bIDCopy := bookID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "book.liked",
+			Source:    "server",
+		})
+	}()
+
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Book liked"})
 }
 
@@ -399,6 +439,16 @@ func (h *BookHandler) Unlike(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
+
+	go func() {
+		bIDCopy := bookID
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    userID,
+			BookID:    &bIDCopy,
+			EventType: "book.unliked",
+			Source:    "server",
+		})
+	}()
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Book unliked"})
 }
