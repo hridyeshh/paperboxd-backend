@@ -63,6 +63,14 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		_ = xpSvc.AwardXP(context.Background(), followedID, "follow_gained", service.XPFollowGained, nil)
 	}()
 
+	go func() {
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    followerID,
+			EventType: "user.followed",
+			Source:    "server",
+		})
+	}()
+
 	followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
 	followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)
 
@@ -108,6 +116,14 @@ func (h *UserHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
+
+	go func() {
+		h.EventSvc.Emit(context.Background(), service.EmitParams{
+			UserID:    followerID,
+			EventType: "user.unfollowed",
+			Source:    "server",
+		})
+	}()
 
 	followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
 	followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)
