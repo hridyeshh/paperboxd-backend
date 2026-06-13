@@ -153,6 +153,7 @@ func main() {
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
 	eventsHandler := handler.NewEventsHandler(dbPool, eventSvc)
+	analyticsHandler := handler.NewAnalyticsHandler(dbPool, cacheClient)
 	newsletterHandler := handler.NewNewsletterHandler(dbPool)
 	authorInfoHandler := handler.NewAuthorInfoHandler(cacheClient)
 
@@ -357,6 +358,14 @@ func main() {
 
 		// Vibe / semantic search — no auth required, personalised when logged in
 		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/vibe", bookHandler.VibeSearch)
+
+		// Analytics (admin-gated via X-Internal-Secret, not user-token gated)
+		r.Route("/analytics", func(r chi.Router) {
+			r.Use(appMiddleware.RequireInternalSecret(cfg.InternalSecret))
+			r.Get("/overview", analyticsHandler.Overview)
+			r.Get("/users", analyticsHandler.Users)
+			r.Get("/features", analyticsHandler.Features)
+		})
 
 		// Admin
 		r.Route("/admin", func(r chi.Router) {
