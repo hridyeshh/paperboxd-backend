@@ -28,7 +28,9 @@ func (q *Queries) CheckFollowing(ctx context.Context, arg CheckFollowingParams) 
 }
 
 const countFollowers = `-- name: CountFollowers :one
-SELECT COUNT(*) FROM follows WHERE following_id = $1
+SELECT COUNT(*) FROM follows f
+JOIN users u ON f.follower_id = u.id
+WHERE f.following_id = $1 AND u.deleted_at IS NULL
 `
 
 func (q *Queries) CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error) {
@@ -39,7 +41,9 @@ func (q *Queries) CountFollowers(ctx context.Context, followingID uuid.UUID) (in
 }
 
 const countFollowing = `-- name: CountFollowing :one
-SELECT COUNT(*) FROM follows WHERE follower_id = $1
+SELECT COUNT(*) FROM follows f
+JOIN users u ON f.following_id = u.id
+WHERE f.follower_id = $1 AND u.deleted_at IS NULL
 `
 
 func (q *Queries) CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error) {
@@ -76,7 +80,7 @@ func (q *Queries) FollowUser(ctx context.Context, arg FollowUserParams) (Follow,
 const getFollowers = `-- name: GetFollowers :many
 SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url FROM follows f
 JOIN users u ON f.follower_id = u.id
-WHERE f.following_id = $1
+WHERE f.following_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -152,7 +156,7 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 const getFollowing = `-- name: GetFollowing :many
 SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url FROM follows f
 JOIN users u ON f.following_id = u.id
-WHERE f.follower_id = $1
+WHERE f.follower_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
 LIMIT $2 OFFSET $3
 `

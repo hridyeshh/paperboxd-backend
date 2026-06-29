@@ -10,14 +10,14 @@ DELETE FROM follows WHERE follower_id = $1 AND following_id = $2;
 -- name: GetFollowers :many
 SELECT u.* FROM follows f
 JOIN users u ON f.follower_id = u.id
-WHERE f.following_id = $1
+WHERE f.following_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: GetFollowing :many
 SELECT u.* FROM follows f
 JOIN users u ON f.following_id = u.id
-WHERE f.follower_id = $1
+WHERE f.follower_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -25,7 +25,11 @@ LIMIT $2 OFFSET $3;
 SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2);
 
 -- name: CountFollowers :one
-SELECT COUNT(*) FROM follows WHERE following_id = $1;
+SELECT COUNT(*) FROM follows f
+JOIN users u ON f.follower_id = u.id
+WHERE f.following_id = $1 AND u.deleted_at IS NULL;
 
 -- name: CountFollowing :one
-SELECT COUNT(*) FROM follows WHERE follower_id = $1;
+SELECT COUNT(*) FROM follows f
+JOIN users u ON f.following_id = u.id
+WHERE f.follower_id = $1 AND u.deleted_at IS NULL;
