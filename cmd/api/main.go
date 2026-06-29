@@ -189,6 +189,7 @@ func main() {
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
+	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient)
 
 	userHandler := &handler.UserHandler{
 		Queries:               queries,
@@ -379,6 +380,12 @@ func main() {
 
 		// Vibe / semantic search — no auth required, personalised when logged in
 		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/vibe", bookHandler.VibeSearch)
+
+		// Scan & Know
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Post("/scan/analyze", scanHandler.Analyze)
+		})
 
 		// Analytics (admin-gated via X-Internal-Secret, not user-token gated)
 		r.Route("/analytics", func(r chi.Router) {
