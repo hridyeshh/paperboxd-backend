@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"net/http"
@@ -15,9 +17,14 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/hridyesh/paperboxd-backend/migrations"
 
 	"github.com/hridyesh/paperboxd-backend/internal/auth"
 	"github.com/hridyesh/paperboxd-backend/internal/cache"
@@ -81,6 +88,18 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("connected to postgres")
+
+	// ── Auto-migrate ───────────────────────────────────────────────────────────
+	// Apply embedded SQL migrations on startup so deploys converge the schema
+	// without a separate migrate step. Set AUTO_MIGRATE=false to skip (e.g. when
+	// schema changes are gated behind a manual release).
+	if !strings.EqualFold(os.Getenv("AUTO_MIGRATE"), "false") {
+		if err := runMigrations(cfg.DatabaseURL); err != nil {
+			slog.Error("run migrations", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("migrations up to date")
+	}
 
 	// ── Redis ──────────────────────────────────────────────────────────────────
 	redisAddr := cfg.RedisURL
@@ -283,6 +302,7 @@ func main() {
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
 			r.Patch("/users/me/avatar", userHandler.UpdateAvatar)
 			r.Post("/users/me/avatar/upload", userHandler.UploadAvatar)
+			r.Post("/users/me/banner/upload", userHandler.UploadBanner)
 			r.Post("/events", eventsHandler.Track)
 		})
 
@@ -518,4 +538,36 @@ func main() {
 	}
 
 	slog.Info("server stopped")
+}
+
+// runMigrations applies all pending up migrations from the embedded SQL files.
+// It is a no-op when the schema is already current.
+func runMigrations(databaseURL string) error {
+	src, err := iofs.New(migrations.Files, ".")
+	if err != nil {
+		return fmt.Errorf("open migration source: %w", err)
+	}
+	defer src.Close()
+
+	// golang-migrate selects its database driver by URL scheme; the pgx/v5
+	// driver registers under "pgx5". Rewrite postgres:// → pgx5:// so we reuse
+	// the same DATABASE_URL the app already validated.
+	migrateURL := databaseURL
+	for _, prefix := range []string{"postgresql://", "postgres://"} {
+		if strings.HasPrefix(migrateURL, prefix) {
+			migrateURL = "pgx5://" + strings.TrimPrefix(migrateURL, prefix)
+			break
+		}
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", src, migrateURL)
+	if err != nil {
+		return fmt.Errorf("init migrate: %w", err)
+	}
+	defer m.Close()
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+	return nil
 }

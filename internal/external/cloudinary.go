@@ -126,6 +126,75 @@ func (c *CloudinaryClient) UploadAvatar(ctx context.Context, userID string, imag
 	return parsed.SecureURL, nil
 }
 
+// bannerTransform: wide 3:1 cover crop for the profile banner.
+const bannerTransform = "c_fill,h_500,w_1500,q_auto:good,f_auto"
+
+// UploadBanner uploads a profile banner image to Cloudinary and returns the
+// secure URL. Mirrors UploadAvatar but uses a wide cover transform and a
+// separate folder/public_id namespace.
+func (c *CloudinaryClient) UploadBanner(ctx context.Context, userID string, image []byte, contentType string) (string, error) {
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	signed := map[string]string{
+		"folder":         "paperboxd/banners",
+		"overwrite":      "true",
+		"public_id":      "banner_" + userID,
+		"timestamp":      timestamp,
+		"transformation": bannerTransform,
+	}
+	signature := c.sign(signed)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for k, v := range signed {
+		if err := writer.WriteField(k, v); err != nil {
+			return "", fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+	if err := writer.WriteField("api_key", c.apiKey); err != nil {
+		return "", fmt.Errorf("write api_key: %w", err)
+	}
+	if err := writer.WriteField("signature", signature); err != nil {
+		return "", fmt.Errorf("write signature: %w", err)
+	}
+	part, err := writer.CreateFormFile("file", "banner")
+	if err != nil {
+		return "", fmt.Errorf("create file part: %w", err)
+	}
+	if _, err := part.Write(image); err != nil {
+		return "", fmt.Errorf("write file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("close writer: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("https://api.cloudinary.com/v1_1/%s/image/upload", c.cloudName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("call cloudinary: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	var parsed cloudinaryUploadResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", fmt.Errorf("decode cloudinary response (status %d): %w", resp.StatusCode, err)
+	}
+	if resp.StatusCode >= 400 || parsed.SecureURL == "" {
+		msg := "unknown error"
+		if parsed.Error != nil {
+			msg = parsed.Error.Message
+		}
+		return "", fmt.Errorf("cloudinary upload failed (status %d): %s", resp.StatusCode, msg)
+	}
+	return parsed.SecureURL, nil
+}
+
 // sign builds the Cloudinary upload signature: SHA1 of "k=v&k=v"+apiSecret with
 // keys sorted alphabetically.
 func (c *CloudinaryClient) sign(params map[string]string) string {

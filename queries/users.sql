@@ -32,6 +32,7 @@ UPDATE users SET
     birthday = COALESCE($6, birthday),
     gender = COALESCE($7, gender),
     links = COALESCE($8, links),
+    banner_url = COALESCE($9, banner_url),
     updated_at = NOW()
 WHERE id = $1
 RETURNING *;

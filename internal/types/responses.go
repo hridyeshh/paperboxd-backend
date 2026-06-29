@@ -29,6 +29,7 @@ type UserResponse struct {
 	Email          string   `json:"email,omitempty"`
 	Name           string   `json:"name"`
 	AvatarURL      *string  `json:"avatar_url,omitempty"`
+	BannerURL      *string  `json:"banner_url,omitempty"`
 	Bio            *string  `json:"bio,omitempty"`
 	Pronouns       []string `json:"pronouns"`
 	Birthday       *string  `json:"birthday,omitempty"`

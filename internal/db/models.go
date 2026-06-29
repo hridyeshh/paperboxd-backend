@@ -115,6 +115,9 @@ type Event struct {
 	EventType string             `json:"event_type"`
 	Metadata  []byte             `json:"metadata"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	SessionID pgtype.UUID        `json:"session_id"`
+	Source    pgtype.Text        `json:"source"`
+	Path      pgtype.Text        `json:"path"`
 }
 
 type Favorite struct {
@@ -307,6 +310,7 @@ type User struct {
 	ReferralCount          pgtype.Int4        `json:"referral_count"`
 	ReferralRewardsClaimed []string           `json:"referral_rewards_claimed"`
 	OnboardingCompleted    bool               `json:"onboarding_completed"`
+	BannerUrl              pgtype.Text        `json:"banner_url"`
 }
 
 type UserAuthorsRead struct {

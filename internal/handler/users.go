@@ -512,6 +512,80 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
 }
 
+// UploadBanner handles POST /api/v1/users/me/banner/upload
+// Accepts multipart/form-data with a `file` field, uploads to Cloudinary, and
+// persists the returned secure URL as the user's banner.
+func (h *UserHandler) UploadBanner(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	if h.Cloudinary == nil {
+		types.WriteError(w, http.StatusServiceUnavailable, types.ErrCodeInternalServer, "Image upload is not configured")
+		return
+	}
+
+	const maxUpload = 8 << 20 // 8 MB — banners are larger than avatars.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+1024)
+	if err := r.ParseMultipartForm(maxUpload + 1024); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Image too large (max 8MB) or invalid form data")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Missing file field")
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxUpload {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Image too large (max 8MB)")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(file, maxUpload+1))
+	if err != nil {
+		slog.Error("upload banner: read file", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if len(data) == 0 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Empty image")
+		return
+	}
+	if !strings.HasPrefix(http.DetectContentType(data), "image/") {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "File must be an image")
+		return
+	}
+
+	secureURL, err := h.Cloudinary.UploadBanner(r.Context(), userID.String(), data, header.Header.Get("Content-Type"))
+	if err != nil {
+		slog.Error("upload banner: cloudinary", "error", err, "user_id", userID)
+		types.WriteError(w, http.StatusBadGateway, types.ErrCodeInternalServer, "Failed to upload image")
+		return
+	}
+
+	updated, err := h.Queries.UpdateUser(r.Context(), db.UpdateUserParams{
+		ID:        userID,
+		BannerUrl: pgtype.Text{String: secureURL, Valid: true},
+	})
+	if err != nil {
+		slog.Error("upload banner: persist url", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 func userToResponse(u db.User) types.UserResponse {
@@ -547,6 +621,9 @@ func userToResponse(u db.User) types.UserResponse {
 	}
 	if u.AvatarUrl.Valid {
 		resp.AvatarURL = &u.AvatarUrl.String
+	}
+	if u.BannerUrl.Valid {
+		resp.BannerURL = &u.BannerUrl.String
 	}
 	if u.Bio.Valid {
 		resp.Bio = &u.Bio.String
