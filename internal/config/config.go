@@ -42,6 +42,8 @@ type Config struct {
 	CloudinaryCloudName string // Cloudinary cloud name. Empty → avatar upload disabled.
 	CloudinaryAPIKey    string
 	CloudinaryAPISecret string
+
+	AnthropicAPIKey string
 }
 
 func Load() (*Config, error) {
@@ -87,6 +89,8 @@ func Load() (*Config, error) {
 		CloudinaryCloudName: getEnv("CLOUDINARY_CLOUD_NAME", getEnv("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME", "")),
 		CloudinaryAPIKey:    getEnv("CLOUDINARY_API_KEY", ""),
 		CloudinaryAPISecret: getEnv("CLOUDINARY_API_SECRET", ""),
+
+		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 	}, nil
 }
 
