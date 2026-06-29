@@ -85,7 +85,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 
 	book, err := h.ISBNdb.GetByISBN(r.Context(), isbn)
 	if err != nil {
-		if strings.Contains(err.Error(), "404") {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
 			types.WriteJSON(w, http.StatusNotFound, map[string]any{
 				"error":   "book_not_found",
 				"message": "Couldn't find this book — try searching by title",
