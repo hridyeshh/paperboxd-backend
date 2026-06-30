@@ -95,6 +95,10 @@ type scanBookMeta struct {
 	Description string
 }
 
+// scanUnlimited bypasses the free-scan quota (no gate, no decrement) while testing.
+// Flip to false to re-enable the paywall.
+const scanUnlimited = true
+
 // Analyze handles POST /api/v1/scan/analyze.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	debug := r.URL.Query().Get("debug") == "true"
@@ -134,7 +138,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scansRemaining == 0 {
+	if scansRemaining == 0 && !scanUnlimited {
 		types.WriteJSON(w, http.StatusForbidden, map[string]any{
 			"error":           "scans_exhausted",
 			"scans_remaining": 0,
@@ -316,14 +320,19 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	// ── Decrement quota (only after successful score) ─────────────────────────
 
 	var newRemaining int32
-	decrementErr := h.Pool.QueryRow(r.Context(),
-		"UPDATE users SET scan_uses_remaining = scan_uses_remaining - 1 WHERE id = $1 AND scan_uses_remaining > 0 RETURNING scan_uses_remaining",
-		userID,
-	).Scan(&newRemaining)
-	if decrementErr != nil {
-		// Race condition: quota hit 0 between check and now. Still return the score.
-		slog.Warn("scan quota decrement returned no rows", "user_id", userID)
-		newRemaining = 0
+	if scanUnlimited {
+		// Testing: don't consume quota.
+		newRemaining = scansRemaining
+	} else {
+		decrementErr := h.Pool.QueryRow(r.Context(),
+			"UPDATE users SET scan_uses_remaining = scan_uses_remaining - 1 WHERE id = $1 AND scan_uses_remaining > 0 RETURNING scan_uses_remaining",
+			userID,
+		).Scan(&newRemaining)
+		if decrementErr != nil {
+			// Race condition: quota hit 0 between check and now. Still return the score.
+			slog.Warn("scan quota decrement returned no rows", "user_id", userID)
+			newRemaining = 0
+		}
 	}
 
 	// ── Response ──────────────────────────────────────────────────────────────
