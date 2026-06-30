@@ -2,6 +2,7 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,10 +42,29 @@ func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config,
 	}
 }
 
+// BookSummary is a compact book representation used inside UserReadingProfile.
+type BookSummary struct {
+	Title  string  `json:"title"`
+	Author string  `json:"author"`
+	Rating float64 `json:"rating"`
+}
+
+// UserReadingProfile captures everything PaperBoxd knows about a reader,
+// assembled just-in-time for the Claude prompt in Phase 4.
+type UserReadingProfile struct {
+	TotalBooksRead           int            `json:"total_books_read"`
+	GenreDistribution        map[string]int `json:"genre_distribution"`
+	TopGenres                []string       `json:"top_genres"`
+	FavoriteBooks            []BookSummary  `json:"favorite_books"`
+	RepeatAuthors            []string       `json:"repeat_authors"`
+	AverageRatingGiven       float64        `json:"average_rating_given"`
+	RecentReads              []BookSummary  `json:"recent_reads"`
+	StaleTBRCount            int            `json:"stale_tbr_count"`
+	ReadingPaceBooksPerMonth float64        `json:"reading_pace_books_per_month"`
+	FollowedUsersWithBook    []string       `json:"followed_users_with_book"`
+}
+
 // Analyze handles POST /api/v1/scan/analyze.
-// Validates quota, fetches ISBNdb metadata, runs three parallel Brave Search
-// queries (Reddit, Goodreads, Amazon sentiment) with a 24-hour ISBN-keyed
-// cache, then returns everything in a single response.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
@@ -230,6 +251,15 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ── User reading profile ──────────────────────────────────────────────────
+
+	profile, err := h.buildUserReadingProfile(r.Context(), userID, isbn13)
+	if err != nil {
+		slog.Error("build user reading profile", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"book": map[string]any{
 			"isbn":        isbn13,
@@ -241,8 +271,218 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			"cover_url":   book.Image,
 		},
 		"community_summary": communitySummary,
+		"user_profile":      profile,
 		"scans_remaining":   scansRemaining,
 	})
+}
+
+// buildUserReadingProfile assembles a structured reading profile for the user.
+// Returns a zeroed profile (not an error) when the user has no reading history.
+func (h *ScanHandler) buildUserReadingProfile(ctx context.Context, userID uuid.UUID, scannedISBN string) (*UserReadingProfile, error) {
+	p := &UserReadingProfile{
+		GenreDistribution:     map[string]int{},
+		TopGenres:             []string{},
+		FavoriteBooks:         []BookSummary{},
+		RepeatAuthors:         []string{},
+		RecentReads:           []BookSummary{},
+		FollowedUsersWithBook: []string{},
+	}
+
+	// 1. Total books read
+	if err := h.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status = 'read'",
+		userID,
+	).Scan(&p.TotalBooksRead); err != nil {
+		return nil, fmt.Errorf("total books read: %w", err)
+	}
+
+	// 2. Genre distribution from read books (categories[] on books table)
+	genreRows, err := h.Pool.Query(ctx,
+		`SELECT unnest(b.categories) AS genre, COUNT(*) AS cnt
+		 FROM bookshelf bs
+		 JOIN books b ON b.id = bs.book_id
+		 WHERE bs.user_id = $1 AND bs.status = 'read'
+		   AND b.categories IS NOT NULL AND cardinality(b.categories) > 0
+		 GROUP BY genre
+		 ORDER BY cnt DESC
+		 LIMIT 20`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("genre distribution: %w", err)
+	}
+	defer genreRows.Close()
+	for genreRows.Next() {
+		var genre string
+		var cnt int
+		if err := genreRows.Scan(&genre, &cnt); err != nil {
+			return nil, fmt.Errorf("genre scan: %w", err)
+		}
+		if genre == "" {
+			continue
+		}
+		p.GenreDistribution[genre] = cnt
+		if len(p.TopGenres) < 5 {
+			p.TopGenres = append(p.TopGenres, genre)
+		}
+	}
+	if err := genreRows.Err(); err != nil {
+		return nil, fmt.Errorf("genre rows: %w", err)
+	}
+
+	// 3. Favorite books (favorites table, ordered by display_order)
+	favRows, err := h.Pool.Query(ctx,
+		`SELECT b.title, b.authors, bs.rating
+		 FROM favorites f
+		 JOIN books b ON b.id = f.book_id
+		 LEFT JOIN bookshelf bs ON bs.book_id = f.book_id AND bs.user_id = f.user_id
+		 WHERE f.user_id = $1
+		 ORDER BY f.display_order ASC
+		 LIMIT 5`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("favorite books: %w", err)
+	}
+	defer favRows.Close()
+	for favRows.Next() {
+		var title string
+		var bookAuthors []string
+		var rating pgtype.Int4
+		if err := favRows.Scan(&title, &bookAuthors, &rating); err != nil {
+			return nil, fmt.Errorf("favorite scan: %w", err)
+		}
+		s := BookSummary{Title: title}
+		if len(bookAuthors) > 0 {
+			s.Author = bookAuthors[0]
+		}
+		if rating.Valid {
+			s.Rating = float64(rating.Int32)
+		}
+		p.FavoriteBooks = append(p.FavoriteBooks, s)
+	}
+	if err := favRows.Err(); err != nil {
+		return nil, fmt.Errorf("favorite rows: %w", err)
+	}
+
+	// 4. Repeat authors (pre-computed user_authors_read table)
+	authorRows, err := h.Pool.Query(ctx,
+		`SELECT author_name FROM user_authors_read
+		 WHERE user_id = $1 AND books_read >= 2
+		 ORDER BY books_read DESC
+		 LIMIT 10`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("repeat authors: %w", err)
+	}
+	defer authorRows.Close()
+	for authorRows.Next() {
+		var name string
+		if err := authorRows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("author scan: %w", err)
+		}
+		p.RepeatAuthors = append(p.RepeatAuthors, name)
+	}
+	if err := authorRows.Err(); err != nil {
+		return nil, fmt.Errorf("author rows: %w", err)
+	}
+
+	// 5. Average rating given (NULL if no ratings yet → 0)
+	var avgRating pgtype.Float8
+	if err := h.Pool.QueryRow(ctx,
+		"SELECT AVG(rating::float8) FROM bookshelf WHERE user_id = $1 AND rating IS NOT NULL",
+		userID,
+	).Scan(&avgRating); err != nil {
+		return nil, fmt.Errorf("average rating: %w", err)
+	}
+	if avgRating.Valid {
+		p.AverageRatingGiven = avgRating.Float64
+	}
+
+	// 6. Recent reads (last 5 by finish/update date)
+	recentRows, err := h.Pool.Query(ctx,
+		`SELECT b.title, b.authors, bs.rating
+		 FROM bookshelf bs
+		 JOIN books b ON b.id = bs.book_id
+		 WHERE bs.user_id = $1 AND bs.status = 'read'
+		 ORDER BY COALESCE(bs.finished_at, bs.updated_at) DESC
+		 LIMIT 5`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent reads: %w", err)
+	}
+	defer recentRows.Close()
+	for recentRows.Next() {
+		var title string
+		var bookAuthors []string
+		var rating pgtype.Int4
+		if err := recentRows.Scan(&title, &bookAuthors, &rating); err != nil {
+			return nil, fmt.Errorf("recent reads scan: %w", err)
+		}
+		s := BookSummary{Title: title}
+		if len(bookAuthors) > 0 {
+			s.Author = bookAuthors[0]
+		}
+		if rating.Valid {
+			s.Rating = float64(rating.Int32)
+		}
+		p.RecentReads = append(p.RecentReads, s)
+	}
+	if err := recentRows.Err(); err != nil {
+		return nil, fmt.Errorf("recent reads rows: %w", err)
+	}
+
+	// 7. Stale TBR count (in TBR list 90+ days, still unread)
+	if err := h.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status = 'tbr' AND created_at < NOW() - INTERVAL '90 days'",
+		userID,
+	).Scan(&p.StaleTBRCount); err != nil {
+		return nil, fmt.Errorf("stale tbr: %w", err)
+	}
+
+	// 8. Reading pace — only meaningful with 3+ books read
+	if p.TotalBooksRead >= 3 {
+		var recentCount int
+		if err := h.Pool.QueryRow(ctx,
+			"SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status = 'read' AND finished_at > NOW() - INTERVAL '90 days'",
+			userID,
+		).Scan(&recentCount); err != nil {
+			return nil, fmt.Errorf("reading pace: %w", err)
+		}
+		p.ReadingPaceBooksPerMonth = float64(recentCount) / 3.0
+	}
+
+	// 9. Followed users who have the scanned book on their shelf
+	followRows, err := h.Pool.Query(ctx,
+		`SELECT u.username
+		 FROM follows f
+		 JOIN users u ON u.id = f.following_id
+		 JOIN bookshelf bs ON bs.user_id = f.following_id
+		 JOIN books b ON b.id = bs.book_id
+		 WHERE f.follower_id = $1
+		   AND b.isbn13 = $2
+		   AND u.deleted_at IS NULL
+		 LIMIT 5`,
+		userID, scannedISBN,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("followed users with book: %w", err)
+	}
+	defer followRows.Close()
+	for followRows.Next() {
+		var username string
+		if err := followRows.Scan(&username); err != nil {
+			return nil, fmt.Errorf("follow scan: %w", err)
+		}
+		p.FollowedUsersWithBook = append(p.FollowedUsersWithBook, username)
+	}
+	if err := followRows.Err(); err != nil {
+		return nil, fmt.Errorf("follow rows: %w", err)
+	}
+
+	return p, nil
 }
 
 // searchBrave calls the Brave Search API with the given query and returns
