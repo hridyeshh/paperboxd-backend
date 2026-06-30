@@ -462,7 +462,7 @@ func (h *ScanHandler) buildUserReadingProfile(ctx context.Context, userID uuid.U
 		 JOIN bookshelf bs ON bs.user_id = f.following_id
 		 JOIN books b ON b.id = bs.book_id
 		 WHERE f.follower_id = $1
-		   AND b.isbn13 = $2
+		   AND b.isbn_13 = $2
 		   AND u.deleted_at IS NULL
 		 LIMIT 5`,
 		userID, scannedISBN,
