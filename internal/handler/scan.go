@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,20 +27,22 @@ import (
 
 // ScanHandler handles the /scan/* endpoints.
 type ScanHandler struct {
-	Pool    *pgxpool.Pool
-	Queries *db.Queries
-	Config  *config.Config
-	ISBNdb  *external.ISBNdbClient
-	Client  *http.Client
+	Pool        *pgxpool.Pool
+	Queries     *db.Queries
+	Config      *config.Config
+	ISBNdb      *external.ISBNdbClient
+	Client      *http.Client
+	ClaudeClient *http.Client
 }
 
 func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient) *ScanHandler {
 	return &ScanHandler{
-		Pool:    pool,
-		Queries: queries,
-		Config:  cfg,
-		ISBNdb:  isbndb,
-		Client:  &http.Client{Timeout: 10 * time.Second},
+		Pool:        pool,
+		Queries:     queries,
+		Config:      cfg,
+		ISBNdb:      isbndb,
+		Client:      &http.Client{Timeout: 10 * time.Second},
+		ClaudeClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -49,8 +53,7 @@ type BookSummary struct {
 	Rating float64 `json:"rating"`
 }
 
-// UserReadingProfile captures everything PaperBoxd knows about a reader,
-// assembled just-in-time for the Claude prompt in Phase 4.
+// UserReadingProfile captures everything PaperBoxd knows about a reader.
 type UserReadingProfile struct {
 	TotalBooksRead           int            `json:"total_books_read"`
 	GenreDistribution        map[string]int `json:"genre_distribution"`
@@ -64,8 +67,38 @@ type UserReadingProfile struct {
 	FollowedUsersWithBook    []string       `json:"followed_users_with_book"`
 }
 
+// ScoreDimensions holds the five per-dimension scores from Claude.
+type ScoreDimensions struct {
+	GenreFit         int `json:"genre_fit"`
+	WritingStyle     int `json:"writing_style"`
+	LengthComplexity int `json:"length_complexity"`
+	CommunityLove    int `json:"community_love"`
+	PersonalFit      int `json:"personal_fit"`
+}
+
+// ScanResult is the parsed Claude scoring output.
+type ScanResult struct {
+	OverallScore int             `json:"overall_score"`
+	Dimensions   ScoreDimensions `json:"dimensions"`
+	Verdict      string          `json:"verdict"`
+	ForYou       []string        `json:"for_you"`
+	AgainstYou   []string        `json:"against_you"`
+	OneLine      string          `json:"one_line"`
+}
+
+// scanBookMeta is the book data passed into the Claude scorer.
+type scanBookMeta struct {
+	Title       string
+	Authors     []string
+	Genres      []string
+	Pages       int
+	Description string
+}
+
 // Analyze handles POST /api/v1/scan/analyze.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
+	debug := r.URL.Query().Get("debug") == "true"
+
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
@@ -260,7 +293,42 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, map[string]any{
+	// ── Claude scoring ────────────────────────────────────────────────────────
+
+	meta := scanBookMeta{
+		Title:       book.Title,
+		Authors:     authors,
+		Genres:      genres,
+		Pages:       book.Pages,
+		Description: book.Synopsis,
+	}
+
+	score, err := h.callClaudeForScore(r.Context(), meta, communitySummary, profile)
+	if err != nil {
+		slog.Error("claude scoring failed", "error", err, "isbn", isbn13, "user_id", userID)
+		types.WriteJSON(w, http.StatusBadGateway, map[string]any{
+			"error":   "scoring_failed",
+			"message": "Something took too long — your scan hasn't been used",
+		})
+		return
+	}
+
+	// ── Decrement quota (only after successful score) ─────────────────────────
+
+	var newRemaining int32
+	decrementErr := h.Pool.QueryRow(r.Context(),
+		"UPDATE users SET scan_uses_remaining = scan_uses_remaining - 1 WHERE id = $1 AND scan_uses_remaining > 0 RETURNING scan_uses_remaining",
+		userID,
+	).Scan(&newRemaining)
+	if decrementErr != nil {
+		// Race condition: quota hit 0 between check and now. Still return the score.
+		slog.Warn("scan quota decrement returned no rows", "user_id", userID)
+		newRemaining = 0
+	}
+
+	// ── Response ──────────────────────────────────────────────────────────────
+
+	resp := map[string]any{
 		"book": map[string]any{
 			"isbn":        isbn13,
 			"title":       book.Title,
@@ -270,10 +338,244 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			"description": book.Synopsis,
 			"cover_url":   book.Image,
 		},
-		"community_summary": communitySummary,
-		"user_profile":      profile,
-		"scans_remaining":   scansRemaining,
+		"score":           score,
+		"scans_remaining": newRemaining,
+	}
+
+	if debug {
+		resp["community_summary"] = communitySummary
+		resp["user_profile"] = profile
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// callClaudeForScore calls the Claude API and retries once on JSON parse failure.
+func (h *ScanHandler) callClaudeForScore(ctx context.Context, book scanBookMeta, communitySummary string, profile *UserReadingProfile) (*ScanResult, error) {
+	result, err := h.doClaudeCall(ctx, book, communitySummary, profile)
+	if err != nil {
+		slog.Warn("claude call failed, retrying", "error", err)
+		result, err = h.doClaudeCall(ctx, book, communitySummary, profile)
+	}
+	return result, err
+}
+
+func (h *ScanHandler) doClaudeCall(ctx context.Context, book scanBookMeta, communitySummary string, profile *UserReadingProfile) (*ScanResult, error) {
+	if h.Config.AnthropicAPIKey == "" {
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY not configured")
+	}
+
+	prompt := buildClaudePrompt(book, communitySummary, profile)
+
+	reqBody, err := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-6",
+		"max_tokens": 1000,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal claude request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("build claude request: %w", err)
+	}
+	req.Header.Set("x-api-key", h.Config.AnthropicAPIKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+
+	resp, err := h.ClaudeClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("claude request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("claude API %d: %s", resp.StatusCode, raw)
+	}
+
+	var claudeResp struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &claudeResp); err != nil {
+		return nil, fmt.Errorf("decode claude response: %w", err)
+	}
+	if len(claudeResp.Content) == 0 || claudeResp.Content[0].Text == "" {
+		return nil, fmt.Errorf("claude returned empty content")
+	}
+
+	text := claudeResp.Content[0].Text
+
+	// Strip markdown code fences if present.
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "```") {
+		if idx := strings.Index(text, "\n"); idx != -1 {
+			text = text[idx+1:]
+		}
+		text = strings.TrimSuffix(text, "```")
+		text = strings.TrimSpace(text)
+	}
+
+	var result ScanResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return nil, fmt.Errorf("parse claude JSON: %w (raw: %.200s)", err, text)
+	}
+
+	return &result, nil
+}
+
+// buildClaudePrompt assembles the personalized scoring prompt.
+func buildClaudePrompt(book scanBookMeta, communitySummary string, profile *UserReadingProfile) string {
+	authorText := "Unknown"
+	if len(book.Authors) > 0 {
+		authorText = strings.Join(book.Authors, ", ")
+	}
+
+	bookGenreText := "Unknown"
+	if len(book.Genres) > 0 {
+		bookGenreText = strings.Join(book.Genres, ", ")
+	}
+
+	topGenreText := "None"
+	if len(profile.TopGenres) > 0 {
+		topGenreText = strings.Join(profile.TopGenres, ", ")
+	}
+
+	// Genre distribution sorted by count desc.
+	genreDistText := "None"
+	if len(profile.GenreDistribution) > 0 {
+		type kv struct {
+			k string
+			v int
+		}
+		pairs := make([]kv, 0, len(profile.GenreDistribution))
+		for k, v := range profile.GenreDistribution {
+			pairs = append(pairs, kv{k, v})
+		}
+		sort.Slice(pairs, func(i, j int) bool { return pairs[i].v > pairs[j].v })
+		parts := make([]string, 0, len(pairs))
+		for _, p := range pairs {
+			parts = append(parts, fmt.Sprintf("%s (%d)", p.k, p.v))
+		}
+		genreDistText = strings.Join(parts, ", ")
+	}
+
+	repeatText := "None yet"
+	if len(profile.RepeatAuthors) > 0 {
+		repeatText = strings.Join(profile.RepeatAuthors, ", ")
+	}
+
+	var recentParts []string
+	for _, b := range profile.RecentReads {
+		if b.Rating > 0 {
+			recentParts = append(recentParts, fmt.Sprintf("%s by %s (rated %.0f)", b.Title, b.Author, b.Rating))
+		} else {
+			recentParts = append(recentParts, fmt.Sprintf("%s by %s (unrated)", b.Title, b.Author))
+		}
+	}
+	recentText := "None"
+	if len(recentParts) > 0 {
+		recentText = strings.Join(recentParts, "; ")
+	}
+
+	var favParts []string
+	for _, b := range profile.FavoriteBooks {
+		favParts = append(favParts, fmt.Sprintf("%s by %s", b.Title, b.Author))
+	}
+	favText := "None"
+	if len(favParts) > 0 {
+		favText = strings.Join(favParts, "; ")
+	}
+
+	followText := "None"
+	if len(profile.FollowedUsersWithBook) > 0 {
+		followText = strings.Join(profile.FollowedUsersWithBook, ", ")
+	}
+
+	avgRating := "not rated any books yet"
+	if profile.AverageRatingGiven > 0 {
+		avgRating = fmt.Sprintf("%.1f out of 5", profile.AverageRatingGiven)
+	}
+
+	pace := "unknown"
+	if profile.ReadingPaceBooksPerMonth > 0 {
+		pace = fmt.Sprintf("%.1f books/month", profile.ReadingPaceBooksPerMonth)
+	}
+
+	return fmt.Sprintf(`You are a personalized book recommendation analyst for PaperBoxd.
+Your job is to score how well a specific book matches a specific reader — not whether the book is good in general, but whether THIS reader will enjoy it based on their proven reading history.
+
+Be honest, not flattering. A score of 45 is more useful to this reader than an inflated 78 if 45 is accurate. Avoid generic praise that could apply to any reader — every reason you give must reference something specific from this reader's actual data below.
+
+## Book Being Evaluated
+Title: %s
+Author(s): %s
+Genres: %s
+Pages: %d
+Description: %s
+
+## Community Sentiment
+%s
+
+## This Reader's Profile
+Total books read: %d
+Top genres (by count): %s
+Genre distribution: %s
+Authors read 2+ times: %s
+Average rating given: %s (note: this tells you if they rate generously or critically)
+Recent reads: %s
+Favorite books: %s
+Books abandoned in TBR 90+ days: %d
+Reading pace: %s
+People they follow who have this book: %s
+
+## Task
+Score this book for THIS specific reader on these five dimensions, out of 20 points each:
+- genre_fit: Does it match their proven genre preferences?
+- writing_style: Based on authors they've rated highly, will the prose style suit them?
+- length_complexity: Does the page count and apparent complexity fit their completion patterns (consider their stale TBR count and reading pace)?
+- community_love: How does the broader reading community feel about this book, based on the sentiment provided?
+- personal_fit: A wildcard dimension — what unique insight from this reader's specific profile makes this especially right or wrong for them?
+
+Respond with ONLY valid JSON. No preamble, no markdown code fences, no explanation outside the JSON structure below:
+
+{
+  "overall_score": <int, sum of the five dimensions>,
+  "dimensions": {
+    "genre_fit": <int 0-20>,
+    "writing_style": <int 0-20>,
+    "length_complexity": <int 0-20>,
+    "community_love": <int 0-20>,
+    "personal_fit": <int 0-20>
+  },
+  "verdict": "<one short phrase, 4-8 words>",
+  "for_you": ["<specific reason citing their actual data>", "<second reason>"],
+  "against_you": ["<specific concern citing their actual data>", "<second concern>"],
+  "one_line": "<the single most honest, specific sentence you can write about whether this reader will enjoy this book — this is the most important field in the response>"
+}`,
+		book.Title,
+		authorText,
+		bookGenreText,
+		book.Pages,
+		book.Description,
+		communitySummary,
+		profile.TotalBooksRead,
+		topGenreText,
+		genreDistText,
+		repeatText,
+		avgRating,
+		recentText,
+		favText,
+		profile.StaleTBRCount,
+		pace,
+		followText,
+	)
 }
 
 // buildUserReadingProfile assembles a structured reading profile for the user.
