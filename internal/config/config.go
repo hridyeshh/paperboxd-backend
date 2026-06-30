@@ -44,6 +44,10 @@ type Config struct {
 	CloudinaryAPISecret string
 
 	AnthropicAPIKey string
+
+	BraveAPIKey         string
+	RedditClientID      string
+	RedditClientSecret  string
 }
 
 func Load() (*Config, error) {
@@ -91,6 +95,10 @@ func Load() (*Config, error) {
 		CloudinaryAPISecret: getEnv("CLOUDINARY_API_SECRET", ""),
 
 		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
+
+		BraveAPIKey:        getEnv("BRAVE_API_KEY", ""),
+		RedditClientID:     getEnv("REDDIT_CLIENT_ID", ""),
+		RedditClientSecret: getEnv("REDDIT_CLIENT_SECRET", ""),
 	}, nil
 }
 
