@@ -99,7 +99,7 @@ type scanBookMeta struct {
 
 // scanUnlimited bypasses the free-scan quota (no gate, no decrement) while testing.
 // Flip to false to re-enable the paywall.
-const scanUnlimited = true
+const scanUnlimited = false
 
 // Analyze handles POST /api/v1/scan/analyze.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
