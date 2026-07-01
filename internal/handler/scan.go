@@ -27,21 +27,21 @@ import (
 
 // ScanHandler handles the /scan/* endpoints.
 type ScanHandler struct {
-	Pool        *pgxpool.Pool
-	Queries     *db.Queries
-	Config      *config.Config
-	ISBNdb      *external.ISBNdbClient
-	Client      *http.Client
+	Pool         *pgxpool.Pool
+	Queries      *db.Queries
+	Config       *config.Config
+	ISBNdb       *external.ISBNdbClient
+	Client       *http.Client
 	ClaudeClient *http.Client
 }
 
 func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient) *ScanHandler {
 	return &ScanHandler{
-		Pool:        pool,
-		Queries:     queries,
-		Config:      cfg,
-		ISBNdb:      isbndb,
-		Client:      &http.Client{Timeout: 10 * time.Second},
+		Pool:         pool,
+		Queries:      queries,
+		Config:       cfg,
+		ISBNdb:       isbndb,
+		Client:       &http.Client{Timeout: 10 * time.Second},
 		ClaudeClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -193,25 +193,25 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		communitySummary string
-		redditCount      int
-		webCount         int
+		readersCount     int
+		ratingsCount     int
 	)
 
 	var (
 		cachedSummary string
-		cachedReddit  int
-		cachedWeb     int
+		cachedReaders int
+		cachedRatings int
 	)
 	cacheErr := h.Pool.QueryRow(r.Context(),
-		"SELECT community_summary, reddit_count, web_count FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours'",
+		"SELECT community_summary, readers_count, ratings_count FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours'",
 		isbn13,
-	).Scan(&cachedSummary, &cachedReddit, &cachedWeb)
+	).Scan(&cachedSummary, &cachedReaders, &cachedRatings)
 
 	if cacheErr == nil {
 		slog.Info("scan cache HIT", "isbn", isbn13)
 		communitySummary = cachedSummary
-		redditCount = cachedReddit
-		webCount = cachedWeb
+		readersCount = cachedReaders
+		ratingsCount = cachedRatings
 	} else {
 		slog.Info("scan cache MISS", "isbn", isbn13)
 
@@ -227,12 +227,12 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			amazonSignal    string
 		)
 
-		// 3 Brave summary queries + 1 Google Books rating lookup, all in parallel.
+		// 3 Brave sentiment queries + 1 Open Library reader-stats lookup, in parallel.
 		wg.Add(4)
 
 		go func() {
 			defer wg.Done()
-			webCount = h.fetchGoogleBooksReviewCount(r.Context(), isbn13)
+			readersCount, ratingsCount = h.fetchOpenLibraryCounts(r.Context(), isbn13)
 		}()
 
 		go func() {
@@ -267,9 +267,6 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 
 		wg.Wait()
 
-		// reddit count = number of Reddit discussion snippets surfaced by Brave.
-		redditCount = countNonEmptyLines(redditSignal)
-
 		var sb strings.Builder
 		if redditSignal != "" {
 			sb.WriteString("Reddit reader discussions:\n")
@@ -295,14 +292,14 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, writeErr := h.Pool.Exec(r.Context(),
-			`INSERT INTO scan_community_cache (isbn, community_summary, reddit_count, web_count, cached_at)
+			`INSERT INTO scan_community_cache (isbn, community_summary, readers_count, ratings_count, cached_at)
 			 VALUES ($1, $2, $3, $4, NOW())
 			 ON CONFLICT (isbn) DO UPDATE
 			 SET community_summary = EXCLUDED.community_summary,
-			     reddit_count = EXCLUDED.reddit_count,
-			     web_count = EXCLUDED.web_count,
+			     readers_count = EXCLUDED.readers_count,
+			     ratings_count = EXCLUDED.ratings_count,
 			     cached_at = NOW()`,
-			isbn13, communitySummary, redditCount, webCount,
+			isbn13, communitySummary, readersCount, ratingsCount,
 		)
 		if writeErr != nil {
 			slog.Error("scan cache write failed", "error", writeErr, "isbn", isbn13)
@@ -358,9 +355,8 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 
 	// ── Response ──────────────────────────────────────────────────────────────
 
-	// Real source counts surfaced to the analyzing screen. reddit = total comments
-	// across matching Reddit threads; web = aggregated rating count from Google
-	// Books; shelf/friends come straight from the reader's profile.
+	// Real source counts surfaced to the analyzing screen. readers/ratings come from
+	// Open Library's global reading-log; shelf/friends from the reader's own profile.
 	resp := map[string]any{
 		"book": map[string]any{
 			"isbn":        isbn13,
@@ -373,8 +369,8 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		},
 		"score": score,
 		"sources": map[string]any{
-			"reddit":  redditCount,
-			"web":     webCount,
+			"readers": readersCount,
+			"ratings": ratingsCount,
 			"shelf":   profile.TotalBooksRead,
 			"friends": len(profile.FollowedUsersWithBook),
 		},
@@ -826,67 +822,50 @@ func (h *ScanHandler) buildUserReadingProfile(ctx context.Context, userID uuid.U
 	return p, nil
 }
 
-// countNonEmptyLines counts the non-empty lines in a string — used to size the
-// Reddit discussion count from the Brave reddit-search snippets.
-func countNonEmptyLines(s string) int {
-	n := 0
-	for line := range strings.SplitSeq(s, "\n") {
-		if strings.TrimSpace(line) != "" {
-			n++
-		}
-	}
-	return n
-}
-
-// fetchGoogleBooksReviewCount looks up the book by ISBN on the Google Books API
-// and returns its aggregated ratings count — a real "web reviews" number. Returns
-// 0 on any failure (best-effort, no API key required for volume lookups).
-func (h *ScanHandler) fetchGoogleBooksReviewCount(ctx context.Context, isbn string) int {
+// fetchOpenLibraryCounts looks the book up on Open Library by ISBN and returns two
+// real community numbers: readers (total reading-log entries — want-to-read +
+// currently-reading + already-read) and ratings (rating count). Open Library needs
+// no API key and reliably populates these for real books. Returns (0, 0) on failure.
+func (h *ScanHandler) fetchOpenLibraryCounts(ctx context.Context, isbn string) (readers, ratings int) {
 	apiURL := fmt.Sprintf(
-		"https://www.googleapis.com/books/v1/volumes?q=isbn:%s&country=US",
+		"https://openlibrary.org/search.json?isbn=%s&fields=readinglog_count,ratings_count",
 		url.QueryEscape(isbn),
 	)
-	if h.Config.GoogleBooksAPIKey != "" {
-		apiURL += "&key=" + url.QueryEscape(h.Config.GoogleBooksAPIKey)
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		slog.Warn("google books request build failed", "error", err)
-		return 0
+		slog.Warn("openlibrary request build failed", "error", err)
+		return 0, 0
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "paperboxd-scan/1.0")
 
 	resp, err := h.Client.Do(req)
 	if err != nil {
-		slog.Warn("google books request failed", "error", err)
-		return 0
+		slog.Warn("openlibrary request failed", "error", err)
+		return 0, 0
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("google books non-200", "status", resp.StatusCode)
-		return 0
+		slog.Warn("openlibrary non-200", "status", resp.StatusCode)
+		return 0, 0
 	}
 
 	var payload struct {
-		Items []struct {
-			VolumeInfo struct {
-				RatingsCount int `json:"ratingsCount"`
-			} `json:"volumeInfo"`
-		} `json:"items"`
+		Docs []struct {
+			ReadinglogCount int `json:"readinglog_count"`
+			RatingsCount    int `json:"ratings_count"`
+		} `json:"docs"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		slog.Warn("google books decode failed", "error", err)
-		return 0
+		slog.Warn("openlibrary decode failed", "error", err)
+		return 0, 0
 	}
-
-	for _, item := range payload.Items {
-		if item.VolumeInfo.RatingsCount > 0 {
-			return item.VolumeInfo.RatingsCount
-		}
+	if len(payload.Docs) == 0 {
+		return 0, 0
 	}
-	return 0
+	return payload.Docs[0].ReadinglogCount, payload.Docs[0].RatingsCount
 }
 
 // searchBrave calls the Brave Search API with the given query and returns
