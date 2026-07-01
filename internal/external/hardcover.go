@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -111,4 +112,93 @@ func (c *HardcoverClient) GetStatsByISBN13(ctx context.Context, isbn13 string) (
 		RatingsCount: b.RatingsCount,
 		UsersCount:   b.UsersCount,
 	}, nil
+}
+
+// SearchTopByTitle finds a book by title (used as a fallback when the scanned
+// edition's ISBN isn't indexed by Hardcover) and returns the match with the most
+// ratings — the canonical work rather than a low-signal duplicate. Returns
+// (nil, nil) when nothing usable is found.
+func (c *HardcoverClient) SearchTopByTitle(ctx context.Context, title string) (*HardcoverStats, error) {
+	if c.token == "" {
+		return nil, fmt.Errorf("hardcover token not configured")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, nil
+	}
+
+	query := `query Search($q: String!) {
+  search(query: $q, query_type: "Book", per_page: 10) { results }
+}`
+
+	reqBody, err := json.Marshal(map[string]any{
+		"query":     query,
+		"variables": map[string]any{"q": title},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal hardcover search: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("build hardcover search: %w", err)
+	}
+	auth := c.token
+	if len(auth) < 7 || auth[:7] != "Bearer " {
+		auth = "Bearer " + auth
+	}
+	req.Header.Set("Authorization", auth)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hardcover search request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("hardcover search api error: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Data struct {
+			Search struct {
+				Results struct {
+					Hits []struct {
+						Document struct {
+							Rating       float64 `json:"rating"`
+							RatingsCount int     `json:"ratings_count"`
+							UsersCount   int     `json:"users_count"`
+							Title        string  `json:"title"`
+						} `json:"document"`
+					} `json:"hits"`
+				} `json:"results"`
+			} `json:"search"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode hardcover search: %w", err)
+	}
+	if len(result.Errors) > 0 {
+		return nil, fmt.Errorf("hardcover search graphql error: %s", result.Errors[0].Message)
+	}
+
+	var best *HardcoverStats
+	for _, h := range result.Data.Search.Results.Hits {
+		d := h.Document
+		if d.RatingsCount <= 0 {
+			continue
+		}
+		if best == nil || d.RatingsCount > best.RatingsCount {
+			best = &HardcoverStats{
+				Rating:       d.Rating,
+				RatingsCount: d.RatingsCount,
+				UsersCount:   d.UsersCount,
+			}
+		}
+	}
+	return best, nil
 }

@@ -240,7 +240,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 
 		go func() {
 			defer wg.Done()
-			readersCount, ratingsCount, ratingAvg = h.fetchHardcoverCounts(r.Context(), isbn13)
+			readersCount, ratingsCount, ratingAvg = h.fetchHardcoverCounts(r.Context(), isbn13, book.Title)
 		}()
 
 		go func() {
@@ -837,12 +837,23 @@ func (h *ScanHandler) buildUserReadingProfile(ctx context.Context, userID uuid.U
 // have the book on a shelf), ratings (number of ratings), and rating (0–5 average).
 // Falls back to Open Library reader/rating counts (rating avg 0) when Hardcover is
 // unconfigured, errors, or doesn't have the book. Returns (0, 0, 0) if all fail.
-func (h *ScanHandler) fetchHardcoverCounts(ctx context.Context, isbn string) (readers, ratings int, rating float64) {
+func (h *ScanHandler) fetchHardcoverCounts(ctx context.Context, isbn, title string) (readers, ratings int, rating float64) {
 	if h.Hardcover != nil {
+		// 1. Exact edition match by ISBN (13 or 10).
 		stats, err := h.Hardcover.GetStatsByISBN13(ctx, isbn)
 		if err != nil {
-			slog.Warn("hardcover lookup failed, falling back to open library", "error", err, "isbn", isbn)
+			slog.Warn("hardcover isbn lookup failed", "error", err, "isbn", isbn)
 		} else if stats != nil && (stats.UsersCount > 0 || stats.RatingsCount > 0) {
+			return stats.UsersCount, stats.RatingsCount, stats.Rating
+		}
+
+		// 2. Fallback: the scanned edition isn't indexed by Hardcover — resolve the
+		// work by title and take the most-rated match.
+		stats, err = h.Hardcover.SearchTopByTitle(ctx, title)
+		if err != nil {
+			slog.Warn("hardcover title search failed", "error", err, "title", title)
+		} else if stats != nil && (stats.UsersCount > 0 || stats.RatingsCount > 0) {
+			slog.Info("hardcover matched by title fallback", "title", title, "ratings", stats.RatingsCount)
 			return stats.UsersCount, stats.RatingsCount, stats.Rating
 		}
 	}
