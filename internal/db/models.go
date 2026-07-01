@@ -269,6 +269,15 @@ type SavedList struct {
 	SavedAt pgtype.Timestamp `json:"saved_at"`
 }
 
+type ScanCommunityCache struct {
+	Isbn             string             `json:"isbn"`
+	CommunitySummary string             `json:"community_summary"`
+	CachedAt         pgtype.Timestamptz `json:"cached_at"`
+	ReadersCount     int32              `json:"readers_count"`
+	RatingsCount     int32              `json:"ratings_count"`
+	RatingsAverage   float64            `json:"ratings_average"`
+}
+
 type User struct {
 	ID                     uuid.UUID          `json:"id"`
 	Username               string             `json:"username"`
@@ -311,6 +320,7 @@ type User struct {
 	ReferralRewardsClaimed []string           `json:"referral_rewards_claimed"`
 	OnboardingCompleted    bool               `json:"onboarding_completed"`
 	BannerUrl              pgtype.Text        `json:"banner_url"`
+	ScanUsesRemaining      int32              `json:"scan_uses_remaining"`
 }
 
 type UserAuthorsRead struct {

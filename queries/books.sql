@@ -72,6 +72,11 @@ SELECT * FROM books
 ORDER BY view_count DESC
 LIMIT $1 OFFSET $2;
 
+-- name: GetRandomBooks :many
+SELECT * FROM books
+ORDER BY RANDOM()
+LIMIT $1;
+
 -- name: GetBooksByAuthor :many
 SELECT * FROM books
 WHERE array_to_string(authors, '|') ILIKE '%' || $1 || '%'

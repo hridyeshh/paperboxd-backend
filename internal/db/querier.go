@@ -111,6 +111,7 @@ type Querier interface {
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
+	GetRandomBooks(ctx context.Context, limit int32) ([]Book, error)
 	// Reading progress snapshot for a book on a single user's shelf.
 	GetReadingProgress(ctx context.Context, arg GetReadingProgressParams) (GetReadingProgressRow, error)
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)

@@ -479,6 +479,30 @@ func (h *BookHandler) GetLatest(w http.ResponseWriter, r *http.Request) {
 	}.WithPagination())
 }
 
+// GetRandom handles GET /api/v1/books/random?page_size=...
+// Returns a genuinely random slice of books so the client wall varies on every refresh.
+func (h *BookHandler) GetRandom(w http.ResponseWriter, r *http.Request) {
+	_, pageSize := parsePagination(r)
+	books, err := h.Queries.GetRandomBooks(r.Context(), int32(pageSize))
+	if err != nil {
+		slog.Error("get random books", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	items := make([]types.BookResponse, len(books))
+	for i, b := range books {
+		items[i] = bookToResponse(b)
+	}
+	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+		Kind:       "books#volumes",
+		TotalItems: len(items),
+		Items:      items,
+		Page:       1,
+		PageSize:   pageSize,
+		Source:     "db",
+	}.WithPagination())
+}
+
 // GetPublic handles GET /api/v1/books/public
 // Returns two carousels: recently added books and most-viewed books.
 func (h *BookHandler) GetPublic(w http.ResponseWriter, r *http.Request) {

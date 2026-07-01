@@ -617,6 +617,63 @@ func (q *Queries) GetPopularBooks(ctx context.Context, arg GetPopularBooksParams
 	return items, nil
 }
 
+const getRandomBooks = `-- name: GetRandomBooks :many
+SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
+ORDER BY RANDOM()
+LIMIT $1
+`
+
+func (q *Queries) GetRandomBooks(ctx context.Context, limit int32) ([]Book, error) {
+	rows, err := q.db.Query(ctx, getRandomBooks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Book{}
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Authors,
+			&i.Isbn13,
+			&i.GoogleBooksID,
+			&i.Metadata,
+			&i.ViewCount,
+			&i.LikeCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.PublishedDate,
+			&i.PageCount,
+			&i.Language,
+			&i.CoverUrl,
+			&i.Categories,
+			&i.Subtitle,
+			&i.Publisher,
+			&i.IsbndbID,
+			&i.OpenLibraryID,
+			&i.AverageRating,
+			&i.RatingsCount,
+			&i.PreviewLink,
+			&i.TotalReadsCount,
+			&i.TotalTbrCount,
+			&i.Embedding,
+			&i.EmbeddingText,
+			&i.DescriptionSource,
+			&i.LastAccessedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const incrementBookViews = `-- name: IncrementBookViews :exec
 UPDATE books SET view_count = view_count + 1, last_accessed_at = NOW() WHERE id = $1
 `

@@ -326,6 +326,7 @@ func main() {
 			r.Get("/search", bookHandler.Search)
 			r.Get("/by-slug/{slug}", bookHandler.GetBySlug)
 			r.Get("/latest", bookHandler.GetLatest)
+			r.Get("/random", bookHandler.GetRandom)
 			r.Get("/public", bookHandler.GetPublic)
 			r.Get("/by-author", bookHandler.GetByAuthor)
 
