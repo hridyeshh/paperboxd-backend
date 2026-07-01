@@ -202,8 +202,11 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		cachedReaders int
 		cachedRatings int
 	)
+	// A row with 0 readers AND 0 ratings means Open Library was unreachable (or hadn't
+	// been wired up yet) when it was cached — treat that as a miss so we refetch rather
+	// than serving a poisoned zero for the full 24h TTL.
 	cacheErr := h.Pool.QueryRow(r.Context(),
-		"SELECT community_summary, readers_count, ratings_count FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours'",
+		"SELECT community_summary, readers_count, ratings_count FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours' AND (readers_count > 0 OR ratings_count > 0)",
 		isbn13,
 	).Scan(&cachedSummary, &cachedReaders, &cachedRatings)
 
