@@ -45,9 +45,7 @@ type Config struct {
 
 	AnthropicAPIKey string
 
-	BraveAPIKey         string
-	RedditClientID      string
-	RedditClientSecret  string
+	BraveAPIKey string
 }
 
 func Load() (*Config, error) {
@@ -96,9 +94,7 @@ func Load() (*Config, error) {
 
 		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 
-		BraveAPIKey:        getEnv("BRAVE_API_KEY", ""),
-		RedditClientID:     getEnv("REDDIT_CLIENT_ID", ""),
-		RedditClientSecret: getEnv("REDDIT_CLIENT_SECRET", ""),
+		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 	}, nil
 }
 
