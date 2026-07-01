@@ -41,8 +41,11 @@ func (c *HardcoverClient) GetStatsByISBN13(ctx context.Context, isbn13 string) (
 		return nil, fmt.Errorf("hardcover token not configured")
 	}
 
+	// Match on either ISBN-13 or ISBN-10: ISBNdb sometimes returns the 10-digit form
+	// as the primary identifier, and Hardcover indexes editions under both. book.rating
+	// is work-level (shared across editions), so any matching edition yields the rating.
 	query := `query BookByISBN($isbn: String!) {
-  editions(where: {isbn_13: {_eq: $isbn}}, limit: 1) {
+  editions(where: {_or: [{isbn_13: {_eq: $isbn}}, {isbn_10: {_eq: $isbn}}]}, limit: 1) {
     book { rating ratings_count users_count }
   }
 }`
