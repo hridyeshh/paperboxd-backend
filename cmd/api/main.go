@@ -159,6 +159,10 @@ func main() {
 
 	isbndbClient := external.NewISBNdbClient(cfg.ISBNdbAPIKey)
 	googleBooksClient := external.NewGoogleBooksClient(cfg.GoogleBooksAPIKey)
+	hardcoverClient := external.NewHardcoverClient(cfg.HardcoverAPIToken)
+	if cfg.HardcoverAPIToken == "" {
+		slog.Warn("HARDCOVER_API_TOKEN not set; scan will fall back to Open Library counts")
+	}
 	cloudinaryClient := external.NewCloudinaryClient(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
 	if cloudinaryClient == nil {
 		slog.Warn("CLOUDINARY_* not set; avatar upload endpoint will return 503")
@@ -189,7 +193,7 @@ func main() {
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
-	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient)
+	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient, hardcoverClient)
 
 	userHandler := &handler.UserHandler{
 		Queries:               queries,

@@ -1,0 +1,2 @@
+ALTER TABLE scan_community_cache
+    ADD COLUMN IF NOT EXISTS ratings_average DOUBLE PRECISION NOT NULL DEFAULT 0;

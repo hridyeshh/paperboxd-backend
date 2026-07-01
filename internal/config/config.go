@@ -46,6 +46,8 @@ type Config struct {
 	AnthropicAPIKey string
 
 	BraveAPIKey string
+
+	HardcoverAPIToken string
 }
 
 func Load() (*Config, error) {
@@ -95,6 +97,8 @@ func Load() (*Config, error) {
 		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
+
+		HardcoverAPIToken: getEnv("HARDCOVER_API_TOKEN", ""),
 	}, nil
 }
 

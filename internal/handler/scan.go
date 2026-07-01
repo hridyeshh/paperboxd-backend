@@ -31,16 +31,18 @@ type ScanHandler struct {
 	Queries      *db.Queries
 	Config       *config.Config
 	ISBNdb       *external.ISBNdbClient
+	Hardcover    *external.HardcoverClient
 	Client       *http.Client
 	ClaudeClient *http.Client
 }
 
-func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient) *ScanHandler {
+func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient, hardcover *external.HardcoverClient) *ScanHandler {
 	return &ScanHandler{
 		Pool:         pool,
 		Queries:      queries,
 		Config:       cfg,
 		ISBNdb:       isbndb,
+		Hardcover:    hardcover,
 		Client:       &http.Client{Timeout: 10 * time.Second},
 		ClaudeClient: &http.Client{Timeout: 30 * time.Second},
 	}
@@ -195,26 +197,29 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		communitySummary string
 		readersCount     int
 		ratingsCount     int
+		ratingAvg        float64
 	)
 
 	var (
 		cachedSummary string
 		cachedReaders int
 		cachedRatings int
+		cachedRating  float64
 	)
-	// A row with 0 readers AND 0 ratings means Open Library was unreachable (or hadn't
-	// been wired up yet) when it was cached — treat that as a miss so we refetch rather
-	// than serving a poisoned zero for the full 24h TTL.
+	// A row with 0 readers AND 0 ratings means the rating source was unreachable (or
+	// hadn't been wired up yet) when it was cached — treat that as a miss so we refetch
+	// rather than serving a poisoned zero for the full 24h TTL.
 	cacheErr := h.Pool.QueryRow(r.Context(),
-		"SELECT community_summary, readers_count, ratings_count FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours' AND (readers_count > 0 OR ratings_count > 0)",
+		"SELECT community_summary, readers_count, ratings_count, ratings_average FROM scan_community_cache WHERE isbn = $1 AND cached_at > NOW() - INTERVAL '24 hours' AND (readers_count > 0 OR ratings_count > 0)",
 		isbn13,
-	).Scan(&cachedSummary, &cachedReaders, &cachedRatings)
+	).Scan(&cachedSummary, &cachedReaders, &cachedRatings, &cachedRating)
 
 	if cacheErr == nil {
 		slog.Info("scan cache HIT", "isbn", isbn13)
 		communitySummary = cachedSummary
 		readersCount = cachedReaders
 		ratingsCount = cachedRatings
+		ratingAvg = cachedRating
 	} else {
 		slog.Info("scan cache MISS", "isbn", isbn13)
 
@@ -230,12 +235,12 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			amazonSignal    string
 		)
 
-		// 3 Brave sentiment queries + 1 Open Library reader-stats lookup, in parallel.
+		// 3 Brave sentiment queries + 1 Hardcover community-stats lookup, in parallel.
 		wg.Add(4)
 
 		go func() {
 			defer wg.Done()
-			readersCount, ratingsCount = h.fetchOpenLibraryCounts(r.Context(), isbn13)
+			readersCount, ratingsCount, ratingAvg = h.fetchHardcoverCounts(r.Context(), isbn13)
 		}()
 
 		go func() {
@@ -295,14 +300,15 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, writeErr := h.Pool.Exec(r.Context(),
-			`INSERT INTO scan_community_cache (isbn, community_summary, readers_count, ratings_count, cached_at)
-			 VALUES ($1, $2, $3, $4, NOW())
+			`INSERT INTO scan_community_cache (isbn, community_summary, readers_count, ratings_count, ratings_average, cached_at)
+			 VALUES ($1, $2, $3, $4, $5, NOW())
 			 ON CONFLICT (isbn) DO UPDATE
 			 SET community_summary = EXCLUDED.community_summary,
 			     readers_count = EXCLUDED.readers_count,
 			     ratings_count = EXCLUDED.ratings_count,
+			     ratings_average = EXCLUDED.ratings_average,
 			     cached_at = NOW()`,
-			isbn13, communitySummary, readersCount, ratingsCount,
+			isbn13, communitySummary, readersCount, ratingsCount, ratingAvg,
 		)
 		if writeErr != nil {
 			slog.Error("scan cache write failed", "error", writeErr, "isbn", isbn13)
@@ -374,6 +380,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		"sources": map[string]any{
 			"readers": readersCount,
 			"ratings": ratingsCount,
+			"rating":  ratingAvg,
 			"shelf":   profile.TotalBooksRead,
 			"friends": len(profile.FollowedUsersWithBook),
 		},
@@ -823,6 +830,24 @@ func (h *ScanHandler) buildUserReadingProfile(ctx context.Context, userID uuid.U
 	}
 
 	return p, nil
+}
+
+// fetchHardcoverCounts returns community numbers from Hardcover (a Goodreads-style
+// source with bigger, more populated stats than Open Library): readers (users who
+// have the book on a shelf), ratings (number of ratings), and rating (0–5 average).
+// Falls back to Open Library reader/rating counts (rating avg 0) when Hardcover is
+// unconfigured, errors, or doesn't have the book. Returns (0, 0, 0) if all fail.
+func (h *ScanHandler) fetchHardcoverCounts(ctx context.Context, isbn string) (readers, ratings int, rating float64) {
+	if h.Hardcover != nil {
+		stats, err := h.Hardcover.GetStatsByISBN13(ctx, isbn)
+		if err != nil {
+			slog.Warn("hardcover lookup failed, falling back to open library", "error", err, "isbn", isbn)
+		} else if stats != nil && (stats.UsersCount > 0 || stats.RatingsCount > 0) {
+			return stats.UsersCount, stats.RatingsCount, stats.Rating
+		}
+	}
+	r, rt := h.fetchOpenLibraryCounts(ctx, isbn)
+	return r, rt, 0
 }
 
 // fetchOpenLibraryCounts looks the book up on Open Library by ISBN and returns two
