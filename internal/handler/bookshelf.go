@@ -1018,11 +1018,20 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 	//   0 pages       → leave status as-is (user may have explicitly set it)
 	//   1…(n-1) pages → "to-read" (shows in DNF section on profile)
 	//   n pages       → "read"   (finished)
+	var totalPages *int
+	var percent *float64
 	if req.CurrentPage != nil {
 		cp := *req.CurrentPage
 		var newStatus string
 		book, bookErr := h.Queries.GetBookByID(r.Context(), bookID)
 		if bookErr == nil && book.PageCount.Valid && book.PageCount.Int32 > 0 {
+			tp := int(book.PageCount.Int32)
+			totalPages = &tp
+			p := float64(cp) / float64(tp) * 100.0
+			if p > 100 {
+				p = 100
+			}
+			percent = &p
 			if cp >= book.PageCount.Int32 {
 				newStatus = "read"
 			} else if cp > 0 {
@@ -1073,7 +1082,17 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		})
 	}()
 
-	types.WriteJSON(w, http.StatusOK, entry)
+	var currentPage *int
+	if entry.CurrentPage.Valid {
+		cp := int(entry.CurrentPage.Int32)
+		currentPage = &cp
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"current_page": currentPage,
+		"total_pages":  totalPages,
+		"percent":      percent,
+	})
 }
 
 // MarkAsStarted handles POST /api/v1/users/:username/bookshelf/:bookId/start
