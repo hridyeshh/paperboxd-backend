@@ -516,13 +516,14 @@ func (h *UserHandler) GetBookStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bookshelf entry (covers isRead and isTBR)
-	var isRead, isTBR bool
+	// Bookshelf entry (covers isRead, isTBR, and general shelf membership)
+	var isRead, isTBR, isOnShelf bool
 	entry, err := h.Queries.GetBookshelfEntry(r.Context(), db.GetBookshelfEntryParams{
 		UserID: userID,
 		BookID: bookID,
 	})
 	if err == nil {
+		isOnShelf = true
 		switch entry.Status {
 		case "read":
 			isRead = true
@@ -547,9 +548,10 @@ func (h *UserHandler) GetBookStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]bool{
-		"isRead":  isRead,
-		"isLiked": isLiked,
-		"isTBR":   isTBR,
+		"isRead":    isRead,
+		"isLiked":   isLiked,
+		"isTBR":     isTBR,
+		"isOnShelf": isOnShelf,
 	})
 }
 

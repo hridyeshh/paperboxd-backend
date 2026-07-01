@@ -77,6 +77,12 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	if following, err := h.Queries.CountFollowing(r.Context(), user.ID); err == nil {
 		resp.FollowingCount = int32(following)
 	}
+	// Live diary count — the cached `users.diary_entries_count` column only gets
+	// incremented on the CreateDiaryEntry path, so it drifts from other diary
+	// mutation paths (imports, backfills) and shows a stale number on profile.
+	if diaryCount, err := h.Queries.CountUserDiaryEntries(r.Context(), user.ID); err == nil {
+		resp.DiaryEntriesCount = int32(diaryCount)
+	}
 
 	// Attach is_following when an authenticated viewer requests another user's profile.
 	if viewerIDStr, ok := reqctx.GetUserID(r.Context()); ok {
