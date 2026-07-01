@@ -101,6 +101,17 @@ type scanBookMeta struct {
 // Flip to false to re-enable the paywall.
 const scanUnlimited = false
 
+// scanUnlimitedEmails always bypass the quota (gate + decrement), even when
+// scanUnlimited is false — internal testing accounts while the paywall is live.
+var scanUnlimitedEmails = map[string]bool{
+	"hridyesh2309@gmail.com": true,
+}
+
+// isScanUnlimited reports whether this request skips the quota entirely.
+func isScanUnlimited(email string) bool {
+	return scanUnlimited || scanUnlimitedEmails[strings.ToLower(strings.TrimSpace(email))]
+}
+
 // Analyze handles POST /api/v1/scan/analyze.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	debug := r.URL.Query().Get("debug") == "true"
@@ -130,17 +141,20 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var scansRemaining int32
+	var userEmail string
 	err = h.Pool.QueryRow(r.Context(),
-		"SELECT scan_uses_remaining FROM users WHERE id = $1",
+		"SELECT scan_uses_remaining, email FROM users WHERE id = $1",
 		userID,
-	).Scan(&scansRemaining)
+	).Scan(&scansRemaining, &userEmail)
 	if err != nil {
 		slog.Error("query scan_uses_remaining", "error", err, "user_id", userID)
 		types.WriteInternalError(w)
 		return
 	}
 
-	if scansRemaining == 0 && !scanUnlimited {
+	unlimited := isScanUnlimited(userEmail)
+
+	if scansRemaining == 0 && !unlimited {
 		types.WriteJSON(w, http.StatusForbidden, map[string]any{
 			"error":           "scans_exhausted",
 			"scans_remaining": 0,
@@ -347,8 +361,8 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	// ── Decrement quota (only after successful score) ─────────────────────────
 
 	var newRemaining int32
-	if scanUnlimited {
-		// Testing: don't consume quota.
+	if unlimited {
+		// Testing / allowlisted account: don't consume quota.
 		newRemaining = scansRemaining
 	} else {
 		decrementErr := h.Pool.QueryRow(r.Context(),
