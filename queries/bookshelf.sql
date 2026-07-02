@@ -23,6 +23,19 @@ WHERE bs.user_id = $1 AND bs.status = $2
 ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
 LIMIT $3 OFFSET $4;
 
+-- name: GetUserShelf :many
+-- Every shelved book that isn't just a TBR marker — 'read' and 'reading'
+-- together, so freshly added books show on the profile bookshelf immediately.
+SELECT b.*, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
+FROM bookshelf bs
+JOIN books b ON bs.book_id = b.id
+WHERE bs.user_id = $1 AND bs.status != 'to-read'
+ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountUserShelf :one
+SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status != 'to-read';
+
 -- name: GetBookshelfEntry :one
 SELECT * FROM bookshelf WHERE user_id = $1 AND book_id = $2;
 

@@ -398,8 +398,10 @@ func (h *UserHandler) GetBookshelf(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "read"
 	}
-	if !validStatuses[status] {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "status must be 'read', 'reading', or 'to-read'")
+	// "shelf" is the combined view — 'read' + 'reading' — used by the profile
+	// bookshelf tab so freshly added books appear immediately.
+	if status != "shelf" && !validStatuses[status] {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "status must be 'read', 'reading', 'to-read', or 'shelf'")
 		return
 	}
 
@@ -407,26 +409,51 @@ func (h *UserHandler) GetBookshelf(w http.ResponseWriter, r *http.Request) {
 	offset := int32((page - 1) * pageSize)
 	limit := int32(pageSize)
 
-	rows, err := h.Queries.GetUserBookshelf(r.Context(), db.GetUserBookshelfParams{
-		UserID: target.ID,
-		Status: status,
-		Limit:  limit,
-		Offset: offset,
-	})
-	if err != nil {
-		slog.Error("get user bookshelf", "error", err)
-		types.WriteInternalError(w)
-		return
-	}
-
-	total, err := h.Queries.CountUserBooks(r.Context(), db.CountUserBooksParams{
-		UserID: target.ID,
-		Status: status,
-	})
-	if err != nil {
-		slog.Error("count user books", "error", err)
-		types.WriteInternalError(w)
-		return
+	var rows []db.GetUserBookshelfRow
+	var total int64
+	if status == "shelf" {
+		shelfRows, err := h.Queries.GetUserShelf(r.Context(), db.GetUserShelfParams{
+			UserID: target.ID,
+			Limit:  limit,
+			Offset: offset,
+		})
+		if err != nil {
+			slog.Error("get user shelf", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		rows = make([]db.GetUserBookshelfRow, len(shelfRows))
+		for i, row := range shelfRows {
+			rows[i] = db.GetUserBookshelfRow(row)
+		}
+		total, err = h.Queries.CountUserShelf(r.Context(), target.ID)
+		if err != nil {
+			slog.Error("count user shelf", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+	} else {
+		var err error
+		rows, err = h.Queries.GetUserBookshelf(r.Context(), db.GetUserBookshelfParams{
+			UserID: target.ID,
+			Status: status,
+			Limit:  limit,
+			Offset: offset,
+		})
+		if err != nil {
+			slog.Error("get user bookshelf", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		total, err = h.Queries.CountUserBooks(r.Context(), db.CountUserBooksParams{
+			UserID: target.ID,
+			Status: status,
+		})
+		if err != nil {
+			slog.Error("count user books", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
 	}
 
 	books := make([]types.BookWithStatus, len(rows))

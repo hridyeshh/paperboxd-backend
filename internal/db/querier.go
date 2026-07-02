@@ -47,6 +47,7 @@ type Querier interface {
 	CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserLists(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountUserShelf(ctx context.Context, userID uuid.UUID) (int64, error)
 	CreateActivity(ctx context.Context, arg CreateActivityParams) (Activity, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
@@ -136,6 +137,9 @@ type Querier interface {
 	GetUserReferralCode(ctx context.Context, id uuid.UUID) (GetUserReferralCodeRow, error)
 	GetUserReferrals(ctx context.Context, arg GetUserReferralsParams) ([]GetUserReferralsRow, error)
 	GetUserSavedLists(ctx context.Context, arg GetUserSavedListsParams) ([]GetUserSavedListsRow, error)
+	// Every shelved book that isn't just a TBR marker — 'read' and 'reading'
+	// together, so freshly added books show on the profile bookshelf immediately.
+	GetUserShelf(ctx context.Context, arg GetUserShelfParams) ([]GetUserShelfRow, error)
 	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
 	GetUserXP(ctx context.Context, id uuid.UUID) (GetUserXPRow, error)
 	GetUserXPHistory(ctx context.Context, arg GetUserXPHistoryParams) ([]GetUserXPHistoryRow, error)
