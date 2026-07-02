@@ -83,6 +83,13 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	if diaryCount, err := h.Queries.CountUserDiaryEntries(r.Context(), user.ID); err == nil {
 		resp.DiaryEntriesCount = int32(diaryCount)
 	}
+	// Live books-read + pages-read — the cached `users.books_read_count` and
+	// `total_pages_read` columns drift (imports/backfills don't touch them), so
+	// the profile summary was showing stale counts and 0 pages.
+	if stats, err := h.Queries.GetUserReadStats(r.Context(), user.ID); err == nil {
+		resp.BooksReadCount = stats.BooksRead
+		resp.TotalPagesRead = stats.PagesRead
+	}
 
 	// Attach is_following when an authenticated viewer requests another user's profile.
 	if viewerIDStr, ok := reqctx.GetUserID(r.Context()); ok {

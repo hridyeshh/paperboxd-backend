@@ -20,21 +20,20 @@ SELECT b.*, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = $2
-ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
+-- Most-recently-touched first: a freshly added/updated book (updated_at = NOW())
+-- always lands at the top of its tab.
+ORDER BY bs.updated_at DESC NULLS LAST, bs.created_at DESC
 LIMIT $3 OFFSET $4;
 
--- name: GetUserShelf :many
--- Every shelved book that isn't just a TBR marker — 'read' and 'reading'
--- together, so freshly added books show on the profile bookshelf immediately.
-SELECT b.*, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
+-- name: GetUserReadStats :one
+-- Live books-read count and total pages read, computed from the shelf so the
+-- profile never shows the stale cached `users.books_read_count` / `total_pages_read`.
+SELECT
+    COUNT(*)::INT AS books_read,
+    COALESCE(SUM(b.page_count) FILTER (WHERE b.page_count IS NOT NULL), 0)::INT AS pages_read
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
-WHERE bs.user_id = $1 AND bs.status != 'to-read'
-ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
-LIMIT $2 OFFSET $3;
-
--- name: CountUserShelf :one
-SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status != 'to-read';
+WHERE bs.user_id = $1 AND bs.status = 'read';
 
 -- name: GetBookshelfEntry :one
 SELECT * FROM bookshelf WHERE user_id = $1 AND book_id = $2;
@@ -148,7 +147,8 @@ SELECT
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = 'to-read'
-ORDER BY bs.tbr_added_at DESC NULLS LAST, bs.created_at DESC;
+-- Most-recently-touched first so a book just marked to-read lands on top.
+ORDER BY bs.updated_at DESC NULLS LAST, bs.created_at DESC;
 
 -- name: GetUserDNF :many
 SELECT

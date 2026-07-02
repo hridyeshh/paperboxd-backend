@@ -109,17 +109,6 @@ func (q *Queries) CountUserBooks(ctx context.Context, arg CountUserBooksParams) 
 	return count, err
 }
 
-const countUserShelf = `-- name: CountUserShelf :one
-SELECT COUNT(*) FROM bookshelf WHERE user_id = $1 AND status != 'to-read'
-`
-
-func (q *Queries) CountUserShelf(ctx context.Context, userID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countUserShelf, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const getBookReviews = `-- name: GetBookReviews :many
 SELECT
     bs.user_id,
@@ -562,7 +551,7 @@ SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadat
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = $2
-ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
+ORDER BY bs.updated_at DESC NULLS LAST, bs.created_at DESC
 LIMIT $3 OFFSET $4
 `
 
@@ -610,6 +599,8 @@ type GetUserBookshelfRow struct {
 	AddedAt           pgtype.Timestamptz `json:"added_at"`
 }
 
+// Most-recently-touched first: a freshly added/updated book (updated_at = NOW())
+// always lands at the top of its tab.
 func (q *Queries) GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error) {
 	rows, err := q.db.Query(ctx, getUserBookshelf,
 		arg.UserID,
@@ -783,113 +774,27 @@ func (q *Queries) GetUserDNF(ctx context.Context, userID uuid.UUID) ([]GetUserDN
 	return items, nil
 }
 
-const getUserShelf = `-- name: GetUserShelf :many
-SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, bs.status, bs.rating, bs.finished_at, bs.created_at as added_at
+const getUserReadStats = `-- name: GetUserReadStats :one
+SELECT
+    COUNT(*)::INT AS books_read,
+    COALESCE(SUM(b.page_count) FILTER (WHERE b.page_count IS NOT NULL), 0)::INT AS pages_read
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
-WHERE bs.user_id = $1 AND bs.status != 'to-read'
-ORDER BY bs.finished_at DESC NULLS LAST, bs.created_at DESC
-LIMIT $2 OFFSET $3
+WHERE bs.user_id = $1 AND bs.status = 'read'
 `
 
-type GetUserShelfParams struct {
-	UserID uuid.UUID `json:"user_id"`
-	Limit  int32     `json:"limit"`
-	Offset int32     `json:"offset"`
+type GetUserReadStatsRow struct {
+	BooksRead int32 `json:"books_read"`
+	PagesRead int32 `json:"pages_read"`
 }
 
-type GetUserShelfRow struct {
-	ID                uuid.UUID          `json:"id"`
-	Title             string             `json:"title"`
-	Slug              string             `json:"slug"`
-	Authors           []string           `json:"authors"`
-	Isbn13            pgtype.Text        `json:"isbn_13"`
-	GoogleBooksID     pgtype.Text        `json:"google_books_id"`
-	Metadata          []byte             `json:"metadata"`
-	ViewCount         pgtype.Int4        `json:"view_count"`
-	LikeCount         pgtype.Int4        `json:"like_count"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	Description       pgtype.Text        `json:"description"`
-	PublishedDate     pgtype.Date        `json:"published_date"`
-	PageCount         pgtype.Int4        `json:"page_count"`
-	Language          pgtype.Text        `json:"language"`
-	CoverUrl          pgtype.Text        `json:"cover_url"`
-	Categories        []string           `json:"categories"`
-	Subtitle          pgtype.Text        `json:"subtitle"`
-	Publisher         pgtype.Text        `json:"publisher"`
-	IsbndbID          pgtype.Text        `json:"isbndb_id"`
-	OpenLibraryID     pgtype.Text        `json:"open_library_id"`
-	AverageRating     pgtype.Float8      `json:"average_rating"`
-	RatingsCount      pgtype.Int4        `json:"ratings_count"`
-	PreviewLink       pgtype.Text        `json:"preview_link"`
-	TotalReadsCount   pgtype.Int4        `json:"total_reads_count"`
-	TotalTbrCount     pgtype.Int4        `json:"total_tbr_count"`
-	Embedding         pgvector.Vector    `json:"embedding"`
-	EmbeddingText     pgtype.Text        `json:"embedding_text"`
-	DescriptionSource pgtype.Text        `json:"description_source"`
-	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
-	Status            string             `json:"status"`
-	Rating            pgtype.Int4        `json:"rating"`
-	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
-	AddedAt           pgtype.Timestamptz `json:"added_at"`
-}
-
-// Every shelved book that isn't just a TBR marker — 'read' and 'reading'
-// together, so freshly added books show on the profile bookshelf immediately.
-func (q *Queries) GetUserShelf(ctx context.Context, arg GetUserShelfParams) ([]GetUserShelfRow, error) {
-	rows, err := q.db.Query(ctx, getUserShelf, arg.UserID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetUserShelfRow{}
-	for rows.Next() {
-		var i GetUserShelfRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Slug,
-			&i.Authors,
-			&i.Isbn13,
-			&i.GoogleBooksID,
-			&i.Metadata,
-			&i.ViewCount,
-			&i.LikeCount,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Description,
-			&i.PublishedDate,
-			&i.PageCount,
-			&i.Language,
-			&i.CoverUrl,
-			&i.Categories,
-			&i.Subtitle,
-			&i.Publisher,
-			&i.IsbndbID,
-			&i.OpenLibraryID,
-			&i.AverageRating,
-			&i.RatingsCount,
-			&i.PreviewLink,
-			&i.TotalReadsCount,
-			&i.TotalTbrCount,
-			&i.Embedding,
-			&i.EmbeddingText,
-			&i.DescriptionSource,
-			&i.LastAccessedAt,
-			&i.Status,
-			&i.Rating,
-			&i.FinishedAt,
-			&i.AddedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// Live books-read count and total pages read, computed from the shelf so the
+// profile never shows the stale cached `users.books_read_count` / `total_pages_read`.
+func (q *Queries) GetUserReadStats(ctx context.Context, userID uuid.UUID) (GetUserReadStatsRow, error) {
+	row := q.db.QueryRow(ctx, getUserReadStats, userID)
+	var i GetUserReadStatsRow
+	err := row.Scan(&i.BooksRead, &i.PagesRead)
+	return i, err
 }
 
 const getUserTBR = `-- name: GetUserTBR :many
@@ -923,7 +828,7 @@ SELECT
 FROM bookshelf bs
 JOIN books b ON bs.book_id = b.id
 WHERE bs.user_id = $1 AND bs.status = 'to-read'
-ORDER BY bs.tbr_added_at DESC NULLS LAST, bs.created_at DESC
+ORDER BY bs.updated_at DESC NULLS LAST, bs.created_at DESC
 `
 
 type GetUserTBRRow struct {
@@ -955,6 +860,7 @@ type GetUserTBRRow struct {
 	RatingsCount  pgtype.Int4        `json:"ratings_count"`
 }
 
+// Most-recently-touched first so a book just marked to-read lands on top.
 func (q *Queries) GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error) {
 	rows, err := q.db.Query(ctx, getUserTBR, userID)
 	if err != nil {

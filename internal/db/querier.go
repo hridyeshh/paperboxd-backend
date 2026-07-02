@@ -47,7 +47,6 @@ type Querier interface {
 	CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserLists(ctx context.Context, userID uuid.UUID) (int64, error)
-	CountUserShelf(ctx context.Context, userID uuid.UUID) (int64, error)
 	CreateActivity(ctx context.Context, arg CreateActivityParams) (Activity, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
@@ -120,6 +119,8 @@ type Querier interface {
 	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserAuthors(ctx context.Context, userID uuid.UUID) ([]GetUserAuthorsRow, error)
+	// Most-recently-touched first: a freshly added/updated book (updated_at = NOW())
+	// always lands at the top of its tab.
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
@@ -134,12 +135,13 @@ type Querier interface {
 	GetUserLeaderboardStats(ctx context.Context, userID uuid.UUID) (LeaderboardStat, error)
 	GetUserLikes(ctx context.Context, arg GetUserLikesParams) ([]GetUserLikesRow, error)
 	GetUserLists(ctx context.Context, arg GetUserListsParams) ([]GetUserListsRow, error)
+	// Live books-read count and total pages read, computed from the shelf so the
+	// profile never shows the stale cached `users.books_read_count` / `total_pages_read`.
+	GetUserReadStats(ctx context.Context, userID uuid.UUID) (GetUserReadStatsRow, error)
 	GetUserReferralCode(ctx context.Context, id uuid.UUID) (GetUserReferralCodeRow, error)
 	GetUserReferrals(ctx context.Context, arg GetUserReferralsParams) ([]GetUserReferralsRow, error)
 	GetUserSavedLists(ctx context.Context, arg GetUserSavedListsParams) ([]GetUserSavedListsRow, error)
-	// Every shelved book that isn't just a TBR marker — 'read' and 'reading'
-	// together, so freshly added books show on the profile bookshelf immediately.
-	GetUserShelf(ctx context.Context, arg GetUserShelfParams) ([]GetUserShelfRow, error)
+	// Most-recently-touched first so a book just marked to-read lands on top.
 	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
 	GetUserXP(ctx context.Context, id uuid.UUID) (GetUserXPRow, error)
 	GetUserXPHistory(ctx context.Context, arg GetUserXPHistoryParams) ([]GetUserXPHistoryRow, error)
