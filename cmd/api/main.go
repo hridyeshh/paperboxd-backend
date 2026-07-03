@@ -423,6 +423,7 @@ func main() {
 				r.Get("/reading", userHandler.GetCurrentlyReading)
 				r.Get("/reading/today", userHandler.GetTodayProgress)
 				r.Get("/reading/last", userHandler.GetLastLoggedBook)
+				r.Get("/reading/activity", userHandler.GetReadingActivity)
 				r.Get("/streak", userHandler.GetStreak)
 				r.Get("/favorites", favoritesHandler.GetUserFavorites)
 

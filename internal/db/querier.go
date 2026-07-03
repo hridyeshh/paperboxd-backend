@@ -112,6 +112,10 @@ type Querier interface {
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
 	GetRandomBooks(ctx context.Context, limit int32) ([]Book, error)
+	// Per-day page totals across an inclusive date range, for the GitHub-style
+	// reading heatmap. Only days with at least one logged entry are returned; the
+	// handler fills the gaps with zeros.
+	GetReadingActivityRange(ctx context.Context, arg GetReadingActivityRangeParams) ([]GetReadingActivityRangeRow, error)
 	// Reading progress snapshot for a book on a single user's shelf.
 	GetReadingProgress(ctx context.Context, arg GetReadingProgressParams) (GetReadingProgressRow, error)
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)

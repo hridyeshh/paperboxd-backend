@@ -78,3 +78,18 @@ WHERE user_id  = $1
   AND (logged_at AT TIME ZONE 'UTC')::DATE >= (NOW() AT TIME ZONE 'UTC')::DATE - INTERVAL '6 days'
 GROUP BY (logged_at AT TIME ZONE 'UTC')::DATE
 ORDER BY log_date;
+
+-- name: GetReadingActivityRange :many
+-- Per-day page totals across an inclusive date range, for the GitHub-style
+-- reading heatmap. Only days with at least one logged entry are returned; the
+-- handler fills the gaps with zeros.
+SELECT
+    (logged_at AT TIME ZONE 'UTC')::DATE AS log_date,
+    COALESCE(SUM(pages_delta), 0)::INT   AS pages,
+    COUNT(DISTINCT book_id)::INT         AS books
+FROM reading_log
+WHERE user_id  = $1
+  AND (logged_at AT TIME ZONE 'UTC')::DATE >= sqlc.arg(start_date)::DATE
+  AND (logged_at AT TIME ZONE 'UTC')::DATE <= sqlc.arg(end_date)::DATE
+GROUP BY (logged_at AT TIME ZONE 'UTC')::DATE
+ORDER BY log_date;

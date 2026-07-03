@@ -4,11 +4,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
@@ -192,4 +194,122 @@ func (h *UserHandler) GetStreak(w http.ResponseWriter, r *http.Request) {
 	}
 
 	types.WriteJSON(w, http.StatusOK, StreakResponse{Streak: int(streak)})
+}
+
+// ActivityDay is one calendar day of the reading heatmap.
+type ActivityDay struct {
+	Date  string `json:"date"` // YYYY-MM-DD (UTC)
+	Pages int    `json:"pages"`
+	Books int    `json:"books"`
+}
+
+// ReadingActivityResponse is returned from
+// GET /api/v1/users/:username/reading/activity. It is the GitHub-contributions
+// equivalent for reading: one entry per UTC calendar day of the requested year,
+// gaps filled with zeros, plus roll-up stats for the header/legend.
+type ReadingActivityResponse struct {
+	Year          int           `json:"year"`
+	Start         string        `json:"start"`
+	End           string        `json:"end"`
+	Days          []ActivityDay `json:"days"`
+	TotalPages    int           `json:"total_pages"`
+	DaysRead      int           `json:"days_read"`
+	BestDay       int           `json:"best_day"`
+	LongestStreak int           `json:"longest_streak"`
+	CurrentStreak int           `json:"current_streak"`
+}
+
+// GetReadingActivity handles GET /api/v1/users/:username/reading/activity?year=YYYY.
+// It returns a dense day-by-day page log for the given year (default: current
+// UTC year), capped at today for the ongoing year, so the client can render a
+// fixed-shape heatmap without re-deriving the calendar. Works for any user.
+func (h *UserHandler) GetReadingActivity(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for reading activity", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	nowUTC := time.Now().UTC()
+	year := nowUTC.Year()
+	if q := strings.TrimSpace(r.URL.Query().Get("year")); q != "" {
+		parsed, perr := strconv.Atoi(q)
+		if perr != nil || parsed < 2000 || parsed > nowUTC.Year() {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid year")
+			return
+		}
+		year = parsed
+	}
+
+	start := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(year, time.December, 31, 0, 0, 0, 0, time.UTC)
+	today := time.Date(nowUTC.Year(), nowUTC.Month(), nowUTC.Day(), 0, 0, 0, 0, time.UTC)
+	if end.After(today) {
+		end = today // don't emit future days for the current year
+	}
+
+	rows, err := h.Queries.GetReadingActivityRange(r.Context(), db.GetReadingActivityRangeParams{
+		UserID:    target.ID,
+		StartDate: pgtype.Date{Time: start, Valid: true},
+		EndDate:   pgtype.Date{Time: end, Valid: true},
+	})
+	if err != nil {
+		slog.Error("get reading activity range", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	pagesByDay := make(map[string]int, len(rows))
+	booksByDay := make(map[string]int, len(rows))
+	for _, row := range rows {
+		key := row.LogDate.Time.Format("2006-01-02")
+		pagesByDay[key] = int(row.Pages)
+		booksByDay[key] = int(row.Books)
+	}
+
+	const dayFmt = "2006-01-02"
+	var (
+		days                                     []ActivityDay
+		totalPages, daysRead, bestDay            int
+		longestStreak, currentStreak, runningRun int
+	)
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		key := d.Format(dayFmt)
+		p := pagesByDay[key]
+		days = append(days, ActivityDay{Date: key, Pages: p, Books: booksByDay[key]})
+
+		totalPages += p
+		if p > 0 {
+			daysRead++
+			if p > bestDay {
+				bestDay = p
+			}
+			runningRun++
+			if runningRun > longestStreak {
+				longestStreak = runningRun
+			}
+			currentStreak = runningRun // ends as the tail run (through `end`)
+		} else {
+			runningRun = 0
+			currentStreak = 0
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, ReadingActivityResponse{
+		Year:          year,
+		Start:         start.Format(dayFmt),
+		End:           end.Format(dayFmt),
+		Days:          days,
+		TotalPages:    totalPages,
+		DaysRead:      daysRead,
+		BestDay:       bestDay,
+		LongestStreak: longestStreak,
+		CurrentStreak: currentStreak,
+	})
 }

@@ -134,6 +134,54 @@ func (q *Queries) GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) 
 	return i, err
 }
 
+const getReadingActivityRange = `-- name: GetReadingActivityRange :many
+SELECT
+    (logged_at AT TIME ZONE 'UTC')::DATE AS log_date,
+    COALESCE(SUM(pages_delta), 0)::INT   AS pages,
+    COUNT(DISTINCT book_id)::INT         AS books
+FROM reading_log
+WHERE user_id  = $1
+  AND (logged_at AT TIME ZONE 'UTC')::DATE >= $2::DATE
+  AND (logged_at AT TIME ZONE 'UTC')::DATE <= $3::DATE
+GROUP BY (logged_at AT TIME ZONE 'UTC')::DATE
+ORDER BY log_date
+`
+
+type GetReadingActivityRangeParams struct {
+	UserID    uuid.UUID   `json:"user_id"`
+	StartDate pgtype.Date `json:"start_date"`
+	EndDate   pgtype.Date `json:"end_date"`
+}
+
+type GetReadingActivityRangeRow struct {
+	LogDate pgtype.Date `json:"log_date"`
+	Pages   int32       `json:"pages"`
+	Books   int32       `json:"books"`
+}
+
+// Per-day page totals across an inclusive date range, for the GitHub-style
+// reading heatmap. Only days with at least one logged entry are returned; the
+// handler fills the gaps with zeros.
+func (q *Queries) GetReadingActivityRange(ctx context.Context, arg GetReadingActivityRangeParams) ([]GetReadingActivityRangeRow, error) {
+	rows, err := q.db.Query(ctx, getReadingActivityRange, arg.UserID, arg.StartDate, arg.EndDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetReadingActivityRangeRow{}
+	for rows.Next() {
+		var i GetReadingActivityRangeRow
+		if err := rows.Scan(&i.LogDate, &i.Pages, &i.Books); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTodayReadingStats = `-- name: GetTodayReadingStats :one
 SELECT
     COALESCE(SUM(pages_delta), 0)::INT AS total_pages,
