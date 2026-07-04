@@ -56,7 +56,7 @@ SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, 
 FROM leaderboard_stats ls
 INNER JOIN follows f ON ls.user_id = f.following_id
 WHERE f.follower_id = $1
-  AND ls.total_xp > 0
+  AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.diary_entries > 0)
 ORDER BY ls.total_xp DESC, ls.books_read DESC
 LIMIT $2
 `
