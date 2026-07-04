@@ -187,8 +187,8 @@ func (h *LeaderboardHandler) GetFriendsLeaderboard(w http.ResponseWriter, r *htt
 
 	limit := parseLimit(r, 50, 100)
 	stats, err := h.Queries.GetFriendsLeaderboard(r.Context(), db.GetFriendsLeaderboardParams{
-		FollowerID: userID,
-		Limit:      limit,
+		UserID: userID,
+		Limit:  limit,
 	})
 	if err != nil {
 		slog.Error("get friends leaderboard", "error", err)

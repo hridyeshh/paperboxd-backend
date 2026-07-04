@@ -15,7 +15,9 @@ import (
 const checkNewActivities = `-- name: CheckNewActivities :one
 SELECT EXISTS(
     SELECT 1 FROM activities a
-    WHERE (
+    JOIN users u ON a.user_id = u.id
+    WHERE u.deleted_at IS NULL
+    AND (
         a.user_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
         OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry')
             AND a.target_user_id = $1)
@@ -139,11 +141,14 @@ LEFT JOIN books b ON a.book_id = b.id
 LEFT JOIN lists l ON a.list_id = l.id
 LEFT JOIN diary_entries de ON a.entry_id = de.id
 LEFT JOIN users tu ON a.target_user_id = tu.id
-WHERE a.user_id IN (
-    SELECT following_id FROM follows WHERE follower_id = $1
-)
-   OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry')
-       AND a.target_user_id = $1)
+WHERE u.deleted_at IS NULL
+  AND (
+    a.user_id IN (
+        SELECT following_id FROM follows WHERE follower_id = $1
+    )
+    OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry')
+        AND a.target_user_id = $1)
+  )
 ORDER BY a.created_at DESC
 LIMIT $2 OFFSET $3
 `

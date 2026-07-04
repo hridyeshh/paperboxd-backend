@@ -91,6 +91,7 @@ type Querier interface {
 	// ============================================================================
 	// LEADERBOARD QUERIES
 	// ============================================================================
+	// Includes the caller and everyone they follow, ranked together.
 	GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeaderboardParams) ([]LeaderboardStat, error)
 	// Friends (people the viewer follows) who have this book on their shelf
 	// with status 'reading' or 'to-read', prioritised by active readers first.

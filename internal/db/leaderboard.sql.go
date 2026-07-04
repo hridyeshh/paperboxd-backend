@@ -54,23 +54,26 @@ const getFriendsLeaderboard = `-- name: GetFriendsLeaderboard :many
 
 SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.diary_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
 FROM leaderboard_stats ls
-INNER JOIN follows f ON ls.user_id = f.following_id
-WHERE f.follower_id = $1
+WHERE (
+    ls.user_id = $1
+    OR ls.user_id IN (SELECT f.following_id FROM follows f WHERE f.follower_id = $1)
+  )
   AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.diary_entries > 0)
 ORDER BY ls.total_xp DESC, ls.books_read DESC
 LIMIT $2
 `
 
 type GetFriendsLeaderboardParams struct {
-	FollowerID uuid.UUID `json:"follower_id"`
-	Limit      int32     `json:"limit"`
+	UserID uuid.UUID `json:"user_id"`
+	Limit  int32     `json:"limit"`
 }
 
 // ============================================================================
 // LEADERBOARD QUERIES
 // ============================================================================
+// Includes the caller and everyone they follow, ranked together.
 func (q *Queries) GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeaderboardParams) ([]LeaderboardStat, error) {
-	rows, err := q.db.Query(ctx, getFriendsLeaderboard, arg.FollowerID, arg.Limit)
+	rows, err := q.db.Query(ctx, getFriendsLeaderboard, arg.UserID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
