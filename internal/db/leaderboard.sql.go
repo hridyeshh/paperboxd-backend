@@ -54,7 +54,7 @@ const getFriendsLeaderboard = `-- name: GetFriendsLeaderboard :many
 
 SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.diary_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
 FROM leaderboard_stats ls
-INNER JOIN follows f ON ls.user_id = f.followed_id
+INNER JOIN follows f ON ls.user_id = f.following_id
 WHERE f.follower_id = $1
   AND ls.total_xp > 0
 ORDER BY ls.total_xp DESC, ls.books_read DESC
