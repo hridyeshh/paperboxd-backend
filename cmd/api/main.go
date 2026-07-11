@@ -123,17 +123,24 @@ func main() {
 	}
 
 	redisOpts := &redis.Options{
-		Addr:     redisAddr,
-		Password: redisPassword,
+		Addr:         redisAddr,
+		Password:     redisPassword,
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  1 * time.Second,
+		WriteTimeout: 1 * time.Second,
 	}
 	redisClient := redis.NewClient(redisOpts)
 	defer redisClient.Close()
 
+	// Redis is a cache, not a hard dependency: every request-path cache site
+	// nil/error-checks and falls back to Postgres. A boot-time blip should
+	// degrade to DB-only, not take the whole API down. /health still reports
+	// 503-degraded so monitoring sees it.
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		slog.Error("ping redis", "error", err)
-		os.Exit(1)
+		slog.Warn("redis unreachable at boot, starting in degraded (DB-only) mode", "error", err)
+	} else {
+		slog.Info("connected to redis")
 	}
-	slog.Info("connected to redis")
 
 	// ── Queries ────────────────────────────────────────────────────────────────
 	queries := db.New(dbPool)

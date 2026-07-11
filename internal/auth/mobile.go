@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -340,7 +341,7 @@ func (m *MobileHandler) MobileGoogleAuth(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	claims, err := verifyGoogleIDToken(r.Context(), req.IDToken)
+	claims, err := m.verifyGoogleIDToken(r.Context(), req.IDToken)
 	if err != nil {
 		slog.Warn("mobile google auth: verify", "error", err)
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeInvalidToken, "Google id_token verification failed")
@@ -534,6 +535,10 @@ func (m *MobileHandler) MobileUpdateMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// googleTokenInfoURL is the Google tokeninfo endpoint. Overridable in tests so
+// the audience check can be exercised against a stub without a real OAuth flow.
+var googleTokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
+
 // googleClaims is the subset of fields we use from Google's tokeninfo response.
 type googleClaims struct {
 	Audience      string `json:"aud"`
@@ -544,14 +549,15 @@ type googleClaims struct {
 	Picture       string `json:"picture"`
 }
 
-// verifyGoogleIDToken calls Google's tokeninfo endpoint. A 200 response means
-// the id_token's signature, expiry, issuer, and audience were all validated
-// by Google's edge — we just enforce that an email is present and verified.
+// verifyGoogleIDToken calls Google's tokeninfo endpoint. A 200 response proves
+// the id_token's signature, expiry, and issuer — but NOT that it was minted for
+// us, so we enforce `aud` against cfg.AllowedGoogleAudiences below and require a
+// present, verified email.
 //
 // Note: tokeninfo returns email_verified as either bool or string ("true").
 // We unmarshal into a raw map to handle both.
-func verifyGoogleIDToken(ctx context.Context, idToken string) (*googleClaims, error) {
-	endpoint := "https://oauth2.googleapis.com/tokeninfo?" + url.Values{"id_token": {idToken}}.Encode()
+func (m *MobileHandler) verifyGoogleIDToken(ctx context.Context, idToken string) (*googleClaims, error) {
+	endpoint := googleTokenInfoURL + "?" + url.Values{"id_token": {idToken}}.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
@@ -594,5 +600,14 @@ func verifyGoogleIDToken(ctx context.Context, idToken string) (*googleClaims, er
 	case string:
 		out.EmailVerified = strings.EqualFold(v, "true")
 	}
+
+	// Enforce audience. tokeninfo proves the token is a real Google token, not
+	// that it was minted for us — without this, any valid Google id_token from
+	// any app authenticates. Match `aud` against the configured allowlist.
+	if !slices.Contains(m.cfg.AllowedGoogleAudiences, out.Audience) {
+		slog.Warn("google_oauth_audience_mismatch", "got", out.Audience)
+		return nil, fmt.Errorf("google token audience mismatch: got %q", out.Audience)
+	}
+
 	return out, nil
 }

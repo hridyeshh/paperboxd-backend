@@ -36,6 +36,13 @@ type Config struct {
 
 	InternalSecret string
 
+	// AllowedGoogleAudiences is the allowlist of Google OAuth client IDs that a
+	// mobile id_token's `aud` claim must match. Google's tokeninfo endpoint
+	// validates signature/expiry/issuer but NOT that the token was minted for
+	// us, so we enforce audience here. One entry per native client (iOS, then
+	// the Android Web-type serverClientId).
+	AllowedGoogleAudiences []string
+
 	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
 	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
 
@@ -86,6 +93,8 @@ func Load() (*Config, error) {
 			"http://localhost:3000,http://localhost:3001"),
 
 		InternalSecret: getEnv("INTERNAL_SECRET", ""),
+
+		AllowedGoogleAudiences: getEnvAsStringSlice("GOOGLE_OAUTH_ALLOWED_AUDIENCES", ""),
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),
