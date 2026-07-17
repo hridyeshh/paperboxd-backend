@@ -78,6 +78,9 @@ type Querier interface {
 	GetBookReviewsByFriends(ctx context.Context, arg GetBookReviewsByFriendsParams) ([]GetBookReviewsByFriendsRow, error)
 	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
+	// A streak day is a UTC day whose NET pages read is positive. Correcting a page
+	// count downward (an error fix, net <= 0 for the day) is not reading progress, so
+	// it neither starts nor extends a streak.
 	GetCurrentStreak(ctx context.Context, userID uuid.UUID) (int32, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
 	GetDiaryEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetDiaryEmbeddingsForUserRow, error)

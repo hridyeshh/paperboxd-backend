@@ -46,10 +46,15 @@ ORDER BY rl.logged_at DESC
 LIMIT 1;
 
 -- name: GetCurrentStreak :one
+-- A streak day is a UTC day whose NET pages read is positive. Correcting a page
+-- count downward (an error fix, net <= 0 for the day) is not reading progress, so
+-- it neither starts nor extends a streak.
 WITH days AS (
-    SELECT DISTINCT (logged_at AT TIME ZONE 'UTC')::DATE AS d
+    SELECT (logged_at AT TIME ZONE 'UTC')::DATE AS d
     FROM reading_log
     WHERE user_id = $1
+    GROUP BY 1
+    HAVING SUM(pages_delta) > 0
 ),
 grouped AS (
     SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d))::INT AS island

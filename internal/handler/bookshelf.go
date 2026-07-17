@@ -1053,10 +1053,12 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Log progress delta to reading_log for home-page stats.
+	// Log progress delta to reading_log for home-page + heatmap stats.
 	// Synchronous so insert failures surface in logs (was async goroutine that
 	// silently swallowed errors when the reading_log table wasn't migrated).
-	if req.CurrentPage != nil && *req.CurrentPage > oldPage {
+	// Log any non-zero delta, incl. negative: correcting a page count DOWN must
+	// subtract from the heatmap (which SUMs pages_delta), not leave it stale.
+	if req.CurrentPage != nil && *req.CurrentPage != oldPage {
 		delta := *req.CurrentPage - oldPage
 		if logErr := h.Queries.LogReadingProgress(r.Context(), db.LogReadingProgressParams{
 			UserID:     userID,
