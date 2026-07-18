@@ -27,7 +27,38 @@ func StartNightlyCron(pool *pgxpool.Pool, recSvc *service.RecommendationService)
 func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
 	slog.Info("nightly jobs: starting")
 	recomputeStaleProfiles(pool, recSvc)
+	purgeSoftDeletedUsers(pool)
 	slog.Info("nightly jobs: done")
+}
+
+// softDeleteRetention is how long a soft-deleted account survives before it is
+// permanently erased. Backs the privacy-policy commitment to hard-delete within
+// 30 days of an account-deletion request.
+const softDeleteRetention = 30 * 24 * time.Hour
+
+// purgeSoftDeletedUsers hard-deletes users whose deleted_at is older than the
+// retention window. Every user-owned table FKs users(id) ON DELETE CASCADE, so
+// this one DELETE removes bookshelf, diary, reviews, lists, events, tokens, and
+// signal profiles along with the row; the few referring columns (referred_by,
+// activity target_user_id) are ON DELETE SET NULL. The account_deletions audit
+// row is not FK-linked and is intentionally retained for retention analysis.
+func purgeSoftDeletedUsers(pool *pgxpool.Pool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// NULL deleted_at (live users) never matches `< cutoff`, so live accounts are
+	// never touched; the explicit IS NOT NULL keeps that guarantee obvious.
+	cutoff := time.Now().Add(-softDeleteRetention)
+	tag, err := pool.Exec(ctx, `
+		DELETE FROM users
+		WHERE deleted_at IS NOT NULL
+		  AND deleted_at < $1
+	`, cutoff)
+	if err != nil {
+		slog.Error("nightly: purge soft-deleted users", "error", err)
+		return
+	}
+	slog.Info("nightly: purged soft-deleted users", "count", tag.RowsAffected())
 }
 
 // recomputeStaleProfiles refreshes signal profiles for users whose profiles are
