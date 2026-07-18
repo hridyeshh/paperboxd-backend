@@ -193,7 +193,9 @@ WHERE ls.user_id = r.user_id;
 -- Includes the caller and everyone they follow, ranked together.
 SELECT ls.*
 FROM leaderboard_stats ls
-WHERE (
+INNER JOIN users u ON ls.user_id = u.id
+WHERE u.deleted_at IS NULL
+  AND (
     ls.user_id = $1
     OR ls.user_id IN (SELECT f.following_id FROM follows f WHERE f.follower_id = $1)
   )
@@ -206,6 +208,7 @@ SELECT ls.*
 FROM leaderboard_stats ls
 INNER JOIN users u ON ls.user_id = u.id
 WHERE u.show_on_leaderboard = true
+  AND u.deleted_at IS NULL
   AND ls.total_xp > 0
 ORDER BY ls.total_xp DESC, ls.books_read DESC
 LIMIT $1;
@@ -215,6 +218,7 @@ SELECT ls.*
 FROM leaderboard_stats ls
 INNER JOIN users u ON ls.user_id = u.id
 WHERE u.show_on_leaderboard = true
+  AND u.deleted_at IS NULL
 ORDER BY
   CASE $1::text
     WHEN 'books' THEN ls.books_read
