@@ -110,7 +110,7 @@ func main() {
 	slog.Info("connected to postgres")
 
 	embedder := service.NewCohereEmbedder(cohereKey)
-	svc := service.NewRecommendationService(pool, embedder, nil, nil)
+	svc := service.NewRecommendationService(pool, embedder, nil, nil, "")
 
 	var enricher *service.Enricher
 	if *enrich {

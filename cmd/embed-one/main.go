@@ -22,7 +22,7 @@ func main() {
 	defer pool.Close()
 
 	embedder := service.NewCohereEmbedder(os.Getenv("COHERE_API_KEY"))
-	svc := service.NewRecommendationService(pool, embedder, nil, nil)
+	svc := service.NewRecommendationService(pool, embedder, nil, nil, "")
 
 	var title, subtitle, description string
 	var authors, categories []string

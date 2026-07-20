@@ -57,8 +57,12 @@ type ReaderTaste struct {
 	LovedBooks []string // titles rated 4+, most recent first
 }
 
-// BookReasons is what one card renders: why, plus an honest caveat.
+// BookReasons is what one card renders: the match number, why, and an honest
+// caveat. Match comes from the model so the percentage and the sentence under
+// it make the same claim — raw cosine similarity routinely reads 45% next to
+// glowing copy.
 type BookReasons struct {
+	Match  int    `json:"match"`
 	Why    string `json:"why"`
 	Caveat string `json:"caveat"`
 }
@@ -124,6 +128,9 @@ func (r *ClaudeReasoner) Reasons(ctx context.Context, query string, books []Reas
 	if len(out) != len(books) {
 		return nil, fmt.Errorf("reason count %d != book count %d", len(out), len(books))
 	}
+	for i := range out {
+		out[i].Match = min(100, max(0, out[i].Match))
+	}
 	return out, nil
 }
 
@@ -180,16 +187,17 @@ func buildVibeReasonPrompt(query string, books []ReasonBook, taste ReaderTaste) 
 
 	b.WriteString(`
 For each book, in the same order, write:
-- "why": one sentence on why THIS reader would like it, tying the book to their request and (only if you were given it) their history. Concrete and specific — name the tone, the structure, the thing that matches. Never start with "This book".
+- "match": an integer 0-100, how well it answers this reader's request. Judge the book on the request itself, not on its position in the list above — the ranking is a rough vector search and is often wrong. Use the whole range: a book that genuinely nails the request is 90+, a loose thematic cousin is 50-65, a near-miss is under 40. Do not give two books the same number.
+- "why": one sentence on why THIS reader would like it, tying the book to their request and (only if you were given it) their history. Concrete and specific — name the tone, the structure, the thing that matches. Never start with "This book". It must justify the number you gave: a low match reads as a partial fit, not a rave.
 - "caveat": one short honest note — what might not land, or what to expect. Never empty, never a compliment in disguise.
 
 Rules:
-- Under 110 characters each.
+- "why" and "caveat" under 110 characters each.
 - No spoilers, no marketing voice, no exclamation marks.
 - Only claim things supported by the blurb, genres, or the reader's stated history.
 
 Return ONLY a JSON array, one object per book, in the original order:
-[{"why": "...", "caveat": "..."}]`)
+[{"match": 88, "why": "...", "caveat": "..."}]`)
 
 	return b.String()
 }

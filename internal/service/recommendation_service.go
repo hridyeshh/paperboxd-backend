@@ -139,9 +139,12 @@ type RecommendationService struct {
 	redisClient *redis.Client
 	flags       *FeatureFlags
 	eventSvc    *EventService
+	// reasoner writes the Ask Jazy match reasons. nil without an Anthropic key —
+	// vibe search then falls back to the templated ReasonEngine text.
+	reasoner *ClaudeReasoner
 }
 
-func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client, eventSvc *EventService) *RecommendationService {
+func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client, eventSvc *EventService, anthropicKey string) *RecommendationService {
 	return &RecommendationService{
 		pool:        pool,
 		queries:     db.New(pool),
@@ -149,6 +152,7 @@ func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient
 		redisClient: redisClient,
 		flags:       NewFeatureFlags(pool),
 		eventSvc:    eventSvc,
+		reasoner:    NewClaudeReasoner(anthropicKey),
 	}
 }
 

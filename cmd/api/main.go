@@ -194,7 +194,7 @@ func main() {
 		slog.Warn("COHERE_API_KEY not set; recommendation embeddings disabled")
 		embedder = service.NoopEmbedder{}
 	}
-	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient, eventSvc)
+	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient, eventSvc, cfg.AnthropicAPIKey)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc)

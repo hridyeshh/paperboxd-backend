@@ -366,6 +366,11 @@ type VibeBookResult struct {
 	SimilarityScore float64        `json:"similarityScore"`
 	MatchReason     string         `json:"matchReason"`
 	ReasonType      string         `json:"reasonType,omitempty"`
+	// MatchPercent is the number the Ask Jazy card shows. Claude sets it when a
+	// reasoner is configured, so it agrees with MatchReason; otherwise it falls
+	// back to the raw cosine similarity.
+	MatchPercent int    `json:"matchPercent"`
+	MatchCaveat  string `json:"matchCaveat,omitempty"`
 }
 
 // VibeSearchResponse is the response from POST /api/v1/search/vibe.

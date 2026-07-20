@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pgvector/pgvector-go"
 
 	"github.com/hridyesh/paperboxd-backend/internal/db"
@@ -65,16 +67,21 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		return types.VibeSearchResponse{}, fmt.Errorf("vibe ann: %w", err)
 	}
 
-	// 4. Optional personalised re-ranking via diary + fast-finish centroids
+	// 4. Optional personalised re-ranking via diary + fast-finish centroids.
+	// tasteProfile keeps the same profile for the reason prompt, which wants the
+	// genre weights even when the centroids are too cold to re-rank with.
 	personalised := false
-	var vibeProfile *UserSignalProfile
+	var vibeProfile, tasteProfile *UserSignalProfile
 	useV2 := s.flags.Bool(ctx, "ranking_v2")
 
 	if userID != "" {
 		p, err := s.GetOrComputeSignalProfile(ctx, userID)
-		if err == nil && (p.DiaryEmbedding != nil || p.FastFinishEmbedding != nil) {
-			vibeProfile = &p
-			personalised = true
+		if err == nil {
+			tasteProfile = &p
+			if p.DiaryEmbedding != nil || p.FastFinishEmbedding != nil {
+				vibeProfile = &p
+				personalised = true
+			}
 		}
 	}
 
@@ -111,7 +118,7 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		items = items[:limit]
 	}
 
-	// 5. Build response
+	// 5. Build response — templated reason and raw cosine percent as the floor.
 	re := &ReasonEngine{}
 	results := make([]types.VibeBookResult, len(items))
 	for i, sc := range items {
@@ -119,6 +126,11 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		reason := re.Build(vibeCandidate, vibeProfile, query)
 		results[i] = vibeBookRowToResult(sc.row, sc.score, reason)
 	}
+
+	// 5b. Let Claude say why each book matches, and how well. Blocking: the Ask
+	// Jazy deck has nothing worth showing without it, and the finished response
+	// is cached below, so the wait is paid once per query per reader.
+	s.applyClaudeReasons(ctx, queries, query, results, tasteProfile, userID)
 
 	resp := types.VibeSearchResponse{
 		Kind:         "vibe#search",
@@ -214,7 +226,90 @@ func vibeBookRowToResult(r db.VibeSearchBooksRow, score float64, reason ReasonRe
 		SimilarityScore: score,
 		MatchReason:     reason.Text,
 		ReasonType:      reason.Type,
+		MatchPercent:    min(100, max(0, int(score*100+0.5))),
 	}
+}
+
+// applyClaudeReasons overwrites each result's match percent, reason and caveat
+// with Claude's, then re-sorts the deck by the new percent so the strongest
+// match is the first card. Any failure leaves the templated reasons and the
+// cosine percent in place — a vibe search must never fail because the reason
+// model was slow or unhappy.
+func (s *RecommendationService) applyClaudeReasons(
+	ctx context.Context,
+	queries *db.Queries,
+	query string,
+	results []types.VibeBookResult,
+	profile *UserSignalProfile,
+	userID string,
+) {
+	if s.reasoner == nil || len(results) == 0 {
+		return
+	}
+
+	books := make([]ReasonBook, len(results))
+	for i, r := range results {
+		books[i] = ReasonBook{
+			Title:       r.VolumeInfo.Title,
+			Authors:     r.VolumeInfo.Authors,
+			Categories:  r.VolumeInfo.Categories,
+			Description: r.VolumeInfo.Description,
+		}
+	}
+
+	reasons, err := s.reasoner.Reasons(ctx, query, books, s.readerTaste(ctx, queries, profile, userID))
+	if err != nil {
+		slog.Warn("vibe reasons unavailable, keeping templated text", "error", err, "query", query)
+		return
+	}
+
+	for i := range results {
+		results[i].MatchPercent = reasons[i].Match
+		results[i].MatchReason = reasons[i].Why
+		results[i].MatchCaveat = reasons[i].Caveat
+		results[i].ReasonType = "claude"
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].MatchPercent > results[j].MatchPercent
+	})
+}
+
+// readerTaste gathers what the reason prompt is allowed to know about the
+// reader: their strongest genres and the books on their favourites shelf.
+// Anonymous readers get an empty taste, and the reasons speak to the query alone.
+func (s *RecommendationService) readerTaste(ctx context.Context, queries *db.Queries, profile *UserSignalProfile, userID string) ReaderTaste {
+	var taste ReaderTaste
+	if userID == "" {
+		return taste
+	}
+	if profile != nil {
+		taste.TopGenres = topWeighted(profile.GenreWeights, 3)
+	}
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return taste
+	}
+	favourites, err := queries.GetUserFavorites(ctx, uid)
+	if err != nil {
+		return taste
+	}
+	for _, f := range favourites {
+		taste.LovedBooks = append(taste.LovedBooks, f.Title)
+	}
+	return taste
+}
+
+// topWeighted returns the n highest-weighted keys, strongest first.
+func topWeighted(weights map[string]float64, n int) []string {
+	keys := make([]string, 0, len(weights))
+	for k := range weights {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return weights[keys[i]] > weights[keys[j]] })
+	if len(keys) > n {
+		keys = keys[:n]
+	}
+	return keys
 }
 
 // vibeScore blends query similarity with diary and fast-finish centroids.
