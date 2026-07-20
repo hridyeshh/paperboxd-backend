@@ -150,14 +150,18 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 	return resp, nil
 }
 
-// vibeCacheKey returns "vibe:{userID}:{sha256(query)[0:8]}" or "vibe:anon:{hash}".
+// vibeCacheKey returns "vibe2:{userID}:{sha256(query)[0:8]}" or "vibe2:anon:{hash}".
+//
+// The prefix is versioned: entries cached before Claude wrote the reasons hold
+// the templated text and a cosine percent, and would otherwise keep serving that
+// for 30 minutes after a deploy. Bump it again whenever the item shape changes.
 func vibeCacheKey(userID, query string) string {
 	h := sha256.Sum256([]byte(query))
 	hash := fmt.Sprintf("%x", h[:8])
 	if userID == "" {
-		return "vibe:anon:" + hash
+		return "vibe2:anon:" + hash
 	}
-	return fmt.Sprintf("vibe:%s:%s", userID, hash)
+	return fmt.Sprintf("vibe2:%s:%s", userID, hash)
 }
 
 func vibeBookRowToResult(r db.VibeSearchBooksRow, score float64, reason ReasonResult) types.VibeBookResult {
