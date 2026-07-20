@@ -118,19 +118,21 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		items = items[:limit]
 	}
 
-	// 5. Build response — templated reason and raw cosine percent as the floor.
-	re := &ReasonEngine{}
+	// 5. Build response — raw cosine percent as the floor, no reason text yet.
+	//
+	// Deliberately no ReasonEngine here. Its line ("Matches \"a slow burn with a
+	// twist\"") only echoes the query back, which tells a reader nothing about
+	// the book. If Claude can't answer, the card is better off saying nothing
+	// than saying filler — both clients hide the block on an empty matchReason.
 	results := make([]types.VibeBookResult, len(items))
 	for i, sc := range items {
-		vibeCandidate := Candidate{FinalScore: float32(sc.score)}
-		reason := re.Build(vibeCandidate, vibeProfile, query)
-		results[i] = vibeBookRowToResult(sc.row, sc.score, reason)
+		results[i] = vibeBookRowToResult(sc.row, sc.score, ReasonResult{})
 	}
 
 	// 5b. Let Claude say why each book matches, and how well. Blocking: the Ask
 	// Jazy deck has nothing worth showing without it, and the finished response
 	// is cached below, so the wait is paid once per query per reader.
-	s.applyClaudeReasons(ctx, queries, query, results, tasteProfile, userID)
+	reasoned := s.applyClaudeReasons(ctx, queries, query, results, tasteProfile, userID)
 
 	resp := types.VibeSearchResponse{
 		Kind:         "vibe#search",
@@ -140,8 +142,12 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		Items:        results,
 	}
 
-	// 6. Cache result (empty results cached too — avoids hammering Cohere on bad queries)
-	if s.redisClient != nil {
+	// 6. Cache result (empty results cached too — avoids hammering Cohere on bad queries).
+	//
+	// Only cache what Claude actually wrote. Serving a templated fallback once
+	// is fine; caching it pins a single transient timeout to this query for the
+	// whole TTL, so every re-search replays the fallback instead of retrying.
+	if s.redisClient != nil && (reasoned || len(results) == 0) {
 		if data, err := json.Marshal(resp); err == nil {
 			s.redisClient.Set(ctx, cacheKey, data, vibeCacheTTL)
 		}
@@ -239,6 +245,9 @@ func vibeBookRowToResult(r db.VibeSearchBooksRow, score float64, reason ReasonRe
 // match is the first card. Any failure leaves the templated reasons and the
 // cosine percent in place — a vibe search must never fail because the reason
 // model was slow or unhappy.
+//
+// Reports whether Claude wrote the reasons, so the caller can skip caching a
+// templated fallback and retry on the next search instead.
 func (s *RecommendationService) applyClaudeReasons(
 	ctx context.Context,
 	queries *db.Queries,
@@ -246,9 +255,9 @@ func (s *RecommendationService) applyClaudeReasons(
 	results []types.VibeBookResult,
 	profile *UserSignalProfile,
 	userID string,
-) {
+) bool {
 	if s.reasoner == nil || len(results) == 0 {
-		return
+		return false
 	}
 
 	books := make([]ReasonBook, len(results))
@@ -264,7 +273,13 @@ func (s *RecommendationService) applyClaudeReasons(
 	reasons, err := s.reasoner.Reasons(ctx, query, books, s.readerTaste(ctx, queries, profile, userID))
 	if err != nil {
 		slog.Warn("vibe reasons unavailable, keeping templated text", "error", err, "query", query)
-		return
+		return false
+	}
+	// Reasons are read positionally below; a short list would panic.
+	if len(reasons) < len(results) {
+		slog.Warn("vibe reasons short, keeping templated text",
+			"got", len(reasons), "want", len(results), "query", query)
+		return false
 	}
 
 	for i := range results {
@@ -276,6 +291,7 @@ func (s *RecommendationService) applyClaudeReasons(
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].MatchPercent > results[j].MatchPercent
 	})
+	return true
 }
 
 // readerTaste gathers what the reason prompt is allowed to know about the

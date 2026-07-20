@@ -13,8 +13,11 @@ import (
 
 // Same model + wire format the Scan & Know flow uses (internal/handler/scan.go).
 const (
-	vibeReasonModel   = "claude-sonnet-4-6"
-	vibeReasonTimeout = 8 * time.Second
+	vibeReasonModel = "claude-sonnet-4-6"
+	// Measured against prod: a 3-book deck answers in ~6s, a 5-book deck in ~9s.
+	// The apps ask for 5, so an 8s deadline fell back to templated text on every
+	// single search. Sized for the deck the clients actually request, plus slack.
+	vibeReasonTimeout = 30 * time.Second
 )
 
 // ClaudeReasoner turns a vibe query + the reader's taste into per-book reasons.
