@@ -376,10 +376,16 @@ func (h *DiaryHandler) GetBookDiaryEntries(w http.ResponseWriter, r *http.Reques
 	requesterID := optionalUserID(r)
 	page, pageSize := parsePagination(r)
 
+	viewerID := uuid.Nil
+	if requesterID != nil {
+		viewerID = *requesterID
+	}
+
 	rows, err := h.Queries.GetBookDiaryEntries(r.Context(), db.GetBookDiaryEntriesParams{
-		BookID: uuidToPgtype(bookID),
-		Limit:  int32(pageSize),
-		Offset: int32((page - 1) * pageSize),
+		BookID:   uuidToPgtype(bookID),
+		ViewerID: viewerID,
+		Limit:    int32(pageSize),
+		Offset:   int32((page - 1) * pageSize),
 	})
 	if err != nil {
 		slog.Error("get book diary entries", "error", err)

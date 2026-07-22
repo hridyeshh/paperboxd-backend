@@ -231,6 +231,8 @@ WHERE user_id = $1 AND book_id = $2
 RETURNING *;
 
 -- name: GetBookReviews :many
+-- viewer_id filters out reviews across a block in either direction;
+-- anonymous viewers pass the nil UUID (matches no blocks rows).
 SELECT
     bs.user_id,
     bs.rating,
@@ -241,8 +243,13 @@ SELECT
     u.avatar_url
 FROM bookshelf bs
 JOIN users u ON bs.user_id = u.id
-WHERE bs.book_id = $1
+WHERE bs.book_id = sqlc.arg(book_id)
   AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks bl
+      WHERE (bl.blocker_id = sqlc.arg(viewer_id) AND bl.blocked_id = bs.user_id)
+         OR (bl.blocker_id = bs.user_id AND bl.blocked_id = sqlc.arg(viewer_id))
+  )
 ORDER BY bs.reviewed_at DESC NULLS LAST
 LIMIT 50;
 

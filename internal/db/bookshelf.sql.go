@@ -122,9 +122,19 @@ FROM bookshelf bs
 JOIN users u ON bs.user_id = u.id
 WHERE bs.book_id = $1
   AND (bs.rating IS NOT NULL OR (bs.review IS NOT NULL AND bs.review != ''))
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks bl
+      WHERE (bl.blocker_id = $2 AND bl.blocked_id = bs.user_id)
+         OR (bl.blocker_id = bs.user_id AND bl.blocked_id = $2)
+  )
 ORDER BY bs.reviewed_at DESC NULLS LAST
 LIMIT 50
 `
+
+type GetBookReviewsParams struct {
+	BookID   uuid.UUID `json:"book_id"`
+	ViewerID uuid.UUID `json:"viewer_id"`
+}
 
 type GetBookReviewsRow struct {
 	UserID       uuid.UUID          `json:"user_id"`
@@ -136,8 +146,10 @@ type GetBookReviewsRow struct {
 	AvatarUrl    pgtype.Text        `json:"avatar_url"`
 }
 
-func (q *Queries) GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBookReviewsRow, error) {
-	rows, err := q.db.Query(ctx, getBookReviews, bookID)
+// viewer_id filters out reviews across a block in either direction;
+// anonymous viewers pass the nil UUID (matches no blocks rows).
+func (q *Queries) GetBookReviews(ctx context.Context, arg GetBookReviewsParams) ([]GetBookReviewsRow, error) {
+	rows, err := q.db.Query(ctx, getBookReviews, arg.BookID, arg.ViewerID)
 	if err != nil {
 		return nil, err
 	}

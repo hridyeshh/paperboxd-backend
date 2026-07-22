@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Follow handles POST /api/v1/users/:username/follow
@@ -44,6 +46,20 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 
 	if target.ID == followerID {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Cannot follow yourself")
+		return
+	}
+
+	blocked, err := h.Queries.CheckBlockedEither(r.Context(), db.CheckBlockedEitherParams{
+		BlockerID: followerID,
+		BlockedID: target.ID,
+	})
+	if err != nil {
+		slog.Error("check blocked for follow", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if blocked {
+		types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, "You cannot follow this user")
 		return
 	}
 
@@ -232,4 +248,169 @@ func (h *UserHandler) GetFollowing(w http.ResponseWriter, r *http.Request) {
 		Page:       page,
 		PageSize:   pageSize,
 	}.WithPagination())
+}
+
+// Block handles POST /api/v1/users/:username/block
+func (h *UserHandler) Block(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	blockerID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for block", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	if target.ID == blockerID {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Cannot block yourself")
+		return
+	}
+
+	if err := h.Queries.BlockUser(r.Context(), db.BlockUserParams{
+		BlockerID: blockerID,
+		BlockedID: target.ID,
+	}); err != nil {
+		slog.Error("block user", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	// Sever the follow edge both ways so feeds stop carrying their activity.
+	if err := h.Queries.UnfollowUser(r.Context(), db.UnfollowUserParams{
+		FollowerID:  blockerID,
+		FollowingID: target.ID,
+	}); err != nil {
+		slog.Error("unfollow on block", "error", err)
+	}
+	if err := h.Queries.UnfollowUser(r.Context(), db.UnfollowUserParams{
+		FollowerID:  target.ID,
+		FollowingID: blockerID,
+	}); err != nil {
+		slog.Error("unfollow on block (reverse)", "error", err)
+	}
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Blocked " + username})
+}
+
+// Unblock handles DELETE /api/v1/users/:username/block
+func (h *UserHandler) Unblock(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	blockerID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	username := chi.URLParam(r, "username")
+	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "User not found")
+			return
+		}
+		slog.Error("get user for unblock", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	if err := h.Queries.UnblockUser(r.Context(), db.UnblockUserParams{
+		BlockerID: blockerID,
+		BlockedID: target.ID,
+	}); err != nil {
+		slog.Error("unblock user", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Unblocked " + username})
+}
+
+var validReportContentTypes = map[string]bool{
+	"review":      true,
+	"diary_entry": true,
+	"list":        true,
+	"user":        true,
+	"book":        true,
+}
+
+// CreateReport handles POST /api/v1/reports
+func (h *UserHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
+	userIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	reporterID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		ContentType string `json:"content_type"`
+		ContentID   string `json:"content_id"`
+		Reason      string `json:"reason"`
+		Details     string `json:"details"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid request body")
+		return
+	}
+
+	if !validReportContentTypes[req.ContentType] {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid content_type")
+		return
+	}
+	if req.ContentID == "" || len(req.ContentID) > 200 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid content_id")
+		return
+	}
+	if req.Reason == "" || len(req.Reason) > 100 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Reason is required (max 100 chars)")
+		return
+	}
+	if len(req.Details) > 2000 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Details too long (max 2000 chars)")
+		return
+	}
+
+	details := pgtype.Text{}
+	if req.Details != "" {
+		details = pgtype.Text{String: req.Details, Valid: true}
+	}
+
+	if _, err := h.Queries.CreateReport(r.Context(), db.CreateReportParams{
+		ReporterID:  reporterID,
+		ContentType: req.ContentType,
+		ContentID:   req.ContentID,
+		Reason:      req.Reason,
+		Details:     details,
+	}); err != nil {
+		slog.Error("create report", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+
+	types.WriteJSON(w, http.StatusCreated, types.SuccessResponse{Message: "Report received. We review reports within 24 hours."})
 }

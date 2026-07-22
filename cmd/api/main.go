@@ -271,6 +271,7 @@ func main() {
 		r.Post("/otp/send", mobileAuthHandler.MobileSendOTP)
 		r.Post("/otp/verify", mobileAuthHandler.MobileVerifyOTP)
 		r.Post("/google", mobileAuthHandler.MobileGoogleAuth)
+		r.Post("/apple", mobileAuthHandler.MobileAppleAuth)
 		r.Post("/refresh", mobileAuthHandler.MobileRefresh)
 	})
 
@@ -316,6 +317,7 @@ func main() {
 			r.Post("/users/me/avatar/upload", userHandler.UploadAvatar)
 			r.Post("/users/me/banner/upload", userHandler.UploadBanner)
 			r.Post("/events", eventsHandler.Track)
+			r.Post("/reports", userHandler.CreateReport)
 		})
 
 		// TEMPORARY TEST ROUTES - DELETE BEFORE PRODUCTION
@@ -344,8 +346,9 @@ func main() {
 
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", bookHandler.GetByID)
-				r.Get("/diary", diaryHandler.GetBookDiaryEntries)
-				r.Get("/reviews", bookHandler.GetBookReviews)
+				// OptionalAuthenticate so the block filter sees the viewer.
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/diary", diaryHandler.GetBookDiaryEntries)
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/reviews", bookHandler.GetBookReviews)
 
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
@@ -449,6 +452,8 @@ func main() {
 					r.Patch("/", userHandler.Update)
 					r.Post("/follow", userHandler.Follow)
 					r.Delete("/follow", userHandler.Unfollow)
+					r.Post("/block", userHandler.Block)
+					r.Delete("/block", userHandler.Unblock)
 				})
 
 				// Diary routes. GETs use OptionalAuthenticate so the SQL viewer-id

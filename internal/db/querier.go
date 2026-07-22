@@ -20,7 +20,10 @@ type Querier interface {
 	// USER XP AND LEVEL MANAGEMENT
 	// ============================================================================
 	AddXP(ctx context.Context, arg AddXPParams) error
+	BlockUser(ctx context.Context, arg BlockUserParams) error
 	BumpBookAccess(ctx context.Context, id uuid.UUID) error
+	CheckBlocked(ctx context.Context, arg CheckBlockedParams) (bool, error)
+	CheckBlockedEither(ctx context.Context, arg CheckBlockedEitherParams) (bool, error)
 	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
 	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
 	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
@@ -56,6 +59,7 @@ type Querier interface {
 	CreateOTPWithMetadata(ctx context.Context, arg CreateOTPWithMetadataParams) (OtpCode, error)
 	CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
+	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DecrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
@@ -72,7 +76,9 @@ type Querier interface {
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
 	GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string) ([]GetBookEmbeddingsByIDsRow, error)
-	GetBookReviews(ctx context.Context, bookID uuid.UUID) ([]GetBookReviewsRow, error)
+	// viewer_id filters out reviews across a block in either direction;
+	// anonymous viewers pass the nil UUID (matches no blocks rows).
+	GetBookReviews(ctx context.Context, arg GetBookReviewsParams) ([]GetBookReviewsRow, error)
 	// Reviews on a book authored by users the current viewer follows.
 	// $1 = book_id, $2 = viewer's user_id (follower).
 	GetBookReviewsByFriends(ctx context.Context, arg GetBookReviewsByFriendsParams) ([]GetBookReviewsByFriendsRow, error)
@@ -130,6 +136,7 @@ type Querier interface {
 	// Most-recently-touched first: a freshly added/updated book (updated_at = NOW())
 	// always lands at the top of its tab.
 	GetUserBookshelf(ctx context.Context, arg GetUserBookshelfParams) ([]GetUserBookshelfRow, error)
+	GetUserByAppleUserID(ctx context.Context, appleUserID pgtype.Text) (User, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByReferralCode(ctx context.Context, referralCode pgtype.Text) (GetUserByReferralCodeRow, error)
@@ -167,6 +174,7 @@ type Querier interface {
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
 	// Likes
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
+	LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error
 	LogReadingProgress(ctx context.Context, arg LogReadingProgressParams) error
 	// ============================================================================
 	// XP TRANSACTION LOGGING
@@ -198,6 +206,7 @@ type Querier interface {
 	// The UUID-based placeholders are deterministic and lowercase, satisfying the
 	// column-level UNIQUE constraints and the username_lowercase CHECK.
 	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
+	UnblockUser(ctx context.Context, arg UnblockUserParams) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
 	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error

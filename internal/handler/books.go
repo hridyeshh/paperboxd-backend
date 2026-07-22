@@ -1020,7 +1020,15 @@ func (h *BookHandler) GetBookReviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.Queries.GetBookReviews(r.Context(), bookID)
+	viewerID := uuid.Nil
+	if requesterID := optionalUserID(r); requesterID != nil {
+		viewerID = *requesterID
+	}
+
+	rows, err := h.Queries.GetBookReviews(r.Context(), db.GetBookReviewsParams{
+		BookID:   bookID,
+		ViewerID: viewerID,
+	})
 	if err != nil {
 		slog.Error("get book reviews", "error", err)
 		types.WriteInternalError(w)

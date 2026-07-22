@@ -43,6 +43,10 @@ type Config struct {
 	// the Android Web-type serverClientId).
 	AllowedGoogleAudiences []string
 
+	// AllowedAppleAudiences is the allowlist for Sign in with Apple identity
+	// tokens' `aud` claim (the app's bundle ID). Same rationale as Google above.
+	AllowedAppleAudiences []string
+
 	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
 	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
 
@@ -95,6 +99,7 @@ func Load() (*Config, error) {
 		InternalSecret: getEnv("INTERNAL_SECRET", ""),
 
 		AllowedGoogleAudiences: getEnvAsStringSlice("GOOGLE_OAUTH_ALLOWED_AUDIENCES", ""),
+		AllowedAppleAudiences:  getEnvAsStringSlice("APPLE_ALLOWED_AUDIENCES", "com.paperboxd.PaperBoxd"),
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),

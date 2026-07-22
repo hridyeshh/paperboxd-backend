@@ -45,9 +45,14 @@ SELECT
     u.avatar_url
 FROM diary_entries de
 JOIN users u ON de.user_id = u.id
-WHERE de.book_id = $1 AND de.is_private = false
+WHERE de.book_id = sqlc.arg(book_id) AND de.is_private = false
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks bl
+      WHERE (bl.blocker_id = sqlc.arg(viewer_id) AND bl.blocked_id = de.user_id)
+         OR (bl.blocker_id = de.user_id AND bl.blocked_id = sqlc.arg(viewer_id))
+  )
 ORDER BY de.created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateDiaryEntry :one
 UPDATE diary_entries

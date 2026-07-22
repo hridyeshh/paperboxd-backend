@@ -31,6 +31,12 @@ type Activity struct {
 	CreatedAt    pgtype.Timestamp `json:"created_at"`
 }
 
+type Block struct {
+	BlockerID uuid.UUID          `json:"blocker_id"`
+	BlockedID uuid.UUID          `json:"blocked_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Book struct {
 	ID                uuid.UUID          `json:"id"`
 	Title             string             `json:"title"`
@@ -262,6 +268,16 @@ type RefreshToken struct {
 	DeviceInfo []byte             `json:"device_info"`
 }
 
+type Report struct {
+	ID          uuid.UUID          `json:"id"`
+	ReporterID  uuid.UUID          `json:"reporter_id"`
+	ContentType string             `json:"content_type"`
+	ContentID   string             `json:"content_id"`
+	Reason      string             `json:"reason"`
+	Details     pgtype.Text        `json:"details"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type SavedList struct {
 	ID      uuid.UUID        `json:"id"`
 	UserID  uuid.UUID        `json:"user_id"`
@@ -321,6 +337,7 @@ type User struct {
 	OnboardingCompleted    bool               `json:"onboarding_completed"`
 	BannerUrl              pgtype.Text        `json:"banner_url"`
 	ScanUsesRemaining      int32              `json:"scan_uses_remaining"`
+	AppleUserID            pgtype.Text        `json:"apple_user_id"`
 }
 
 type UserAuthorsRead struct {

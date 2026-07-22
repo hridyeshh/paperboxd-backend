@@ -18,7 +18,7 @@ INSERT INTO users (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type CreateUserParams struct {
@@ -81,12 +81,69 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
+	)
+	return i, err
+}
+
+const getUserByAppleUserID = `-- name: GetUserByAppleUserID :one
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+WHERE apple_user_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetUserByAppleUserID(ctx context.Context, appleUserID pgtype.Text) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByAppleUserID, appleUserID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.Pronouns,
+		&i.IsPublic,
+		&i.FavoriteGenres,
+		&i.Settings,
+		&i.FollowersCount,
+		&i.FollowingCount,
+		&i.BooksReadCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActive,
+		&i.DeletedAt,
+		&i.MongoID,
+		&i.Birthday,
+		&i.Gender,
+		&i.Links,
+		&i.TotalPagesRead,
+		&i.FavoritesCount,
+		&i.ListsCount,
+		&i.DiaryEntriesCount,
+		&i.ReadingGoalYear,
+		&i.ReadingGoalTarget,
+		&i.ReadingGoalCurrent,
+		&i.TotalXp,
+		&i.Level,
+		&i.CurrentStreak,
+		&i.LongestStreak,
+		&i.LastActivityDate,
+		&i.ShowOnLeaderboard,
+		&i.ReferralCode,
+		&i.ReferredBy,
+		&i.ReferralCount,
+		&i.ReferralRewardsClaimed,
+		&i.OnboardingCompleted,
+		&i.BannerUrl,
+		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -136,12 +193,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -191,12 +249,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
@@ -246,8 +305,25 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
+}
+
+const linkAppleUserID = `-- name: LinkAppleUserID :exec
+UPDATE users
+SET apple_user_id = $2, updated_at = NOW()
+WHERE id = $1
+`
+
+type LinkAppleUserIDParams struct {
+	ID          uuid.UUID   `json:"id"`
+	AppleUserID pgtype.Text `json:"apple_user_id"`
+}
+
+func (q *Queries) LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error {
+	_, err := q.db.Exec(ctx, linkAppleUserID, arg.ID, arg.AppleUserID)
+	return err
 }
 
 const recordAccountDeletion = `-- name: RecordAccountDeletion :exec
@@ -276,7 +352,7 @@ func (q *Queries) RecordAccountDeletion(ctx context.Context, arg RecordAccountDe
 }
 
 const searchUsers = `-- name: SearchUsers :many
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE (username ILIKE '%' || $1 || '%'
    OR name ILIKE '%' || $1 || '%')
    AND deleted_at IS NULL
@@ -342,6 +418,7 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 			&i.OnboardingCompleted,
 			&i.BannerUrl,
 			&i.ScanUsesRemaining,
+			&i.AppleUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -384,7 +461,7 @@ UPDATE users SET
     banner_url = COALESCE($9, banner_url),
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUserParams struct {
@@ -455,6 +532,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }
@@ -462,7 +540,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 const updateUserGenres = `-- name: UpdateUserGenres :one
 UPDATE users SET favorite_genres = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUserGenresParams struct {
@@ -516,6 +594,7 @@ func (q *Queries) UpdateUserGenres(ctx context.Context, arg UpdateUserGenresPara
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }
@@ -534,7 +613,7 @@ func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error 
 const updateUsername = `-- name: UpdateUsername :one
 UPDATE users SET username = $2, onboarding_completed = true, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUsernameParams struct {
@@ -588,6 +667,7 @@ func (q *Queries) UpdateUsername(ctx context.Context, arg UpdateUsernameParams) 
 		&i.OnboardingCompleted,
 		&i.BannerUrl,
 		&i.ScanUsesRemaining,
+		&i.AppleUserID,
 	)
 	return i, err
 }

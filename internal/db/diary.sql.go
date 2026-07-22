@@ -147,14 +147,20 @@ SELECT
 FROM diary_entries de
 JOIN users u ON de.user_id = u.id
 WHERE de.book_id = $1 AND de.is_private = false
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks bl
+      WHERE (bl.blocker_id = $2 AND bl.blocked_id = de.user_id)
+         OR (bl.blocker_id = de.user_id AND bl.blocked_id = $2)
+  )
 ORDER BY de.created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $4 OFFSET $3
 `
 
 type GetBookDiaryEntriesParams struct {
-	BookID pgtype.UUID `json:"book_id"`
-	Limit  int32       `json:"limit"`
-	Offset int32       `json:"offset"`
+	BookID   pgtype.UUID `json:"book_id"`
+	ViewerID uuid.UUID   `json:"viewer_id"`
+	Offset   int32       `json:"offset"`
+	Limit    int32       `json:"limit"`
 }
 
 type GetBookDiaryEntriesRow struct {
@@ -173,7 +179,12 @@ type GetBookDiaryEntriesRow struct {
 }
 
 func (q *Queries) GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error) {
-	rows, err := q.db.Query(ctx, getBookDiaryEntries, arg.BookID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getBookDiaryEntries,
+		arg.BookID,
+		arg.ViewerID,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

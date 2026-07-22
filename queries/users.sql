@@ -18,6 +18,15 @@ INSERT INTO users (
 )
 RETURNING *;
 
+-- name: GetUserByAppleUserID :one
+SELECT * FROM users
+WHERE apple_user_id = $1 AND deleted_at IS NULL;
+
+-- name: LinkAppleUserID :exec
+UPDATE users
+SET apple_user_id = $2, updated_at = NOW()
+WHERE id = $1;
+
 -- name: UpdateUserLastActive :exec
 UPDATE users
 SET last_active = NOW()
