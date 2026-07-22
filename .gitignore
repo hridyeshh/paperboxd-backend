@@ -4,3 +4,6 @@ tmp/
 bin/
 vendor/
 .DS_Store
+
+# graphify tool output (generated, do not commit)
+graphify-out/

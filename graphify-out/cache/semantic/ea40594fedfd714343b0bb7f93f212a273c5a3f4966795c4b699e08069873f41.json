@@ -1,1 +1,0 @@
-{"nodes": [{"id": "migrate_helpers", "label": "pgUUID / pgText / pgInt4 / generateSlug / mapActivityType / mapTBRUrgency / migrationStats", "file_type": "code", "source_file": "cmd/migrate-mongo-to-pg/helpers.go", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
