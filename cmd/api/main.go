@@ -152,14 +152,14 @@ func main() {
 	eventSvc := service.NewEventService(dbPool)
 
 	// ── Handlers ───────────────────────────────────────────────────────────────
-	authHandler := auth.NewHandler(queries, cfg)
 	// NewResendMailer returns NoopMailer when RESEND_API_KEY is empty, so dev
-	// environments still run without an email provider — the OTP path will 200
-	// but no mail goes out.
-	mailer := service.NewResendMailer(cfg.ResendAPIKey, cfg.ResendFromEmail)
+	// environments still run without an email provider — the OTP and password
+	// reset paths will 200 but no mail goes out.
+	mailer := service.NewResendMailer(cfg.ResendAPIKey, cfg.ResendFromEmail, cfg.AppBaseURL)
 	if cfg.ResendAPIKey == "" {
-		slog.Warn("RESEND_API_KEY not set; mobile OTP emails will not be delivered")
+		slog.Warn("RESEND_API_KEY not set; OTP and password-reset emails will not be delivered")
 	}
+	authHandler := auth.NewHandler(queries, cfg, mailer)
 	mobileAuthHandler := auth.NewMobileHandler(authHandler, mailer)
 	healthHandler := auth.NewHealthHandler(dbPool, redisClient)
 	mobileHealthHandler := handler.NewMobileHealthHandler()

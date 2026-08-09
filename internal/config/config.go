@@ -50,6 +50,11 @@ type Config struct {
 	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
 	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
 
+	// AppBaseURL is the public web origin used to build links inside emails the
+	// backend sends itself (currently the password-reset link, which lands on
+	// the Next.js /auth/reset-password page). No trailing slash.
+	AppBaseURL string
+
 	CloudinaryCloudName string // Cloudinary cloud name. Empty → avatar upload disabled.
 	CloudinaryAPIKey    string
 	CloudinaryAPISecret string
@@ -103,6 +108,8 @@ func Load() (*Config, error) {
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),
+
+		AppBaseURL: strings.TrimRight(getEnv("APP_BASE_URL", "https://paperboxd.in"), "/"),
 
 		CloudinaryCloudName: getEnv("CLOUDINARY_CLOUD_NAME", getEnv("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME", "")),
 		CloudinaryAPIKey:    getEnv("CLOUDINARY_API_KEY", ""),

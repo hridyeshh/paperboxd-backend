@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -18,25 +19,31 @@ import (
 //
 // Construct via NewResendMailer; pass NoopMailer{} where Resend is not desired.
 type ResendMailer struct {
-	apiKey string
-	from   string
-	client *http.Client
+	apiKey     string
+	from       string
+	appBaseURL string
+	client     *http.Client
 }
 
 // NewResendMailer returns a Resend-backed Mailer. apiKey is required (empty →
 // returns a NoopMailer wrapped behavior so callers can swap without nil checks).
 // from is the RFC 5322 sender, e.g. `PaperBoxd <onboarding@resend.dev>`.
-func NewResendMailer(apiKey, from string) Mailer {
+// appBaseURL is the public web origin used to build the password-reset link.
+func NewResendMailer(apiKey, from, appBaseURL string) Mailer {
 	if strings.TrimSpace(apiKey) == "" {
 		return NoopMailer{}
 	}
 	if strings.TrimSpace(from) == "" {
 		from = "PaperBoxd <onboarding@resend.dev>"
 	}
+	if strings.TrimSpace(appBaseURL) == "" {
+		appBaseURL = "https://paperboxd.in"
+	}
 	return &ResendMailer{
-		apiKey: apiKey,
-		from:   from,
-		client: &http.Client{Timeout: 10 * time.Second},
+		apiKey:     apiKey,
+		from:       from,
+		appBaseURL: strings.TrimRight(appBaseURL, "/"),
+		client:     &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -104,10 +111,16 @@ func (m *ResendMailer) SendOTP(ctx context.Context, email, code string) error {
 	return m.send(ctx, email, "Your Login Code - PaperBoxd", otpEmailHTML(display, code))
 }
 
-// SendPasswordReset delivers a single-use reset token. Mirrors the web reset
-// template; mobile clients should deep-link the token into their app.
+// SendPasswordReset delivers a single-use reset link. The link target matches
+// the Next.js proxy's buildResetUrl exactly, so a reset started from any surface
+// (web, iOS, Android) lands on the same /auth/reset-password page.
+//
+// The token travels only inside this link — it is never returned to an API
+// caller. See auth.Handler.ForgotPassword.
 func (m *ResendMailer) SendPasswordReset(ctx context.Context, email, token string) error {
-	return m.send(ctx, email, "Reset Your Password - PaperBoxd", passwordResetEmailHTML(email, token))
+	resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s&email=%s",
+		m.appBaseURL, url.QueryEscape(token), url.QueryEscape(email))
+	return m.send(ctx, email, "Reset Your Password - PaperBoxd", passwordResetEmailHTML(email, resetURL))
 }
 
 func otpEmailHTML(displayName, code string) string {
@@ -139,7 +152,7 @@ func otpEmailHTML(displayName, code string) string {
 </td></tr></table></td></tr></table></body></html>`
 }
 
-func passwordResetEmailHTML(email, token string) string {
+func passwordResetEmailHTML(email, resetURL string) string {
 	year := time.Now().Year()
 	display := email
 	if at := strings.Index(email, "@"); at > 0 {
@@ -154,9 +167,13 @@ func passwordResetEmailHTML(email, token string) string {
 <h1 style="margin:0;font-size:32px;font-weight:600;color:#252525;letter-spacing:-0.02em;">PaperBoxd</h1></td></tr>
 <tr><td style="padding:48px;">
 <p style="margin:0 0 8px;font-size:16px;line-height:1.6;color:#252525;font-weight:500;">Hi ` + display + `,</p>
-<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5a5a5a;">Use the token below in the PaperBoxd app to reset your password. This token is single-use and expires in 1 hour.</p>
-<div style="padding:20px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:10px;margin:24px 0;word-break:break-all;">
-<p style="margin:0;font-size:14px;line-height:1.6;color:#252525;font-family:'Courier New',monospace;">` + token + `</p></div>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5a5a5a;">Tap the button below to choose a new password. This link is single-use and expires in 1 hour.</p>
+<table role="presentation" style="border-collapse:collapse;margin:32px 0;"><tr><td align="center" style="border-radius:10px;background:#252525;">
+<a href="` + resetURL + `" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">Reset your password</a>
+</td></tr></table>
+<p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#8a8a8a;">Or paste this link into your browser:</p>
+<div style="padding:16px 20px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:10px;margin:0 0 24px;word-break:break-all;">
+<p style="margin:0;font-size:13px;line-height:1.6;color:#252525;font-family:'Courier New',monospace;">` + resetURL + `</p></div>
 <p style="margin:32px 0 0;font-size:14px;line-height:1.6;color:#8a8a8a;">If you didn't request a password reset, please ignore this email. Your account remains secure.</p>
 </td></tr>
 <tr><td style="padding:32px 48px;background:#f7f7f7;border-top:1px solid #ebebeb;text-align:center;border-radius:0 0 10px 10px;">

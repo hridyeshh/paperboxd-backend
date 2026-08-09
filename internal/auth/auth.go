@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -27,11 +28,17 @@ import (
 type Handler struct {
 	queries *db.Queries
 	cfg     *config.Config
+	mailer  service.Mailer
 }
 
-// NewHandler creates a new auth Handler.
-func NewHandler(queries *db.Queries, cfg *config.Config) *Handler {
-	return &Handler{queries: queries, cfg: cfg}
+// NewHandler creates a new auth Handler. Pass service.NoopMailer{} (or nil) for
+// the mailer where no email provider is configured; ForgotPassword still 200s
+// but no mail goes out.
+func NewHandler(queries *db.Queries, cfg *config.Config, mailer service.Mailer) *Handler {
+	if mailer == nil {
+		mailer = service.NoopMailer{}
+	}
+	return &Handler{queries: queries, cfg: cfg, mailer: mailer}
 }
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
@@ -239,6 +246,14 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// forgotPasswordResponse is returned by ForgotPassword for every well-formed
+// request — hit or miss, mail sent or not. It carries no reset token, no email,
+// and no username: this route is public, and any field that varies with account
+// existence turns it into an enumeration oracle.
+var forgotPasswordResponse = map[string]any{
+	"message": "If an account exists with this email, a password reset link has been sent.",
+}
+
 // ForgotPassword handles POST /api/v1/auth/forgot-password.
 // Generates a single-use reset token, stores its SHA-256 hash, and returns the
 // plaintext token to the caller (the Next.js proxy) so it can email it via
@@ -261,8 +276,9 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	user, err := h.queries.GetUserByEmail(r.Context(), email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Don't leak account existence — return a generic success.
-			types.WriteJSON(w, http.StatusOK, map[string]any{"sent": false})
+			// Identical to the success response below — a differing body (or a
+			// `sent` flag) is an account-enumeration oracle on a public route.
+			types.WriteJSON(w, http.StatusOK, forgotPasswordResponse)
 			return
 		}
 		slog.Error("forgot password: get user", "error", err)
@@ -290,12 +306,17 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, map[string]any{
-		"sent":        true,
-		"reset_token": rawToken,
-		"email":       user.Email,
-		"username":    user.Username,
-	})
+	// Deliver the link ourselves. The plaintext token leaves this process only
+	// inside the email — never in the HTTP response. Returning it would hand a
+	// live account-takeover capability to any caller of this public route.
+	//
+	// A mailer failure is logged, not surfaced: the response must not differ
+	// between "email exists" and "email doesn't", or it leaks account existence.
+	if err := h.mailer.SendPasswordReset(r.Context(), user.Email, rawToken); err != nil {
+		slog.Warn("forgot password: mailer", "error", err, "user_id", user.ID)
+	}
+
+	types.WriteJSON(w, http.StatusOK, forgotPasswordResponse)
 }
 
 // ResetPassword handles POST /api/v1/auth/reset-password.
