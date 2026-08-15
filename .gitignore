@@ -7,3 +7,13 @@ vendor/
 
 # graphify tool output (generated, do not commit)
 graphify-out/
+
+# Push notification credentials — NEVER commit. Supplied via env vars in deploy
+# (FCM_SERVICE_ACCOUNT_JSON, APNS_KEY_PATH). A leak requires key rotation, not
+# just a revert: git history keeps the blob.
+*serviceaccount*.json
+*service-account*.json
+*adminsdk*.json
+*.p8
+google-services.json
+GoogleService-Info.plist

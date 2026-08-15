@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -178,8 +180,72 @@ func (c *Config) Validate() error {
 		if len(missing) > 0 {
 			return fmt.Errorf("PUSH_ENABLED is set but %s missing", strings.Join(missing, ", "))
 		}
+		if _, err := c.FCMCredentials(); err != nil {
+			return fmt.Errorf("FCM_SERVICE_ACCOUNT_JSON: %w", err)
+		}
 	}
 	return nil
+}
+
+// FCMCredentials returns the decoded Firebase service account key.
+//
+// FCM_SERVICE_ACCOUNT_JSON may hold either the raw JSON or a base64 encoding of
+// it, and both are accepted because the two survive different transports: the
+// key's `private_key` field embeds \n escapes that Railway's UI, docker-compose
+// and shell `export` each mangle differently, while base64 is inert everywhere.
+// Base64 is the safer paste; raw JSON is the easier one to eyeball.
+//
+// Callers get a parse error at startup via Validate() rather than a failed send
+// hours later.
+func (c *Config) FCMCredentials() ([]byte, error) {
+	raw := strings.TrimSpace(c.FCMServiceAccountJSON)
+	if raw == "" {
+		return nil, fmt.Errorf("empty")
+	}
+
+	// A JSON object always starts with '{'; anything else is treated as base64.
+	if !strings.HasPrefix(raw, "{") {
+		// Strip interior whitespace first: macOS `base64` wraps at 76 columns by
+		// default and Railway's textarea can reflow a long value, either of which
+		// would otherwise fail decoding for a perfectly good key.
+		compact := strings.Map(func(r rune) rune {
+			switch r {
+			case ' ', '\t', '\n', '\r':
+				return -1
+			}
+			return r
+		}, raw)
+		decoded, err := base64.StdEncoding.DecodeString(compact)
+		if err != nil {
+			return nil, fmt.Errorf("not valid JSON or base64: %w", err)
+		}
+		raw = strings.TrimSpace(string(decoded))
+	}
+
+	// Verify it is a service account key, not some other JSON that happens to
+	// parse — a wrong-but-valid blob would otherwise fail at first send.
+	var key struct {
+		Type        string `json:"type"`
+		ProjectID   string `json:"project_id"`
+		ClientEmail string `json:"client_email"`
+		PrivateKey  string `json:"private_key"`
+	}
+	if err := json.Unmarshal([]byte(raw), &key); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if key.Type != "service_account" {
+		return nil, fmt.Errorf(`expected "type":"service_account", got %q`, key.Type)
+	}
+	for _, f := range []struct{ name, value string }{
+		{"project_id", key.ProjectID},
+		{"client_email", key.ClientEmail},
+		{"private_key", key.PrivateKey},
+	} {
+		if f.value == "" {
+			return nil, fmt.Errorf("service account key missing %s", f.name)
+		}
+	}
+	return []byte(raw), nil
 }
 
 func getEnvAsBool(key string, defaultVal bool) bool {

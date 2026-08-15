@@ -183,6 +183,7 @@ func main() {
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
 	wrappedHandler := handler.NewWrappedHandler(queries)
+	deviceTokenHandler := handler.NewDeviceTokenHandler(queries)
 	eventsHandler := handler.NewEventsHandler(dbPool, eventSvc)
 	analyticsHandler := handler.NewAnalyticsHandler(dbPool, cacheClient)
 	newsletterHandler := handler.NewNewsletterHandler(dbPool)
@@ -280,6 +281,11 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 		r.Patch("/api/mobile/users/me", mobileAuthHandler.MobileUpdateMe)
+
+		// Push notification token registration. Clients call these on login/token
+		// refresh and on logout respectively.
+		r.Post("/api/mobile/users/me/device-token", deviceTokenHandler.Register)
+		r.Delete("/api/mobile/users/me/device-token", deviceTokenHandler.Deregister)
 	})
 
 	// API v1
