@@ -228,21 +228,10 @@ func (h *WrappedHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := WrappedResponse{
-		Month:      monthStart.Format("January"),
-		MonthShort: strings.ToUpper(monthStart.Format("Jan")),
-		Year:       monthStart.Format("2006"),
-		NextMonth:  monthStart.AddDate(0, 1, 0).Format("January"),
-		Reader:     readerOf(user),
-		Books:      []WrappedBook{},
-		Authors:    []WrappedAuthor{},
-		Genres:     []WrappedGenre{},
-	}
+	resp := blankWrapped(monthStart, readerOf(user))
 
 	// Nothing logged: everything downstream would be a story about zero.
 	if totals.Pages == 0 && totals.Sessions == 0 {
-		resp.Streak.Calendar = []int{}
-		resp.Rhythm.Hours = make([]int, 24)
 		types.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -326,7 +315,6 @@ func (h *WrappedHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Rhythm ──────────────────────────────────────────────────────────────
-	resp.Rhythm = WrappedRhythm{Hours: make([]int, 24)}
 	if rows, err := h.Queries.WrappedHourHistogram(ctx, db.WrappedHourHistogramParams{
 		Tz: tzName, UserID: userID, MonthStart: start, MonthEnd: end,
 	}); err != nil {
@@ -420,6 +408,26 @@ func (h *WrappedHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Derivations ────────────────────────────────────────────────────────────
+
+// blankWrapped is the shape every response starts from. Every slice starts
+// empty rather than nil: a nil slice marshals to `null`, and the mobile
+// clients decode these as non-optional arrays, so one null fails the whole
+// story rather than one chapter.
+func blankWrapped(monthStart time.Time, reader WrappedReader) WrappedResponse {
+	return WrappedResponse{
+		Month:      monthStart.Format("January"),
+		MonthShort: strings.ToUpper(monthStart.Format("Jan")),
+		Year:       monthStart.Format("2006"),
+		NextMonth:  monthStart.AddDate(0, 1, 0).Format("January"),
+		Reader:     reader,
+		Books:      []WrappedBook{},
+		Authors:    []WrappedAuthor{},
+		Genres:     []WrappedGenre{},
+		Rhythm:     WrappedRhythm{Hours: make([]int, 24)},
+		Streak:     WrappedStreak{Calendar: []int{}, StreakStart: -1, StreakEnd: -1, BrokeIndex: -1},
+		Archetype:  WrappedArchetype{Traits: []string{}},
+	}
+}
 
 // parseMonth reads a YYYY-MM parameter, defaulting to the current month in loc.
 func parseMonth(raw string, loc *time.Location) (time.Time, error) {

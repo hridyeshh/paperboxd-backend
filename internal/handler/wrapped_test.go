@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -119,5 +121,44 @@ func TestArchetypeOfPrefersTheStrongestSignal(t *testing.T) {
 	plain.Totals.BiggestDayPages = 90
 	if got := archetypeOf(plain).Name; got == "" {
 		t.Fatal("archetype has no name")
+	}
+}
+
+// An empty month must still decode on the clients. iOS models the arrays as
+// non-optional, so a nil slice marshalling to `null` failed the whole screen
+// with "The data couldn't be read because it is missing".
+func TestBlankWrappedHasNoNullArrays(t *testing.T) {
+	resp := blankWrapped(
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		WrappedReader{Name: "Reader", Handle: "@reader", First: "Reader"},
+	)
+
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// top_rated / abandoned are genuinely optional on the clients; everything
+	// else must be present and non-null.
+	optional := map[string]bool{"top_rated": true, "abandoned": true}
+	for key, value := range decoded {
+		if !optional[key] && string(value) == "null" {
+			t.Errorf("%q is null — the clients cannot decode that", key)
+		}
+	}
+
+	for _, path := range []string{`"traits":null`, `"hours":null`, `"calendar":null`, `"books":null`, `"authors":null`, `"genres":null`} {
+		if strings.Contains(string(raw), path) {
+			t.Errorf("response contains %s", path)
+		}
+	}
+
+	if resp.HasData {
+		t.Error("a blank month must not claim to have data")
 	}
 }
