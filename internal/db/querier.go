@@ -46,6 +46,11 @@ type Querier interface {
 	CountFriendsReadingBook(ctx context.Context, arg CountFriendsReadingBookParams) (int64, error)
 	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
+	// Unread badge for the notifications sheet. target_user_id is the "addressed to
+	// you" marker — every activity type that carries one (liked_diary_entry,
+	// shared_list, shared_book, granted_access) is notification-worthy, so no
+	// activity_type filter is needed here.
+	CountUnreadActivities(ctx context.Context, targetUserID pgtype.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
 	CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
@@ -64,9 +69,15 @@ type Querier interface {
 	DecrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserListsCount(ctx context.Context, id uuid.UUID) error
+	// Logout path. Scoped to the caller so one user cannot deregister another's device.
+	DeleteDeviceToken(ctx context.Context, arg DeleteDeviceTokenParams) error
+	// Provider-rejection path (FCM UNREGISTERED, APNs 410 Unregistered). The token
+	// is dead regardless of who owns it, so this is intentionally unscoped.
+	DeleteDeviceTokenByToken(ctx context.Context, token string) error
 	DeleteDiaryEntry(ctx context.Context, id uuid.UUID) error
 	DeleteList(ctx context.Context, id uuid.UUID) error
 	DeleteOTPByEmail(ctx context.Context, email string) error
+	DeleteStaleDeviceTokens(ctx context.Context, updatedAt pgtype.Timestamptz) error
 	DeleteUserActivities(ctx context.Context, arg DeleteUserActivitiesParams) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
 	GetActivityByID(ctx context.Context, id uuid.UUID) (Activity, error)
@@ -175,11 +186,15 @@ type Querier interface {
 	// Likes
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
 	LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error
+	ListDeviceTokensByUser(ctx context.Context, userID uuid.UUID) ([]DeviceToken, error)
 	LogReadingProgress(ctx context.Context, arg LogReadingProgressParams) error
 	// ============================================================================
 	// XP TRANSACTION LOGGING
 	// ============================================================================
 	LogXPTransaction(ctx context.Context, arg LogXPTransactionParams) error
+	// Called when the sheet opens. Idempotent; leaves already-read rows alone so a
+	// reopen does not churn timestamps.
+	MarkActivitiesRead(ctx context.Context, targetUserID pgtype.UUID) error
 	MarkAsFinished(ctx context.Context, arg MarkAsFinishedParams) (Bookshelf, error)
 	MarkAsStarted(ctx context.Context, arg MarkAsStartedParams) (Bookshelf, error)
 	MarkOTPUsed(ctx context.Context, id uuid.UUID) error
@@ -231,7 +246,43 @@ type Querier interface {
 	UpdateUserStreak(ctx context.Context, id uuid.UUID) error
 	UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error)
 	UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error)
+	// Conflict target is `token` alone: a push token belongs to a device, so when a
+	// different account signs in on that device the row must change hands rather
+	// than accumulate a second owner. See migrations/000036 for the full rationale.
+	UpsertDeviceToken(ctx context.Context, arg UpsertDeviceTokenParams) (DeviceToken, error)
 	VibeSearchBooks(ctx context.Context, arg VibeSearchBooksParams) ([]VibeSearchBooksRow, error)
+	// Still marked "reading", started before the month ended, and untouched since
+	// stall_before. Ordered by how little of it was read — the most abandoned one
+	// makes the best chapter.
+	WrappedAbandoned(ctx context.Context, arg WrappedAbandonedParams) (WrappedAbandonedRow, error)
+	WrappedBooksFinished(ctx context.Context, arg WrappedBooksFinishedParams) (int32, error)
+	// Only days with entries come back; the handler fills the rest of the month
+	// with zeros so the calendar grid is always month-length.
+	WrappedDailyPages(ctx context.Context, arg WrappedDailyPagesParams) ([]WrappedDailyPagesRow, error)
+	// Categories weighted by pages read, not by book count: a 900-page epic should
+	// outweigh a novella. The handler turns these into percentages.
+	WrappedGenres(ctx context.Context, arg WrappedGenresParams) ([]WrappedGenresRow, error)
+	WrappedHourHistogram(ctx context.Context, arg WrappedHourHistogramParams) ([]WrappedHourHistogramRow, error)
+	// Where the reader landed against everyone who read anything that month.
+	WrappedRank(ctx context.Context, arg WrappedRankParams) (WrappedRankRow, error)
+	// Pages are attributed to every credited author of a book; a co-authored book
+	// counts once for each of them, which is how the reader thinks about it.
+	WrappedTopAuthors(ctx context.Context, arg WrappedTopAuthorsParams) ([]WrappedTopAuthorsRow, error)
+	WrappedTopBooks(ctx context.Context, arg WrappedTopBooksParams) ([]WrappedTopBooksRow, error)
+	// The month's best book: highest rating finished inside the window, most
+	// recent finish breaking ties. Its review is the chapter's pull quote.
+	WrappedTopRated(ctx context.Context, arg WrappedTopRatedParams) (WrappedTopRatedRow, error)
+	// Monthly Wrapped aggregates.
+	//
+	// Every query is bounded by an explicit [month_start, month_end) window the
+	// handler computes in the reader's own timezone, and buckets days/hours in
+	// that same zone: a book read at 1am in Delhi belongs to the Delhi night, not
+	// to the previous UTC day.
+	//
+	// pages_delta can be negative (a reader correcting a page count downward), so
+	// every page total clamps with GREATEST(pages_delta, 0) — a correction is not
+	// reading.
+	WrappedTotals(ctx context.Context, arg WrappedTotalsParams) (WrappedTotalsRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

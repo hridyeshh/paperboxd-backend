@@ -64,6 +64,23 @@ type Config struct {
 	BraveAPIKey string
 
 	HardcoverAPIToken string
+
+	// PushEnabled gates outbound push notifications. Off by default so a deploy
+	// missing provider credentials starts cleanly with pushes disabled instead
+	// of erroring per-send. When on, Validate() requires every field below.
+	PushEnabled bool
+
+	// FCMServiceAccountJSON is the Firebase service account key for Android
+	// sends — either the raw JSON blob or a path to it on disk.
+	FCMServiceAccountJSON string
+
+	// APNs credentials for iOS. Direct APNs (token-based, .p8 auth key) rather
+	// than routing iOS through Firebase, so the app target keeps zero
+	// third-party runtime dependencies. APNsTopic is the app's bundle ID.
+	APNsKeyPath string
+	APNsKeyID   string
+	APNsTeamID  string
+	APNsTopic   string
 }
 
 func Load() (*Config, error) {
@@ -120,6 +137,13 @@ func Load() (*Config, error) {
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 
 		HardcoverAPIToken: getEnv("HARDCOVER_API_TOKEN", ""),
+
+		PushEnabled:           getEnvAsBool("PUSH_ENABLED", false),
+		FCMServiceAccountJSON: getEnv("FCM_SERVICE_ACCOUNT_JSON", ""),
+		APNsKeyPath:           getEnv("APNS_KEY_PATH", ""),
+		APNsKeyID:             getEnv("APNS_KEY_ID", ""),
+		APNsTeamID:            getEnv("APNS_TEAM_ID", ""),
+		APNsTopic:             getEnv("APNS_TOPIC", "com.paperboxd.PaperBoxd"),
 	}, nil
 }
 
@@ -133,7 +157,37 @@ func (c *Config) Validate() error {
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
 	}
+	// Fail closed: push turned on with incomplete credentials would silently
+	// drop every notification for one platform. Name all the gaps at once so a
+	// misconfigured deploy needs one fix, not five restarts.
+	if c.PushEnabled {
+		var missing []string
+		for _, f := range []struct {
+			name, value string
+		}{
+			{"FCM_SERVICE_ACCOUNT_JSON", c.FCMServiceAccountJSON},
+			{"APNS_KEY_PATH", c.APNsKeyPath},
+			{"APNS_KEY_ID", c.APNsKeyID},
+			{"APNS_TEAM_ID", c.APNsTeamID},
+			{"APNS_TOPIC", c.APNsTopic},
+		} {
+			if f.value == "" {
+				missing = append(missing, f.name)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("PUSH_ENABLED is set but %s missing", strings.Join(missing, ", "))
+		}
+	}
 	return nil
+}
+
+func getEnvAsBool(key string, defaultVal bool) bool {
+	valStr := getEnv(key, "")
+	if val, err := strconv.ParseBool(valStr); err == nil {
+		return val
+	}
+	return defaultVal
 }
 
 func getEnv(key, defaultVal string) string {

@@ -38,10 +38,26 @@ func (q *Queries) CheckNewActivities(ctx context.Context, arg CheckNewActivities
 	return exists, err
 }
 
+const countUnreadActivities = `-- name: CountUnreadActivities :one
+SELECT COUNT(*) FROM activities
+WHERE target_user_id = $1 AND read_at IS NULL
+`
+
+// Unread badge for the notifications sheet. target_user_id is the "addressed to
+// you" marker — every activity type that carries one (liked_diary_entry,
+// shared_list, shared_book, granted_access) is notification-worthy, so no
+// activity_type filter is needed here.
+func (q *Queries) CountUnreadActivities(ctx context.Context, targetUserID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnreadActivities, targetUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createActivity = `-- name: CreateActivity :one
 INSERT INTO activities (user_id, activity_type, book_id, list_id, entry_id, target_user_id, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, activity_type, book_id, list_id, entry_id, target_user_id, metadata, created_at
+RETURNING id, user_id, activity_type, book_id, list_id, entry_id, target_user_id, metadata, created_at, read_at
 `
 
 type CreateActivityParams struct {
@@ -75,6 +91,7 @@ func (q *Queries) CreateActivity(ctx context.Context, arg CreateActivityParams) 
 		&i.TargetUserID,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.ReadAt,
 	)
 	return i, err
 }
@@ -95,7 +112,7 @@ func (q *Queries) DeleteUserActivities(ctx context.Context, arg DeleteUserActivi
 }
 
 const getActivityByID = `-- name: GetActivityByID :one
-SELECT id, user_id, activity_type, book_id, list_id, entry_id, target_user_id, metadata, created_at FROM activities
+SELECT id, user_id, activity_type, book_id, list_id, entry_id, target_user_id, metadata, created_at, read_at FROM activities
 WHERE id = $1
 `
 
@@ -112,6 +129,7 @@ func (q *Queries) GetActivityByID(ctx context.Context, id uuid.UUID) (Activity, 
 		&i.TargetUserID,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.ReadAt,
 	)
 	return i, err
 }
@@ -309,4 +327,17 @@ func (q *Queries) GetUserActivities(ctx context.Context, arg GetUserActivitiesPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const markActivitiesRead = `-- name: MarkActivitiesRead :exec
+UPDATE activities
+SET read_at = NOW()
+WHERE target_user_id = $1 AND read_at IS NULL
+`
+
+// Called when the sheet opens. Idempotent; leaves already-read rows alone so a
+// reopen does not churn timestamps.
+func (q *Queries) MarkActivitiesRead(ctx context.Context, targetUserID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, markActivitiesRead, targetUserID)
+	return err
 }

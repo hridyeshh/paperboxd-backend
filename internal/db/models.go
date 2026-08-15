@@ -20,15 +20,16 @@ type AccountDeletion struct {
 }
 
 type Activity struct {
-	ID           uuid.UUID        `json:"id"`
-	UserID       uuid.UUID        `json:"user_id"`
-	ActivityType string           `json:"activity_type"`
-	BookID       pgtype.UUID      `json:"book_id"`
-	ListID       pgtype.UUID      `json:"list_id"`
-	EntryID      pgtype.UUID      `json:"entry_id"`
-	TargetUserID pgtype.UUID      `json:"target_user_id"`
-	Metadata     []byte           `json:"metadata"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
+	ID           uuid.UUID          `json:"id"`
+	UserID       uuid.UUID          `json:"user_id"`
+	ActivityType string             `json:"activity_type"`
+	BookID       pgtype.UUID        `json:"book_id"`
+	ListID       pgtype.UUID        `json:"list_id"`
+	EntryID      pgtype.UUID        `json:"entry_id"`
+	TargetUserID pgtype.UUID        `json:"target_user_id"`
+	Metadata     []byte             `json:"metadata"`
+	CreatedAt    pgtype.Timestamp   `json:"created_at"`
+	ReadAt       pgtype.Timestamptz `json:"read_at"`
 }
 
 type Block struct {
@@ -91,6 +92,15 @@ type Bookshelf struct {
 	Review              pgtype.Text        `json:"review"`
 	ReviewedAt          pgtype.Timestamptz `json:"reviewed_at"`
 	ReviewEdited        bool               `json:"review_edited"`
+}
+
+type DeviceToken struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	Platform  string             `json:"platform"`
+	Token     string             `json:"token"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type DiaryEntry struct {

@@ -88,3 +88,18 @@ WHERE id = $1;
 -- name: DeleteUserActivities :exec
 DELETE FROM activities
 WHERE user_id = $1 AND activity_type = $2;
+
+-- name: CountUnreadActivities :one
+-- Unread badge for the notifications sheet. target_user_id is the "addressed to
+-- you" marker — every activity type that carries one (liked_diary_entry,
+-- shared_list, shared_book, granted_access) is notification-worthy, so no
+-- activity_type filter is needed here.
+SELECT COUNT(*) FROM activities
+WHERE target_user_id = $1 AND read_at IS NULL;
+
+-- name: MarkActivitiesRead :exec
+-- Called when the sheet opens. Idempotent; leaves already-read rows alone so a
+-- reopen does not churn timestamps.
+UPDATE activities
+SET read_at = NOW()
+WHERE target_user_id = $1 AND read_at IS NULL;
