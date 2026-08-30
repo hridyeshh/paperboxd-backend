@@ -195,7 +195,7 @@ func (m *MobileHandler) MobileAppleAuth(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	tok, err := m.issueMobileAccessToken(user.ID)
+	tok, refreshTok, err := m.issueMobileSession(r, user.ID)
 	if err != nil {
 		slog.Error("mobile apple auth: issue token", "error", err)
 		types.WriteInternalError(w)
@@ -206,6 +206,7 @@ func (m *MobileHandler) MobileAppleAuth(w http.ResponseWriter, r *http.Request) 
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":       tok,
+		"refresh_token": refreshTok,
 		"user":        toMobileUser(user),
 		"is_new_user": isNew,
 	})

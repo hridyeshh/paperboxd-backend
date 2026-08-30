@@ -46,6 +46,11 @@ type UserResponse struct {
 	FavoriteGenres    []string `json:"favorite_genres"`
 	CreatedAt         string   `json:"created_at"`
 	IsFollowing       *bool    `json:"is_following,omitempty"`
+	// HasRequested is set on a private profile a viewer cannot see yet: true once
+	// they have a follow request pending with the owner.
+	HasRequested *bool `json:"has_requested,omitempty"`
+	// CanView is false on the redacted stub of a private profile.
+	CanView *bool `json:"can_view,omitempty"`
 }
 
 // SuccessResponse is a generic success envelope.
@@ -218,8 +223,22 @@ func (r UserListResponse) WithPagination() UserListResponse {
 type FollowResponse struct {
 	Message        string `json:"message"`
 	IsFollowing    bool   `json:"isFollowing"`
-	FollowersCount int32  `json:"followersCount"`
-	FollowingCount int32  `json:"followingCount"`
+	// HasRequested is true when the target is private and the follow was
+	// recorded as a pending request instead.
+	HasRequested   bool  `json:"hasRequested"`
+	FollowersCount int32 `json:"followersCount"`
+	FollowingCount int32 `json:"followingCount"`
+}
+
+// FollowRequestUser is one pending request in the owner's inbox.
+type FollowRequestUser struct {
+	RequestID   string  `json:"request_id"`
+	RequestedAt string  `json:"requested_at"`
+	ID          string  `json:"id"`
+	Username    string  `json:"username"`
+	Name        string  `json:"name"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+	Bio         *string `json:"bio,omitempty"`
 }
 
 // FavoriteResponse is returned from GET /api/v1/users/:username/favorites.

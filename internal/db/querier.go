@@ -12,6 +12,9 @@ import (
 )
 
 type Querier interface {
+	// Going public accepts everyone who was waiting, so no request is orphaned
+	// behind a switch the requester cannot see.
+	AcceptAllFollowRequests(ctx context.Context, targetID uuid.UUID) error
 	// List Books Operations
 	AddBookToList(ctx context.Context, arg AddBookToListParams) (ListBook, error)
 	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
@@ -29,6 +32,7 @@ type Querier interface {
 	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
 	CheckEntryOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	CheckFavoriteExists(ctx context.Context, arg CheckFavoriteExistsParams) (bool, error)
+	CheckFollowRequest(ctx context.Context, arg CheckFollowRequestParams) (bool, error)
 	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
 	CheckListAccess(ctx context.Context, arg CheckListAccessParams) (bool, error)
 	// Authorization Helpers
@@ -44,6 +48,7 @@ type Querier interface {
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
 	// Counts friends actively reading this book right now.
 	CountFriendsReadingBook(ctx context.Context, arg CountFriendsReadingBookParams) (int64, error)
+	CountIncomingFollowRequests(ctx context.Context, targetID uuid.UUID) (int64, error)
 	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
 	// Unread badge for the notifications sheet. target_user_id is the "addressed to
@@ -59,6 +64,8 @@ type Querier interface {
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
 	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
+	// ── Follow requests (private profiles) ───────────────────────────────────────
+	CreateFollowRequest(ctx context.Context, arg CreateFollowRequestParams) (FollowRequest, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
 	CreateOTP(ctx context.Context, arg CreateOTPParams) (OtpCode, error)
 	CreateOTPWithMetadata(ctx context.Context, arg CreateOTPWithMetadataParams) (OtpCode, error)
@@ -75,6 +82,7 @@ type Querier interface {
 	// is dead regardless of who owns it, so this is intentionally unscoped.
 	DeleteDeviceTokenByToken(ctx context.Context, token string) error
 	DeleteDiaryEntry(ctx context.Context, id uuid.UUID) error
+	DeleteFollowRequest(ctx context.Context, arg DeleteFollowRequestParams) error
 	DeleteList(ctx context.Context, id uuid.UUID) error
 	DeleteOTPByEmail(ctx context.Context, email string) error
 	DeleteStaleDeviceTokens(ctx context.Context, updatedAt pgtype.Timestamptz) error
@@ -187,6 +195,7 @@ type Querier interface {
 	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
 	LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error
 	ListDeviceTokensByUser(ctx context.Context, userID uuid.UUID) ([]DeviceToken, error)
+	ListIncomingFollowRequests(ctx context.Context, arg ListIncomingFollowRequestsParams) ([]ListIncomingFollowRequestsRow, error)
 	LogReadingProgress(ctx context.Context, arg LogReadingProgressParams) error
 	// ============================================================================
 	// XP TRANSACTION LOGGING
@@ -215,6 +224,7 @@ type Querier interface {
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	SetUserReferredBy(ctx context.Context, arg SetUserReferredByParams) error
+	SetUserVisibility(ctx context.Context, arg SetUserVisibilityParams) (User, error)
 	// Soft-delete the user and free their email/username so they (or anyone) can
 	// re-register with the same identifiers. The original values are preserved in
 	// the account_deletions audit table by RecordAccountDeletion (called first).

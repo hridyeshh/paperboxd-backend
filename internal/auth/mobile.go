@@ -82,6 +82,25 @@ func toMobileUser(u db.User) mobileUser {
 	return mu
 }
 
+// issueMobileSession mints the long-lived mobile access token together with a
+// database-backed refresh token.
+//
+// The refresh token is an opaque random string stored as a hash, so it does NOT
+// depend on JWT_SECRET. That is the whole point: rotating the signing secret (or
+// simply redeploying with a new one) invalidates every access token, and without
+// a refresh token the app has no way back and silently signs the user out.
+func (m *MobileHandler) issueMobileSession(r *http.Request, userID uuid.UUID) (accessToken, refreshToken string, err error) {
+	accessToken, err = m.issueMobileAccessToken(userID)
+	if err != nil {
+		return "", "", err
+	}
+	refreshToken, err = m.issueRefreshTokenOnly(r, userID)
+	if err != nil {
+		return "", "", err
+	}
+	return accessToken, refreshToken, nil
+}
+
 // issueMobileAccessToken signs a long-lived (cfg.AccessTokenExpiryMobile) JWT.
 // No refresh-token row is persisted — mobile clients call /refresh to re-mint.
 func (m *MobileHandler) issueMobileAccessToken(userID uuid.UUID) (string, error) {
@@ -119,7 +138,7 @@ func (m *MobileHandler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tok, err := m.issueMobileAccessToken(user.ID)
+	tok, refreshTok, err := m.issueMobileSession(r, user.ID)
 	if err != nil {
 		slog.Error("mobile login: issue token", "error", err)
 		types.WriteInternalError(w)
@@ -130,6 +149,7 @@ func (m *MobileHandler) MobileLogin(w http.ResponseWriter, r *http.Request) {
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"token": tok,
+		"refresh_token": refreshTok,
 		"user":  toMobileUser(user),
 	})
 }
@@ -186,7 +206,7 @@ func (m *MobileHandler) MobileRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tok, err := m.issueMobileAccessToken(user.ID)
+	tok, refreshTok, err := m.issueMobileSession(r, user.ID)
 	if err != nil {
 		slog.Error("mobile register: issue token", "error", err)
 		types.WriteInternalError(w)
@@ -195,6 +215,7 @@ func (m *MobileHandler) MobileRegister(w http.ResponseWriter, r *http.Request) {
 
 	types.WriteJSON(w, http.StatusCreated, map[string]any{
 		"token": tok,
+		"refresh_token": refreshTok,
 		"user":  toMobileUser(user),
 	})
 }
@@ -309,7 +330,7 @@ func (m *MobileHandler) MobileVerifyOTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tok, err := m.issueMobileAccessToken(user.ID)
+	tok, refreshTok, err := m.issueMobileSession(r, user.ID)
 	if err != nil {
 		slog.Error("mobile verify otp: issue token", "error", err)
 		types.WriteInternalError(w)
@@ -320,6 +341,7 @@ func (m *MobileHandler) MobileVerifyOTP(w http.ResponseWriter, r *http.Request) 
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"token": tok,
+		"refresh_token": refreshTok,
 		"user":  toMobileUser(user),
 	})
 }
@@ -397,7 +419,7 @@ func (m *MobileHandler) MobileGoogleAuth(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	tok, err := m.issueMobileAccessToken(user.ID)
+	tok, refreshTok, err := m.issueMobileSession(r, user.ID)
 	if err != nil {
 		slog.Error("mobile google auth: issue token", "error", err)
 		types.WriteInternalError(w)
@@ -408,6 +430,7 @@ func (m *MobileHandler) MobileGoogleAuth(w http.ResponseWriter, r *http.Request)
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":       tok,
+		"refresh_token": refreshTok,
 		"user":        toMobileUser(user),
 		"is_new_user": isNew,
 	})
@@ -418,9 +441,55 @@ func (m *MobileHandler) MobileGoogleAuth(w http.ResponseWriter, r *http.Request)
 // a new long-lived token if the current one is still valid. Mobile clients
 // should refresh before expiry rather than after.
 func (m *MobileHandler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
+	// Preferred path: an opaque, database-backed refresh token. It does not
+	// depend on JWT_SECRET, so a session survives a redeploy that rotates the
+	// signing secret — which is exactly when the old Bearer-only path failed and
+	// silently signed everyone out.
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if strings.TrimSpace(req.RefreshToken) != "" {
+		tokenHash := hashToken(strings.TrimSpace(req.RefreshToken))
+
+		stored, err := m.queries.GetRefreshToken(r.Context(), tokenHash)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				types.WriteError(w, http.StatusUnauthorized, types.ErrCodeInvalidToken, "Refresh token is invalid or expired")
+				return
+			}
+			slog.Error("mobile refresh: get refresh token", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+
+		// Rotate so a leaked token is single-use.
+		if err := m.queries.RevokeRefreshToken(r.Context(), tokenHash); err != nil {
+			slog.Error("mobile refresh: revoke old token", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+
+		tok, newRefresh, err := m.issueMobileSession(r, stored.UserID)
+		if err != nil {
+			slog.Error("mobile refresh: issue session", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		types.WriteJSON(w, http.StatusOK, map[string]any{
+			"token":         tok,
+			"refresh_token": newRefresh,
+		})
+		return
+	}
+
+	// Legacy path for installs shipped before refresh tokens existed: swap a
+	// still-valid access token for a fresh pair. It cannot rescue a session
+	// whose token already failed, which is why the path above exists.
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authHeader == "" {
-		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Authorization header required")
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "refresh_token or Authorization header required")
 		return
 	}
 	parts := strings.SplitN(authHeader, " ", 2)
@@ -437,13 +506,16 @@ func (m *MobileHandler) MobileRefresh(w http.ResponseWriter, r *http.Request) {
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeInvalidToken, "Invalid access token")
 		return
 	}
-	tok, err := m.issueMobileAccessToken(claims.UserID)
+	tok, newRefresh, err := m.issueMobileSession(r, claims.UserID)
 	if err != nil {
-		slog.Error("mobile refresh: issue token", "error", err)
+		slog.Error("mobile refresh: issue session", "error", err)
 		types.WriteInternalError(w)
 		return
 	}
-	types.WriteJSON(w, http.StatusOK, map[string]any{"token": tok})
+	types.WriteJSON(w, http.StatusOK, map[string]any{
+		"token":         tok,
+		"refresh_token": newRefresh,
+	})
 }
 
 // MobileUpdateMe handles PATCH /api/mobile/users/me.

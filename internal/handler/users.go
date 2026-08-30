@@ -92,17 +92,55 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attach is_following when an authenticated viewer requests another user's profile.
+	isSelf := false
+	isFollowing := false
+	hasRequested := false
 	if viewerIDStr, ok := reqctx.GetUserID(r.Context()); ok {
-		if viewerID, err := uuid.Parse(viewerIDStr); err == nil && viewerID != user.ID {
-			isFollowing, err := h.Queries.CheckFollowing(r.Context(), db.CheckFollowingParams{
-				FollowerID:  viewerID,
-				FollowingID: user.ID,
-			})
-			if err == nil {
-				resp.IsFollowing = &isFollowing
+		if viewerID, err := uuid.Parse(viewerIDStr); err == nil {
+			if viewerID == user.ID {
+				isSelf = true
+			} else {
+				if following, err := h.Queries.CheckFollowing(r.Context(), db.CheckFollowingParams{
+					FollowerID:  viewerID,
+					FollowingID: user.ID,
+				}); err == nil {
+					isFollowing = following
+					resp.IsFollowing = &isFollowing
+				}
+				if !user.IsPublic && !isFollowing {
+					if requested, err := h.Queries.CheckFollowRequest(r.Context(), db.CheckFollowRequestParams{
+						RequesterID: viewerID,
+						TargetID:    user.ID,
+					}); err == nil {
+						hasRequested = requested
+					}
+				}
 			}
 		}
 	}
+
+	// A private profile shows a stranger only enough to decide whether to ask:
+	// who this is, and how to request. Everything they have read is stripped
+	// here, and the middleware blocks the routes that would serve it directly.
+	canView := user.IsPublic || isSelf || isFollowing
+	if !canView {
+		resp = types.UserResponse{
+			ID:             resp.ID,
+			MongoID:        resp.MongoID,
+			Username:       resp.Username,
+			Name:           resp.Name,
+			AvatarURL:      resp.AvatarURL,
+			Bio:            resp.Bio,
+			Pronouns:       resp.Pronouns,
+			IsPublic:       false,
+			FollowersCount: resp.FollowersCount,
+			FollowingCount: resp.FollowingCount,
+			CreatedAt:      resp.CreatedAt,
+			IsFollowing:    &isFollowing,
+			HasRequested:   &hasRequested,
+		}
+	}
+	resp.CanView = &canView
 
 	types.WriteJSON(w, http.StatusOK, resp)
 }
@@ -607,7 +645,7 @@ func userToResponse(u db.User) types.UserResponse {
 		MongoID:        u.ID.String(),
 		Username:       u.Username,
 		Email:          u.Email,
-		IsPublic:       u.IsPublic.Bool,
+		IsPublic:       u.IsPublic,
 		BooksReadCount: u.BooksReadCount.Int32,
 		TotalPagesRead: u.TotalPagesRead.Int32,
 		FavoritesCount:    u.FavoritesCount,

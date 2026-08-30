@@ -9,7 +9,43 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const acceptAllFollowRequests = `-- name: AcceptAllFollowRequests :exec
+WITH moved AS (
+    DELETE FROM follow_requests WHERE target_id = $1
+    RETURNING requester_id, target_id
+)
+INSERT INTO follows (follower_id, following_id)
+SELECT requester_id, target_id FROM moved
+ON CONFLICT (follower_id, following_id) DO NOTHING
+`
+
+// Going public accepts everyone who was waiting, so no request is orphaned
+// behind a switch the requester cannot see.
+func (q *Queries) AcceptAllFollowRequests(ctx context.Context, targetID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, acceptAllFollowRequests, targetID)
+	return err
+}
+
+const checkFollowRequest = `-- name: CheckFollowRequest :one
+SELECT EXISTS(
+    SELECT 1 FROM follow_requests WHERE requester_id = $1 AND target_id = $2
+)
+`
+
+type CheckFollowRequestParams struct {
+	RequesterID uuid.UUID `json:"requester_id"`
+	TargetID    uuid.UUID `json:"target_id"`
+}
+
+func (q *Queries) CheckFollowRequest(ctx context.Context, arg CheckFollowRequestParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkFollowRequest, arg.RequesterID, arg.TargetID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
 
 const checkFollowing = `-- name: CheckFollowing :one
 SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2)
@@ -51,6 +87,60 @@ func (q *Queries) CountFollowing(ctx context.Context, followerID uuid.UUID) (int
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countIncomingFollowRequests = `-- name: CountIncomingFollowRequests :one
+SELECT COUNT(*) FROM follow_requests fr
+JOIN users u ON u.id = fr.requester_id
+WHERE fr.target_id = $1 AND u.deleted_at IS NULL
+`
+
+func (q *Queries) CountIncomingFollowRequests(ctx context.Context, targetID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countIncomingFollowRequests, targetID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createFollowRequest = `-- name: CreateFollowRequest :one
+
+INSERT INTO follow_requests (requester_id, target_id)
+VALUES ($1, $2)
+ON CONFLICT (requester_id, target_id)
+DO UPDATE SET created_at = follow_requests.created_at
+RETURNING id, requester_id, target_id, created_at
+`
+
+type CreateFollowRequestParams struct {
+	RequesterID uuid.UUID `json:"requester_id"`
+	TargetID    uuid.UUID `json:"target_id"`
+}
+
+// ── Follow requests (private profiles) ───────────────────────────────────────
+func (q *Queries) CreateFollowRequest(ctx context.Context, arg CreateFollowRequestParams) (FollowRequest, error) {
+	row := q.db.QueryRow(ctx, createFollowRequest, arg.RequesterID, arg.TargetID)
+	var i FollowRequest
+	err := row.Scan(
+		&i.ID,
+		&i.RequesterID,
+		&i.TargetID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deleteFollowRequest = `-- name: DeleteFollowRequest :exec
+DELETE FROM follow_requests WHERE requester_id = $1 AND target_id = $2
+`
+
+type DeleteFollowRequestParams struct {
+	RequesterID uuid.UUID `json:"requester_id"`
+	TargetID    uuid.UUID `json:"target_id"`
+}
+
+func (q *Queries) DeleteFollowRequest(ctx context.Context, arg DeleteFollowRequestParams) error {
+	_, err := q.db.Exec(ctx, deleteFollowRequest, arg.RequesterID, arg.TargetID)
+	return err
 }
 
 const followUser = `-- name: FollowUser :one
@@ -222,6 +312,93 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]U
 			&i.BannerUrl,
 			&i.ScanUsesRemaining,
 			&i.AppleUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIncomingFollowRequests = `-- name: ListIncomingFollowRequests :many
+SELECT fr.id AS request_id, fr.created_at AS requested_at, u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.diary_entries_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id
+FROM follow_requests fr
+JOIN users u ON u.id = fr.requester_id
+WHERE fr.target_id = $1 AND u.deleted_at IS NULL
+ORDER BY fr.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListIncomingFollowRequestsParams struct {
+	TargetID uuid.UUID `json:"target_id"`
+	Limit    int32     `json:"limit"`
+	Offset   int32     `json:"offset"`
+}
+
+type ListIncomingFollowRequestsRow struct {
+	RequestID   uuid.UUID          `json:"request_id"`
+	RequestedAt pgtype.Timestamptz `json:"requested_at"`
+	User        User               `json:"user"`
+}
+
+func (q *Queries) ListIncomingFollowRequests(ctx context.Context, arg ListIncomingFollowRequestsParams) ([]ListIncomingFollowRequestsRow, error) {
+	rows, err := q.db.Query(ctx, listIncomingFollowRequests, arg.TargetID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListIncomingFollowRequestsRow{}
+	for rows.Next() {
+		var i ListIncomingFollowRequestsRow
+		if err := rows.Scan(
+			&i.RequestID,
+			&i.RequestedAt,
+			&i.User.ID,
+			&i.User.Username,
+			&i.User.Email,
+			&i.User.PasswordHash,
+			&i.User.Name,
+			&i.User.AvatarUrl,
+			&i.User.Bio,
+			&i.User.Pronouns,
+			&i.User.IsPublic,
+			&i.User.FavoriteGenres,
+			&i.User.Settings,
+			&i.User.FollowersCount,
+			&i.User.FollowingCount,
+			&i.User.BooksReadCount,
+			&i.User.CreatedAt,
+			&i.User.UpdatedAt,
+			&i.User.LastActive,
+			&i.User.DeletedAt,
+			&i.User.MongoID,
+			&i.User.Birthday,
+			&i.User.Gender,
+			&i.User.Links,
+			&i.User.TotalPagesRead,
+			&i.User.FavoritesCount,
+			&i.User.ListsCount,
+			&i.User.DiaryEntriesCount,
+			&i.User.ReadingGoalYear,
+			&i.User.ReadingGoalTarget,
+			&i.User.ReadingGoalCurrent,
+			&i.User.TotalXp,
+			&i.User.Level,
+			&i.User.CurrentStreak,
+			&i.User.LongestStreak,
+			&i.User.LastActivityDate,
+			&i.User.ShowOnLeaderboard,
+			&i.User.ReferralCode,
+			&i.User.ReferredBy,
+			&i.User.ReferralCount,
+			&i.User.ReferralRewardsClaimed,
+			&i.User.OnboardingCompleted,
+			&i.User.BannerUrl,
+			&i.User.ScanUsesRemaining,
+			&i.User.AppleUserID,
 		); err != nil {
 			return nil, err
 		}

@@ -321,6 +321,10 @@ func main() {
 			r.Get("/users/me/referral", referralHandler.GetMyReferralCode)
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
 			r.Get("/users/me/wrapped", wrappedHandler.Get)
+			r.Patch("/users/me/visibility", userHandler.UpdateVisibility)
+			r.Get("/users/me/follow-requests", userHandler.ListFollowRequests)
+			r.Post("/users/me/follow-requests/{username}", userHandler.AcceptFollowRequest)
+			r.Delete("/users/me/follow-requests/{username}", userHandler.RejectFollowRequest)
 			r.Patch("/users/me/avatar", userHandler.UpdateAvatar)
 			r.Post("/users/me/avatar/upload", userHandler.UploadAvatar)
 			r.Post("/users/me/banner/upload", userHandler.UploadBanner)
@@ -430,6 +434,13 @@ func main() {
 			r.Get("/search", userHandler.Search)
 
 			r.Route("/{username}", func(r chi.Router) {
+				// Identify the viewer, then refuse every GET under a private
+				// profile unless they are the owner or an approved follower.
+				// Mounted on the subtree so routes added later inherit it; the
+				// bare profile GET is allowed through and redacts itself.
+				r.Use(appMiddleware.OptionalAuthenticate(cfg.JWTSecret))
+				r.Use(appMiddleware.RequireProfileAccess(queries))
+
 				// Public routes
 				r.Get("/", userHandler.GetByUsername)
 				r.Get("/likes", userHandler.GetLikes)

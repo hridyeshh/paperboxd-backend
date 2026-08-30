@@ -26,6 +26,7 @@ const (
 	ErrCodeInternalServer = "INTERNAL_ERROR"
 	ErrCodeInvalidToken   = "INVALID_TOKEN"
 	ErrCodeExpiredToken   = "EXPIRED_TOKEN"
+	ErrCodePrivateProfile = "PRIVATE_PROFILE"
 )
 
 // AppError is kept for backwards source-compatibility with code that previously

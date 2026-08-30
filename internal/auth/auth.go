@@ -565,6 +565,26 @@ func (h *Handler) issueTokens(r *http.Request, userID uuid.UUID) (accessToken, r
 	return accessToken, rawRefresh, nil
 }
 
+// issueRefreshTokenOnly stores a fresh database-backed refresh token for a user
+// whose access token was minted separately (the mobile flow, which uses a
+// different access-token lifetime).
+func (h *Handler) issueRefreshTokenOnly(r *http.Request, userID uuid.UUID) (string, error) {
+	rawRefresh, err := generateSecureToken()
+	if err != nil {
+		return "", fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	if _, err := h.queries.CreateRefreshToken(r.Context(), db.CreateRefreshTokenParams{
+		UserID:     userID,
+		TokenHash:  hashToken(rawRefresh),
+		ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(h.cfg.RefreshTokenExpiry), Valid: true},
+		DeviceInfo: extractDeviceInfo(r),
+	}); err != nil {
+		return "", fmt.Errorf("store refresh token: %w", err)
+	}
+	return rawRefresh, nil
+}
+
 // generateSecureToken creates a 32-byte cryptographically random hex string.
 func generateSecureToken() (string, error) {
 	b := make([]byte, 32)
@@ -597,7 +617,7 @@ func toUserResponse(u db.User) types.UserResponse {
 		MongoID:        u.ID.String(),
 		Username:       u.Username,
 		Email:          u.Email,
-		IsPublic:       u.IsPublic.Bool,
+		IsPublic:       u.IsPublic,
 		BooksReadCount: u.BooksReadCount.Int32,
 		TotalPagesRead: u.TotalPagesRead.Int32,
 		FavoritesCount: u.FavoritesCount,

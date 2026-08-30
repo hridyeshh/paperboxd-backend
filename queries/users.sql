@@ -89,3 +89,8 @@ INSERT INTO account_deletions (
 ) VALUES (
     $1, $2, $3, $4
 );
+
+-- name: SetUserVisibility :one
+UPDATE users SET is_public = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING *;

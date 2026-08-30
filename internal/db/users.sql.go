@@ -430,6 +430,68 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 	return items, nil
 }
 
+const setUserVisibility = `-- name: SetUserVisibility :one
+UPDATE users SET is_public = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+`
+
+type SetUserVisibilityParams struct {
+	ID       uuid.UUID `json:"id"`
+	IsPublic bool      `json:"is_public"`
+}
+
+func (q *Queries) SetUserVisibility(ctx context.Context, arg SetUserVisibilityParams) (User, error) {
+	row := q.db.QueryRow(ctx, setUserVisibility, arg.ID, arg.IsPublic)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Bio,
+		&i.Pronouns,
+		&i.IsPublic,
+		&i.FavoriteGenres,
+		&i.Settings,
+		&i.FollowersCount,
+		&i.FollowingCount,
+		&i.BooksReadCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastActive,
+		&i.DeletedAt,
+		&i.MongoID,
+		&i.Birthday,
+		&i.Gender,
+		&i.Links,
+		&i.TotalPagesRead,
+		&i.FavoritesCount,
+		&i.ListsCount,
+		&i.DiaryEntriesCount,
+		&i.ReadingGoalYear,
+		&i.ReadingGoalTarget,
+		&i.ReadingGoalCurrent,
+		&i.TotalXp,
+		&i.Level,
+		&i.CurrentStreak,
+		&i.LongestStreak,
+		&i.LastActivityDate,
+		&i.ShowOnLeaderboard,
+		&i.ReferralCode,
+		&i.ReferredBy,
+		&i.ReferralCount,
+		&i.ReferralRewardsClaimed,
+		&i.OnboardingCompleted,
+		&i.BannerUrl,
+		&i.ScanUsesRemaining,
+		&i.AppleUserID,
+	)
+	return i, err
+}
+
 const softDeleteUser = `-- name: SoftDeleteUser :exec
 UPDATE users
 SET deleted_at = NOW(),

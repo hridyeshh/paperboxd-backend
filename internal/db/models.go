@@ -160,6 +160,13 @@ type Follow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type FollowRequest struct {
+	ID          uuid.UUID          `json:"id"`
+	RequesterID uuid.UUID          `json:"requester_id"`
+	TargetID    uuid.UUID          `json:"target_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type LeaderboardStat struct {
 	UserID         uuid.UUID        `json:"user_id"`
 	Username       string           `json:"username"`
@@ -313,7 +320,7 @@ type User struct {
 	AvatarUrl              pgtype.Text        `json:"avatar_url"`
 	Bio                    pgtype.Text        `json:"bio"`
 	Pronouns               []string           `json:"pronouns"`
-	IsPublic               pgtype.Bool        `json:"is_public"`
+	IsPublic               bool               `json:"is_public"`
 	FavoriteGenres         []string           `json:"favorite_genres"`
 	Settings               []byte             `json:"settings"`
 	FollowersCount         pgtype.Int4        `json:"followers_count"`

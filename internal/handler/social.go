@@ -63,6 +63,29 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A private account is not followed directly — the follow becomes a request
+	// the owner approves, and nothing about their profile opens up until then.
+	if !target.IsPublic {
+		if _, err := h.Queries.CreateFollowRequest(r.Context(), db.CreateFollowRequestParams{
+			RequesterID: followerID,
+			TargetID:    target.ID,
+		}); err != nil {
+			slog.Error("create follow request", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		followersCount, _ := h.Queries.CountFollowers(r.Context(), target.ID)
+		followingCount, _ := h.Queries.CountFollowing(r.Context(), target.ID)
+		types.WriteJSON(w, http.StatusOK, types.FollowResponse{
+			Message:        "Requested to follow " + username,
+			IsFollowing:    false,
+			HasRequested:   true,
+			FollowersCount: int32(followersCount),
+			FollowingCount: int32(followingCount),
+		})
+		return
+	}
+
 	_, err = h.Queries.FollowUser(r.Context(), db.FollowUserParams{
 		FollowerID:  followerID,
 		FollowingID: target.ID,
@@ -131,6 +154,14 @@ func (h *UserHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		slog.Error("unfollow user", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	// Same button cancels a pending request on a private account.
+	if err := h.Queries.DeleteFollowRequest(r.Context(), db.DeleteFollowRequestParams{
+		RequesterID: followerID,
+		TargetID:    target.ID,
+	}); err != nil {
+		slog.Error("delete follow request on unfollow", "error", err)
 	}
 
 	go func() {

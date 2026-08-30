@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS follow_requests;
+
+ALTER TABLE users ALTER COLUMN is_public DROP NOT NULL;
