@@ -27,6 +27,23 @@ var validStatuses = map[string]bool{
 	"to-read": true,
 }
 
+// MinPagesToRate is how far into a book a reader must be before they can rate
+// or review it. Finishing the book satisfies the gate on its own — see
+// canRateEntry — because MarkAsFinished leaves current_page NULL for books
+// whose page count we don't know.
+const MinPagesToRate = 20
+
+// canRateEntry reports whether a shelf entry has been read far enough to carry
+// a rating or review.
+func canRateEntry(entry db.Bookshelf) bool {
+	if entry.Status == "read" {
+		return true
+	}
+	return entry.CurrentPage.Valid && entry.CurrentPage.Int32 >= MinPagesToRate
+}
+
+const rateGateMessage = "Log at least 20 pages before rating or reviewing this book"
+
 // AddToBookshelf handles POST /api/v1/users/:username/bookshelf.
 // Accepts book_id (UUID), isbn, or google_books_id to identify the book.
 // If the book isn't cached in the DB it will be fetched from ISBNdb / Google Books and stored.
@@ -118,6 +135,13 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 	if req.Rating != nil {
 		if *req.Rating < 1 || *req.Rating > 5 {
 			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "rating must be between 1 and 5")
+			return
+		}
+		// Shelving with a rating is the other write path into bookshelf.rating,
+		// so it carries the same gate as UpdateBookshelfRating. A brand-new
+		// entry has no pages logged, so only 'read' can arrive pre-rated.
+		if req.Status != "read" {
+			types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, rateGateMessage)
 			return
 		}
 		params.Rating = pgtype.Int4{Int32: int32(*req.Rating), Valid: true}
@@ -301,6 +325,30 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 	if req.Review != nil && len([]rune(*req.Review)) > 500 {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "review must be 500 characters or fewer")
 		return
+	}
+
+	// Setting a rating or review requires having actually read the book; clearing
+	// one (rating 0 / null review) is always allowed so a reader can undo.
+	isClearing := (req.Rating == nil || *req.Rating == 0) &&
+		(req.Review == nil || *req.Review == "")
+	if !isClearing {
+		entry, err := h.Queries.GetBookshelfEntry(r.Context(), db.GetBookshelfEntryParams{
+			UserID: userID,
+			BookID: bookID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, rateGateMessage)
+			return
+		}
+		if err != nil {
+			slog.Error("get bookshelf entry for rate gate", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		if !canRateEntry(entry) {
+			types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, rateGateMessage)
+			return
+		}
 	}
 
 	params := db.UpdateBookshelfRatingParams{
