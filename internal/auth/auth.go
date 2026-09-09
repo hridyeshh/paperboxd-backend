@@ -70,6 +70,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create user
+	// The birthday is age-checked in validateRegister and deliberately not
+	// stored: the minimum-age check is the only thing it is needed for, and a
+	// date of birth we do not keep is one we cannot leak. Readers who want it
+	// on their profile add it there.
 	user, err := h.queries.CreateUser(r.Context(), db.CreateUserParams{
 		Username:       req.Username,
 		Email:          req.Email,
@@ -657,8 +661,47 @@ func toUserResponse(u db.User) types.UserResponse {
 }
 
 // validateRegister returns a list of validation error messages.
+// MinimumAgeYears is the published minimum age (privacy policy §9, terms §2).
+const MinimumAgeYears = 18
+
+// errUnderage is returned for a well-formed birthday that fails the age check.
+var errUnderage = fmt.Errorf("You must be at least %d years old to use PaperBoxd", MinimumAgeYears)
+
+// validateBirthday age-checks a YYYY-MM-DD date against MinimumAgeYears.
+//
+// An empty string passes: the field is not yet required, because iOS and
+// Android do not send it and rejecting their registrations would be a breaking
+// change shipped from the server. Once every client collects a date of birth,
+// make this reject "" and the gate becomes universal.
+func validateBirthday(birthday string) error {
+	if birthday == "" {
+		return nil
+	}
+	dob, err := time.Parse("2006-01-02", birthday)
+	if err != nil {
+		return fmt.Errorf("birthday must be in YYYY-MM-DD format")
+	}
+	if dob.After(time.Now()) {
+		return fmt.Errorf("birthday cannot be in the future")
+	}
+	if !isAtLeastAge(dob, time.Now(), MinimumAgeYears) {
+		return errUnderage
+	}
+	return nil
+}
+
+// isAtLeastAge reports whether someone born on dob has reached `years` by `now`.
+// Compared by calendar date, so a birthday later today does not count yet.
+func isAtLeastAge(dob, now time.Time, years int) bool {
+	return !dob.AddDate(years, 0, 0).After(now)
+}
+
 func validateRegister(req types.RegisterRequest) []string {
 	var errs []string
+
+	if err := validateBirthday(req.Birthday); err != nil {
+		errs = append(errs, err.Error())
+	}
 
 	if len(req.Username) < 3 || len(req.Username) > 50 {
 		errs = append(errs, "Username must be 3-50 characters")

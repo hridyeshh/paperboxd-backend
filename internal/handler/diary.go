@@ -90,6 +90,15 @@ func (h *DiaryHandler) resolveBookForDiary(ctx context.Context, bookID, isbn, go
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 // CreateDiaryEntry handles POST /api/v1/users/:username/diary.
+// shouldEmbedDiaryEntry reports whether an entry may be sent to the embedding
+// provider. Private entries never qualify: the text would leave this system for
+// Cohere and persist in cleartext in diary_entries.embedding_text, which
+// contradicts what the is_private toggle promises the reader. Entries with no
+// book are skipped because the embedding is keyed to book context.
+func shouldEmbedDiaryEntry(hasBook, isPrivate bool) bool {
+	return hasBook && !isPrivate
+}
+
 func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) {
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
@@ -189,7 +198,7 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
 	}()
 
-	if h.RecommendationService != nil && entry.BookID.Valid {
+	if h.RecommendationService != nil && shouldEmbedDiaryEntry(entry.BookID.Valid, req.IsPrivate) {
 		entryIDStr := entryID.String()
 		bookUUID := entry.BookID.Bytes
 		content := req.Content
@@ -507,6 +516,16 @@ func (h *DiaryHandler) UpdateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 		slog.Error("update diary entry", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	// Flipping an entry to private must retract what the public version already
+	// leaked: the stored vector and the cleartext embedding_text. Unconditional
+	// on isPrivate rather than on the transition — it is idempotent, and a row
+	// that predates the create-path guard may hold a vector while already private.
+	if isPrivate && h.RecommendationService != nil {
+		if err := h.RecommendationService.ClearDiaryEmbedding(r.Context(), entryID.String()); err != nil {
+			slog.Warn("clear diary embedding on privacy flip", "error", err, "entry_id", entryID)
+		}
 	}
 
 	owner, _ := h.Queries.GetUserByID(r.Context(), userID)

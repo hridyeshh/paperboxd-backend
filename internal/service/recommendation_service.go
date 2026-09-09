@@ -1476,6 +1476,18 @@ func DiaryEmbedText(bookTitle string, bookAuthors []string, content string) stri
 	return strings.Join(parts, "\n")
 }
 
+// ClearDiaryEmbedding drops the stored vector and the cleartext embedding_text
+// for one entry. Used when an entry becomes private: the centroid query filters
+// on `embedding IS NOT NULL`, so clearing the vector also removes the entry from
+// the next diary_embedding recompute without touching the aggregate directly.
+func (s *RecommendationService) ClearDiaryEmbedding(ctx context.Context, entryID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE diary_entries SET embedding = NULL, embedding_text = NULL WHERE id = $1`,
+		entryID,
+	)
+	return err
+}
+
 // EmbedDiaryEntryAsync embeds a diary entry and persists the vector.
 // Designed to run as a fire-and-forget goroutine.
 func (s *RecommendationService) EmbedDiaryEntryAsync(entryID, bookTitle string, bookAuthors []string, content string) {
@@ -1565,10 +1577,14 @@ func (s *RecommendationService) ComputeAndSaveDiaryCentroid(ctx context.Context,
 	signalJSON, _ := json.Marshal(signal)
 
 	if len(embeddings) == 0 {
+		// diary_embedding must be nulled, not merely left unset: a reader whose
+		// only embedded entries have since been made private would otherwise keep
+		// a centroid still derived from that private text.
 		_, err = s.pool.Exec(ctx, `
 			INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, diary_signal, signal_version)
 			VALUES ($1, '{}', '{}', $2, 1)
 			ON CONFLICT (user_id) DO UPDATE SET
+			    diary_embedding = NULL,
 			    diary_signal    = EXCLUDED.diary_signal,
 			    signal_version  = user_signal_profiles.signal_version + 1,
 			    computed_at     = NOW()

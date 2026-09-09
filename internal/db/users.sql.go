@@ -328,24 +328,22 @@ func (q *Queries) LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams
 
 const recordAccountDeletion = `-- name: RecordAccountDeletion :exec
 INSERT INTO account_deletions (
-    user_id, email, username, reasons
+    user_id, email_hash, reasons
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3
 )
 `
 
 type RecordAccountDeletionParams struct {
-	UserID   pgtype.UUID `json:"user_id"`
-	Email    string      `json:"email"`
-	Username pgtype.Text `json:"username"`
-	Reasons  []string    `json:"reasons"`
+	UserID    pgtype.UUID `json:"user_id"`
+	EmailHash string      `json:"email_hash"`
+	Reasons   []string    `json:"reasons"`
 }
 
 func (q *Queries) RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error {
 	_, err := q.db.Exec(ctx, recordAccountDeletion,
 		arg.UserID,
-		arg.Email,
-		arg.Username,
+		arg.EmailHash,
 		arg.Reasons,
 	)
 	return err

@@ -84,10 +84,12 @@ SET deleted_at = NOW(),
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: RecordAccountDeletion :exec
+-- email_hash, not the address: this row outlives the 30-day hard purge, so a
+-- cleartext address here would outlive the account forever. See migration 41.
 INSERT INTO account_deletions (
-    user_id, email, username, reasons
+    user_id, email_hash, reasons
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3
 );
 
 -- name: SetUserVisibility :one

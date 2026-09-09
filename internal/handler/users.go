@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -337,11 +339,16 @@ func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hash, not the address. This audit row is intentionally not FK-linked to
+	// users, so it survives the 30-day hard purge; a cleartext email here would
+	// outlive the deleted account indefinitely. The hash still supports the
+	// retention questions this table exists to answer (how many, why, repeat
+	// signups) without holding a readable identifier.
+	emailSum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(user.Email))))
 	if err := h.Queries.RecordAccountDeletion(r.Context(), db.RecordAccountDeletionParams{
-		UserID:   pgtype.UUID{Bytes: userID, Valid: true},
-		Email:    user.Email,
-		Username: pgtype.Text{String: user.Username, Valid: user.Username != ""},
-		Reasons:  req.Reasons,
+		UserID:    pgtype.UUID{Bytes: userID, Valid: true},
+		EmailHash: hex.EncodeToString(emailSum[:]),
+		Reasons:   req.Reasons,
 	}); err != nil {
 		// Non-fatal: don't block deletion just because the audit write failed.
 		slog.Warn("record account deletion", "error", err, "user_id", userID)

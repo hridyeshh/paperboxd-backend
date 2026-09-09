@@ -6,6 +6,9 @@ type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+	// Birthday is YYYY-MM-DD. Optional on the wire so existing mobile clients
+	// keep working, but when present it is age-checked — see MinimumAgeYears.
+	Birthday string `json:"birthday"`
 }
 
 // LoginRequest is the payload for POST /api/v1/auth/login.

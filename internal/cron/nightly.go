@@ -27,8 +27,61 @@ func StartNightlyCron(pool *pgxpool.Pool, recSvc *service.RecommendationService)
 func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
 	slog.Info("nightly jobs: starting")
 	recomputeStaleProfiles(pool, recSvc)
+	recomputeStaleDiaryCentroids(pool, recSvc)
 	purgeSoftDeletedUsers(pool)
 	slog.Info("nightly jobs: done")
+}
+
+// recomputeStaleDiaryCentroids refreshes user_signal_profiles.diary_embedding.
+//
+// recomputeStaleProfiles cannot cover this: it enumerates from `bookshelf` and
+// calls GetOrComputeSignalProfile, which rebuilds bookshelf and fast-finish
+// signals but never touches the diary centroid. Before this job existed the
+// only caller of ComputeAndSaveDiaryCentroid was cmd/backfill-embeddings, a
+// manual one-off — so a reader's centroid was whatever the last backfill left,
+// and a reader who kept a diary but no shelf was never enumerated at all.
+//
+// Enumerating from diary_entries fixes both: shelf-less diarists are included,
+// and readers whose entries have all been made private (no rows with a
+// non-NULL embedding) still get picked up, so ComputeAndSaveDiaryCentroid's
+// zero-embeddings branch can null out a centroid derived from since-retracted
+// text.
+func recomputeStaleDiaryCentroids(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT de.user_id::text
+		FROM diary_entries de
+		LEFT JOIN user_signal_profiles usp ON usp.user_id = de.user_id
+		WHERE usp.user_id IS NULL
+		   OR usp.computed_at < NOW() - INTERVAL '24 hours'
+		LIMIT 100
+	`)
+	if err != nil {
+		slog.Error("nightly: query stale diary centroids", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err == nil {
+			userIDs = append(userIDs, uid)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("nightly: iterate stale diary centroids", "error", err)
+		return
+	}
+
+	slog.Info("nightly: recomputing diary centroids", "count", len(userIDs))
+	for _, uid := range userIDs {
+		if err := recSvc.ComputeAndSaveDiaryCentroid(ctx, uid); err != nil {
+			slog.Warn("nightly: recompute diary centroid", "user_id", uid, "error", err)
+		}
+	}
 }
 
 // softDeleteRetention is how long a soft-deleted account survives before it is
