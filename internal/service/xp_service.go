@@ -13,19 +13,19 @@ import (
 const (
 	MaxDailyXP = int32(150)
 
-	XPDailyOpen     = 3
-	XPDailyStreak   = 5
-	XPBookRead      = 25
-	XPAddToTBR      = 2
-	XPReadProgress  = 5
-	XPDiaryEntry    = 15
-	XPBookDiary     = 20
-	XPCreateList    = 15
+	XPDailyOpen      = 3
+	XPDailyStreak    = 5
+	XPBookRead       = 25
+	XPAddToTBR       = 2
+	XPReadProgress   = 5
+	XPDiaryEntry     = 15
+	XPBookDiary      = 20
+	XPCreateList     = 15
 	XPCreateListMore = 5
-	XPAddToList     = 1
+	XPAddToList      = 1
 
-	XPFollowGained = 5  // awarded to the person being followed
-	XPDiaryLiked   = 5  // awarded to the diary entry author
+	XPFollowGained = 5 // awarded to the person being followed
+	XPDiaryLiked   = 5 // awarded to the diary entry author
 
 	XPStreak7   = 50
 	XPStreak30  = 200
@@ -36,20 +36,20 @@ const (
 	XPReferralBook   = 50
 	XPReferral30Day  = 100
 
-	XPNewGenre      = 5
+	XPNewGenre       = 5
 	XPGenreDiversity = 25
 )
 
 var exemptFromDailyCap = map[string]bool{
-	"streak_7":       true,
-	"streak_30":      true,
-	"streak_100":     true,
-	"streak_365":     true,
+	"streak_7":        true,
+	"streak_30":       true,
+	"streak_100":      true,
+	"streak_365":      true,
 	"referral_signup": true,
-	"referral_book":  true,
-	"referral_30day": true,
-	"goal_milestone": true,
-	"goal_completed": true,
+	"referral_book":   true,
+	"referral_30day":  true,
+	"goal_milestone":  true,
+	"goal_completed":  true,
 }
 
 type XPService struct {

@@ -64,6 +64,11 @@ type BookSocialResponse struct {
 	Lists          []BookList   `json:"lists"`
 }
 
+// bookSocialCacheTTL: reader stats and lists change slowly, and a book page is
+// the most-linked surface in the product. The friends block is per-viewer and
+// is therefore never cached.
+const bookSocialCacheTTL = 2 * time.Minute
+
 // GetBookSocial handles GET /api/v1/books/{id}/social (optional auth).
 // One round trip for everything the book page needs to answer "what do
 // Paperboxd readers think, and does anyone I follow care?".
@@ -76,11 +81,50 @@ func (h *BookHandler) GetBookSocial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The shared half of the payload (reader stats + lists) is identical for
+	// every viewer, so it is cached; friends are attached per request below.
+	cacheKey := "book:social:" + bookID.String()
+	var resp BookSocialResponse
+	cached := false
+	if h.Cache != nil {
+		if err := h.Cache.GetJSON(ctx, cacheKey, &resp); err == nil {
+			cached = true
+		}
+	}
+
+	if !cached {
+		var err error
+		resp, err = h.buildBookSocial(ctx, bookID)
+		if err != nil {
+			slog.Error("build book social", "error", err, "book_id", bookID)
+			types.WriteInternalError(w)
+			return
+		}
+		if h.Cache != nil {
+			if err := h.Cache.SetJSON(ctx, cacheKey, resp, bookSocialCacheTTL); err != nil {
+				slog.Warn("cache book social", "error", err)
+			}
+		}
+	}
+	// Never serve one reader's friends to another.
+	resp.Friends = []BookFriend{}
+	resp.FriendsRead, resp.FriendsReading, resp.FriendsTBR = 0, 0, 0
+
+	// Friends need a signed-in viewer; anonymous readers get the rest.
+	if userIDStr, ok := reqctx.GetUserID(ctx); ok {
+		if userID, err := uuid.Parse(userIDStr); err == nil {
+			h.attachFriends(ctx, &resp, userID, bookID)
+		}
+	}
+
+	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// buildBookSocial assembles the viewer-independent half of the payload.
+func (h *BookHandler) buildBookSocial(ctx context.Context, bookID uuid.UUID) (BookSocialResponse, error) {
 	stats, err := h.Queries.GetBookReaderStats(ctx, bookID)
 	if err != nil {
-		slog.Error("get book reader stats", "error", err, "book_id", bookID)
-		types.WriteInternalError(w)
-		return
+		return BookSocialResponse{}, err
 	}
 
 	resp := BookSocialResponse{
@@ -136,14 +180,7 @@ func (h *BookHandler) GetBookSocial(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Friends need a signed-in viewer; anonymous readers get the rest.
-	if userIDStr, ok := reqctx.GetUserID(ctx); ok {
-		if userID, err := uuid.Parse(userIDStr); err == nil {
-			h.attachFriends(ctx, &resp, userID, bookID)
-		}
-	}
-
-	types.WriteJSON(w, http.StatusOK, resp)
+	return resp, nil
 }
 
 func (h *BookHandler) attachFriends(ctx context.Context, resp *BookSocialResponse, userID, bookID uuid.UUID) {

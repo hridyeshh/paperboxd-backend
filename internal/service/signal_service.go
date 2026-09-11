@@ -81,10 +81,10 @@ const (
 	SignalRating5   = 5.0
 	SignalRating4   = 4.0
 	SignalRating3   = 2.0
-	SignalRating1_2 = 0.5  // negative signal
+	SignalRating1_2 = 0.5 // negative signal
 	SignalLiked     = 4.0
-	SignalRead      = 2.0  // implicit — decays
-	SignalTBR       = 1.0  // implicit intent — decays faster
+	SignalRead      = 2.0 // implicit — decays
+	SignalTBR       = 1.0 // implicit intent — decays faster
 
 	DecayLambda    = 0.008 // per day; read half-life ≈ 87 days
 	TBRDecayLambda = 0.02  // per day; TBR half-life ≈ 35 days
@@ -111,7 +111,28 @@ type UserSignalProfile struct {
 	VelocitySignal      *VelocitySignal
 	DiaryEmbedding      []float32 // mean of embedded diary entries; nil = cold-start
 	FastFinishEmbedding []float32 // mean of fast-finish book embeddings; nil = cold-start
-	ComputedAt          time.Time
+	// Traits is the reader's position on the interpretable axes. Unlike the
+	// two centroids above it can be read back out as a sentence, which is what
+	// lets ranking and the "why you" line come from the same numbers.
+	Traits *TraitProfile
+	// RecentTraits is the same profile over the last 90 days only. Nil when
+	// the reader has not rated enough recently for it to mean anything, in
+	// which case ranking uses long-term taste alone.
+	RecentTraits *TraitProfile
+	// Anchors are the reader's loved and to-read books with embeddings.
+	// Request-scoped, never persisted: loaded by GetHomeRecommendations so a
+	// reason can say "because you loved X" about a specific book.
+	Anchors    []Anchor
+	ComputedAt time.Time
+}
+
+// traits returns the reader's trait profile, or nil. Nil-safe on the receiver
+// so reason rules can be written as one line without a guard at each call.
+func (p *UserSignalProfile) traits() *TraitProfile {
+	if p == nil {
+		return nil
+	}
+	return p.Traits
 }
 
 // DecayedWeight applies exponential decay to an implicit signal.

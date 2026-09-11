@@ -175,7 +175,7 @@ func (h *ListsHandler) CreateList(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
-			EventType: "list.created",
+			EventType: service.EventListCreated,
 			Source:    "server",
 			Metadata:  map[string]any{"is_private": list.IsPrivate},
 		})
@@ -585,7 +585,7 @@ func (h *ListsHandler) AddBookToList(w http.ResponseWriter, r *http.Request) {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "list.book_added",
+			EventType: service.EventListBookAdded,
 			Source:    "server",
 		})
 	}()
@@ -667,7 +667,7 @@ func (h *ListsHandler) ShareList(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
-			EventType: "list.shared",
+			EventType: service.EventListShared,
 			Source:    "server",
 		})
 	}()

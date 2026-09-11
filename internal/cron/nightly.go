@@ -28,8 +28,72 @@ func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
 	slog.Info("nightly jobs: starting")
 	recomputeStaleProfiles(pool, recSvc)
 	recomputeStaleDiaryCentroids(pool, recSvc)
+	recomputeStaleTraitProfiles(pool, recSvc)
+	recomputeTasteOverlaps(recSvc)
 	purgeSoftDeletedUsers(pool)
 	slog.Info("nightly jobs: done")
+}
+
+// recomputeTasteOverlaps rebuilds the reader-to-reader similarity table.
+// Runs after trait profiles so the trait term sees tonight's numbers.
+func recomputeTasteOverlaps(recSvc *service.RecommendationService) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	if err := recSvc.RecomputeTasteOverlaps(ctx); err != nil {
+		slog.Error("nightly: taste overlaps", "error", err)
+	}
+}
+
+// recomputeStaleTraitProfiles refreshes the interpretable trait axes.
+//
+// Kept separate from recomputeStaleProfiles for the same reason the diary job
+// is: that one rebuilds genre, author and velocity signals from `bookshelf` and
+// never touches trait_prefs. Trait preferences also move for a second reason
+// the shelf cannot show — the nightly trait backfill gives previously
+// unextracted books a vocabulary, which changes what a reader's existing
+// ratings imply without any new rating being made.
+func recomputeStaleTraitProfiles(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT b.user_id::text
+		FROM bookshelf b
+		JOIN book_traits t ON t.book_id = b.book_id
+		LEFT JOIN user_signal_profiles usp ON usp.user_id = b.user_id
+		WHERE usp.user_id IS NULL
+		   OR usp.trait_prefs IS NULL
+		   OR usp.computed_at < NOW() - INTERVAL '24 hours'
+		LIMIT 100
+	`)
+	if err != nil {
+		slog.Error("nightly: query stale trait profiles", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err == nil {
+			userIDs = append(userIDs, uid)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("nightly: iterate stale trait profiles", "error", err)
+		return
+	}
+
+	slog.Info("nightly: recomputing trait profiles", "count", len(userIDs))
+	for _, uid := range userIDs {
+		// ComputeAndSaveNegativeSignals is a superset of ComputeAndSaveTraitProfile:
+		// it builds the same trait preferences and additionally folds in explicit
+		// verdicts, coded rejections and early abandonment. Calling the narrower
+		// one here would overwrite the negative half with every nightly run.
+		if err := recSvc.ComputeAndSaveNegativeSignals(ctx, uid); err != nil {
+			slog.Warn("nightly: trait profile", "user_id", uid, "error", err)
+		}
+	}
 }
 
 // recomputeStaleDiaryCentroids refreshes user_signal_profiles.diary_embedding.

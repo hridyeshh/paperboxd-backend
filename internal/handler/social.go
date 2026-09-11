@@ -105,7 +105,7 @@ func (h *UserHandler) Follow(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    followerID,
-			EventType: "user.followed",
+			EventType: service.EventUserFollowed,
 			Source:    "server",
 		})
 	}()
@@ -167,7 +167,7 @@ func (h *UserHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    followerID,
-			EventType: "user.unfollowed",
+			EventType: service.EventUserUnfollowed,
 			Source:    "server",
 		})
 	}()

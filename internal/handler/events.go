@@ -24,23 +24,25 @@ func NewEventsHandler(pool *pgxpool.Pool, events *service.EventService) *EventsH
 	return &EventsHandler{Pool: pool, Events: events}
 }
 
-// Track handles POST /api/v1/events
+// Track handles POST /api/v1/events.
+//
+// Registered with OptionalAuthenticate, not Authenticate: the acquisition
+// half of the funnel (landing_viewed, signup_started) happens before an account
+// exists, and requiring a bearer token made those events unrecordable. An
+// unauthenticated caller must supply anon_id and may only send one of the
+// event types in service.AllowsAnonymous.
 func (h *EventsHandler) Track(w http.ResponseWriter, r *http.Request) {
-	userIDStr, ok := reqctx.GetUserID(r.Context())
-	if !ok {
-		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
-		return
+	var userID pgtype.UUID
+	if userIDStr, ok := reqctx.GetUserID(r.Context()); ok {
+		if parsed, err := uuid.Parse(userIDStr); err == nil {
+			userID = pgtype.UUID{Bytes: parsed, Valid: true}
+		}
 	}
 
 	var body struct {
 		EventType string         `json:"event_type"`
 		BookID    *string        `json:"book_id"`
+		AnonID    *string        `json:"anon_id"`
 		SessionID *string        `json:"session_id"`
 		Source    string         `json:"source"`
 		Path      string         `json:"path"`
@@ -54,6 +56,33 @@ func (h *EventsHandler) Track(w http.ResponseWriter, r *http.Request) {
 	if body.EventType == "" {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "event_type is required")
 		return
+	}
+
+	// Shipped mobile builds still send the pre-000042 names; translate rather
+	// than reject, and refuse anything that is neither canonical nor a known
+	// alias so the table cannot grow a fourth convention.
+	eventType, ok := service.NormalizeEventType(body.EventType)
+	if !ok {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "unknown event_type")
+		return
+	}
+
+	var anonID pgtype.UUID
+	if body.AnonID != nil {
+		if parsed, err := uuid.Parse(*body.AnonID); err == nil {
+			anonID = pgtype.UUID{Bytes: parsed, Valid: true}
+		}
+	}
+
+	if !userID.Valid {
+		if !anonID.Valid {
+			types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+			return
+		}
+		if !service.AllowsAnonymous(eventType) {
+			types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+			return
+		}
 	}
 
 	var bookID pgtype.UUID
@@ -84,10 +113,10 @@ func (h *EventsHandler) Track(w http.ResponseWriter, r *http.Request) {
 		source = "web"
 	}
 
-	_, err = h.Pool.Exec(r.Context(),
-		`INSERT INTO events (user_id, book_id, event_type, metadata, session_id, source, path)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		userID, bookID, body.EventType, metadata, sessionID, source, body.Path,
+	_, err := h.Pool.Exec(r.Context(),
+		`INSERT INTO events (user_id, anon_id, book_id, event_type, metadata, session_id, source, path)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		userID, anonID, bookID, eventType, metadata, sessionID, source, body.Path,
 	)
 	if err != nil {
 		slog.Error("insert event", "error", err)

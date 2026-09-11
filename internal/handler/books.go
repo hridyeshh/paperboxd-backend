@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/hridyesh/paperboxd-backend/internal/cache"
 	"github.com/hridyesh/paperboxd-backend/internal/config"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
@@ -25,7 +26,9 @@ import (
 
 // BookHandler holds dependencies for book endpoints.
 type BookHandler struct {
-	Queries               *db.Queries
+	Queries *db.Queries
+	// Cache is optional; nil disables the /social cache (Redis is optional at boot).
+	Cache                 *cache.Client
 	Config                *config.Config
 	ISBNdb                *external.ISBNdbClient
 	GoogleBooks           *external.GoogleBooksClient
@@ -83,7 +86,7 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				h.EventSvc.Emit(context.Background(), service.EmitParams{
 					UserID:    userUID,
-					EventType: "book.searched",
+					EventType: service.EventBookSearched,
 					Source:    "server",
 					Metadata:  map[string]any{"query_length": len(query)},
 				})
@@ -294,7 +297,7 @@ func (h *BookHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 				h.EventSvc.Emit(context.Background(), service.EmitParams{
 					UserID:    userUID,
 					BookID:    &bIDCopy,
-					EventType: "book.viewed",
+					EventType: service.EventBookViewed,
 					Source:    "server",
 					Metadata:  map[string]any{"source": "direct"},
 				})
@@ -403,7 +406,7 @@ func (h *BookHandler) Like(w http.ResponseWriter, r *http.Request) {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "book.liked",
+			EventType: service.EventBookLiked,
 			Source:    "server",
 		})
 	}()
@@ -445,7 +448,7 @@ func (h *BookHandler) Unlike(w http.ResponseWriter, r *http.Request) {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "book.unliked",
+			EventType: service.EventBookUnliked,
 			Source:    "server",
 		})
 	}()
@@ -1002,13 +1005,13 @@ func isbndbBookToResponse(b external.ISBNdbBook) types.BookResponse {
 	}
 
 	return types.BookResponse{
-		ID:        isbn13,
-		MongoID:   isbn13,
+		ID:         isbn13,
+		MongoID:    isbn13,
 		VolumeInfo: volumeInfo,
-		APISource: "isbndb",
-		FromCache: false,
-		ISBNdbID:  isbn13,
-		Slug:      generateSlug(b.Title, isbn13),
+		APISource:  "isbndb",
+		FromCache:  false,
+		ISBNdbID:   isbn13,
+		Slug:       generateSlug(b.Title, isbn13),
 	}
 }
 

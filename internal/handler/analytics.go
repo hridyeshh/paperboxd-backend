@@ -159,7 +159,7 @@ func (h *AnalyticsHandler) Users(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN (
 		    SELECT user_id, COUNT(*) AS cnt
 		    FROM events
-		    WHERE event_type = 'book.added_to_shelf'
+		    WHERE event_type = 'book_added_to_shelf'
 		    GROUP BY user_id
 		) ba ON ba.user_id = u.id
 		WHERE u.deleted_at IS NULL

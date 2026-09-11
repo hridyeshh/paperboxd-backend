@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/pgvector/pgvector-go"
 
 	"github.com/hridyesh/paperboxd-backend/internal/db"
@@ -270,7 +269,10 @@ func (s *RecommendationService) applyClaudeReasons(
 		}
 	}
 
-	reasons, err := s.reasoner.Reasons(ctx, query, books, s.readerTaste(ctx, queries, profile, userID))
+	// Full reader context, not just three genres. The two prompts (this one
+	// and the concierge's) describe the same person the same way.
+	reader := s.BuildReaderContext(ctx, userID, profile)
+	reasons, err := s.reasoner.Reasons(ctx, query, books, reader)
 	if err != nil {
 		slog.Warn("vibe reasons unavailable, keeping templated text", "error", err, "query", query)
 		return false
@@ -292,31 +294,6 @@ func (s *RecommendationService) applyClaudeReasons(
 		return results[i].MatchPercent > results[j].MatchPercent
 	})
 	return true
-}
-
-// readerTaste gathers what the reason prompt is allowed to know about the
-// reader: their strongest genres and the books on their favourites shelf.
-// Anonymous readers get an empty taste, and the reasons speak to the query alone.
-func (s *RecommendationService) readerTaste(ctx context.Context, queries *db.Queries, profile *UserSignalProfile, userID string) ReaderTaste {
-	var taste ReaderTaste
-	if userID == "" {
-		return taste
-	}
-	if profile != nil {
-		taste.TopGenres = topWeighted(profile.GenreWeights, 3)
-	}
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return taste
-	}
-	favourites, err := queries.GetUserFavorites(ctx, uid)
-	if err != nil {
-		return taste
-	}
-	for _, f := range favourites {
-		taste.LovedBooks = append(taste.LovedBooks, f.Title)
-	}
-	return taste
 }
 
 // topWeighted returns the n highest-weighted keys, strongest first.
@@ -375,4 +352,3 @@ func vibeDedupeKey(title string, authors []string) string {
 	}
 	return t + "|" + author
 }
-

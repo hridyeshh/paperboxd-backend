@@ -14,7 +14,10 @@ type ReasonResult struct {
 // Build returns a ReasonResult for a candidate.
 // query is non-empty only for vibe search results.
 //
-// Priority: vibe → social → velocity → diary → author → genre → cold/favorites.
+// Priority: vibe → social → twins → recent → trait → anchor (loved / 5★ / TBR)
+// → velocity → diary → author → genre → trending → popular → favorites.
+// Most specific real signal first; every sentence names evidence that
+// actually exists on the reader's shelf or graph. Never fabricate a reason.
 //
 // CRITICAL: The text strings for social, author, genre, favorites MUST match the
 // exact patterns in app/api/books/personalized/route.ts filterBySource:
@@ -43,27 +46,62 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 2: Social — a friend read or liked this book
-	// Text MUST include 'read this' for the friends tab filter.
+	// Rule 2: Social — a friend read or liked this book.
+	// "loved" only when every friend who shelved it liked it; otherwise the
+	// honest verb is "read". Type is what the friends tab filters on.
 	if c.SocialScore > 0 && len(c.FriendNames) > 0 {
-		name := c.FriendNames[0]
-		switch len(c.FriendNames) {
-		case 1:
-			return ReasonResult{Text: fmt.Sprintf("%s read this", name), Type: "social"}
-		case 2:
-			return ReasonResult{
-				Text: fmt.Sprintf("%s and %s read this", name, c.FriendNames[1]),
-				Type: "social",
-			}
-		default:
-			return ReasonResult{
-				Text: fmt.Sprintf("%s and %d others read this", name, len(c.FriendNames)-1),
-				Type: "social",
-			}
+		verb := "read this"
+		if c.FriendLovedCount >= len(c.FriendNames) {
+			verb = "loved this"
 		}
+		return ReasonResult{Text: withTraitTail(namesLine(c.FriendNames, "")+" "+verb, c, profile), Type: "social"}
 	}
 
-	// Rule 3: Velocity — fast-finish centroid match (only non-zero with ranking_v2)
+	// Rule 2b: Taste twins — strangers who read like you rated it 4+.
+	if c.TwinCount > 0 {
+		var text string
+		switch {
+		case c.TwinCount <= 2 && len(c.TwinNames) >= c.TwinCount:
+			text = namesLine(c.TwinNames[:c.TwinCount], "@") + " loved this"
+		default:
+			text = fmt.Sprintf("%d readers with your taste loved this", c.TwinCount)
+		}
+		return ReasonResult{Text: withTraitTail(text, c, profile), Type: "people_like_you"}
+	}
+
+	// Rule 3: Traits — the reader's own shape, matched by this book.
+	//
+	// Placed above velocity, diary and genre because it is the only reason that
+	// says something specific about the *reader*. "Matches your taste for
+	// Fiction" is a category label; "you tend to love quiet, character-driven
+	// stories" is the recognition the whole roadmap is aimed at.
+	//
+	// buildTraitReason returns "" unless the reader has a confident opinion on
+	// an axis and this book actually sits on it, so this rule is silent rather
+	// than vague when the evidence is thin.
+	// Recent drift first: when the reader has moved and the book is where
+	// they moved to, that is the more specific — and more surprising — fact.
+	if profile != nil && c.RecentFitScore > 0 {
+		if text := buildRecentReason(c, profile.Traits, profile.RecentTraits); text != "" {
+			return ReasonResult{Text: text, Type: "recent"}
+		}
+	}
+	if text := buildTraitReason(c, profile.traits()); text != "" {
+		return ReasonResult{Text: text, Type: "trait"}
+	}
+
+	// Rule 3b: Anchor — this book sits next to one specific book on the
+	// reader's shelf. The roadmap's "because you loved X", with the X real.
+	switch c.AnchorKind {
+	case AnchorRated5:
+		return ReasonResult{Text: "Because you rated " + c.AnchorTitle + " 5★", Type: "because_loved"}
+	case AnchorLoved:
+		return ReasonResult{Text: "Because you loved " + c.AnchorTitle, Type: "because_loved"}
+	case AnchorTBR:
+		return ReasonResult{Text: "Similar to " + c.AnchorTitle + " on your TBR", Type: "tbr_similar"}
+	}
+
+	// Rule 4: Velocity — fast-finish centroid match (only non-zero with ranking_v2)
 	if c.VelocityBoost > 0.05 {
 		if profile != nil && profile.VelocitySignal != nil &&
 			profile.VelocitySignal.VelocityBucket == "fast" {
@@ -78,7 +116,7 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 4: Diary — emotional fingerprint match (only non-zero with ranking_v2)
+	// Rule 5: Diary — emotional fingerprint match (only non-zero with ranking_v2)
 	if c.DiaryBoost > 0.04 {
 		return ReasonResult{
 			Text: "Matches how you write about books you love",
@@ -86,7 +124,7 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 5: Author weight — user has engaged with this author
+	// Rule 6: Author weight — user has engaged with this author
 	// Text MUST start with 'You read' for the authors tab filter.
 	if profile != nil && profile.AuthorWeights != nil {
 		for _, author := range c.Authors {
@@ -99,7 +137,7 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 6: Genre weight — matches user's taste profile
+	// Rule 7: Genre weight — matches user's taste profile
 	// Text MUST start with 'Matches your' for the genres tab filter.
 	if profile != nil && profile.GenreWeights != nil {
 		bestGenre := ""
@@ -118,12 +156,41 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 7: Trending / popularity signal
-	if c.LikeCount+c.TotalReads > 50 {
+	// Rule 8: Trending / popularity — community signal, no personal claim.
+	if c.IsTrending {
+		return ReasonResult{Text: "Trending on Paperboxd this week", Type: "trending"}
+	}
+	if c.TotalReads >= popularShelfCount {
 		return ReasonResult{Text: "Popular right now", Type: "cold"}
 	}
 
-	// Rule 8: Pure vector match — no stronger signal.
+	// Rule 9: Pure vector match — no stronger signal.
 	// Text MUST equal 'Picked for you' for the favorites tab filter.
 	return ReasonResult{Text: "Picked for you", Type: "favorites"}
+}
+
+// namesLine renders one, two, or "X and N others" with an optional prefix.
+func namesLine(names []string, prefix string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return prefix + names[0]
+	case 2:
+		return prefix + names[0] + " and " + prefix + names[1]
+	default:
+		return fmt.Sprintf("%s%s and %d others", prefix, names[0], len(names)-1)
+	}
+}
+
+// withTraitTail appends the reader's own shape to a social sentence when
+// this book matches it: "Maya loved this — and you tend to love quiet,
+// character-driven stories". Two independent facts, both true, which is
+// what makes the line feel specific rather than clever.
+func withTraitTail(text string, c Candidate, profile *UserSignalProfile) string {
+	phrases := matchedTraitPhrases(c, profile.traits(), 1)
+	if len(phrases) == 0 {
+		return text
+	}
+	return text + " — and you tend to love " + phrases[0]
 }

@@ -474,12 +474,12 @@ func favoritesBookToResponse(row db.GetUserFavoritesRow) types.BookResponse {
 		})
 	}
 	resp := types.BookResponse{
-		ID:        row.BookID.String(),
-		MongoID:   row.BookID.String(),
+		ID:         row.BookID.String(),
+		MongoID:    row.BookID.String(),
 		VolumeInfo: vi,
-		APISource: "db",
-		FromCache: true,
-		Slug:      row.Slug,
+		APISource:  "db",
+		FromCache:  true,
+		Slug:       row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String

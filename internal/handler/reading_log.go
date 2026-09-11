@@ -18,10 +18,10 @@ import (
 
 // TodayProgressResponse is returned from GET /api/v1/users/:username/reading/today.
 type TodayProgressResponse struct {
-	TodayPages int                  `json:"today_pages"`
-	TodayBooks int                  `json:"today_books"`
-	LastBook   *TodayLastBook       `json:"last_book,omitempty"`
-	WeekBars   []WeekBar            `json:"week_bars"`
+	TodayPages int            `json:"today_pages"`
+	TodayBooks int            `json:"today_books"`
+	LastBook   *TodayLastBook `json:"last_book,omitempty"`
+	WeekBars   []WeekBar      `json:"week_bars"`
 }
 
 type TodayLastBook struct {

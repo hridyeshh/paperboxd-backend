@@ -176,6 +176,7 @@ func main() {
 	}
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient, eventSvc)
+	bookHandler.Cache = cacheClient
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient, eventSvc)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
@@ -251,12 +252,22 @@ func main() {
 
 	// Rate limiting: per Bearer token when present, else per IP (see KeyByAuthorizationOrIP).
 	// Returns the standard JSON error envelope so mobile + web clients parse 429 uniformly.
+	rateLimitHandler := func(w http.ResponseWriter, _ *http.Request) {
+		types.WriteError(w, http.StatusTooManyRequests, types.ErrCodeRateLimited, "Too many requests")
+	}
+	// tightLimit builds a stricter per-route limiter for the endpoints where a
+	// single request is expensive or abusable. The global limit below still
+	// applies on top of it.
+	tightLimit := func(perMinute int) func(http.Handler) http.Handler {
+		return httprate.Limit(perMinute, time.Minute,
+			httprate.WithKeyFuncs(appMiddleware.KeyByAuthorizationOrIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		)
+	}
 	if cfg.RateLimitPerMinute > 0 {
 		r.Use(httprate.Limit(cfg.RateLimitPerMinute, time.Minute,
 			httprate.WithKeyFuncs(appMiddleware.KeyByAuthorizationOrIP),
-			httprate.WithLimitHandler(func(w http.ResponseWriter, _ *http.Request) {
-				types.WriteError(w, http.StatusTooManyRequests, types.ErrCodeRateLimited, "Too many requests")
-			}),
+			httprate.WithLimitHandler(rateLimitHandler),
 		))
 	}
 
@@ -269,6 +280,7 @@ func main() {
 
 	// Native mobile auth (no cookies, long-lived tokens, flat {token,user} shape).
 	r.Route("/api/mobile/auth", func(r chi.Router) {
+		r.Use(tightLimit(10))
 		r.Post("/login", mobileAuthHandler.MobileLogin)
 		r.Post("/register", mobileAuthHandler.MobileRegister)
 		r.Post("/otp/send", mobileAuthHandler.MobileSendOTP)
@@ -294,8 +306,18 @@ func main() {
 		// Public routes (no auth)
 		r.Post("/newsletter/subscribe", newsletterHandler.Subscribe)
 
+		// Analytics ingest. OptionalAuthenticate, not Authenticate: the
+		// acquisition events (landing_viewed, signup_started) fire before an
+		// account exists. The handler enforces that an unauthenticated caller
+		// supplies anon_id and only sends an event service.AllowsAnonymous
+		// permits, so this is open to writes but not to arbitrary ones.
+		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/events", eventsHandler.Track)
+
 		// Auth routes (no auth middleware)
 		r.Route("/auth", func(r chi.Router) {
+			// Credential guessing and OTP email-bombing both live here, and a
+			// human never needs 10 auth calls a minute.
+			r.Use(tightLimit(10))
 			r.Post("/register", authHandler.Register)
 			r.Post("/login", authHandler.Login)
 			r.Post("/refresh", authHandler.Refresh)
@@ -322,6 +344,7 @@ func main() {
 			r.Get("/users/me/referral", referralHandler.GetMyReferralCode)
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
 			r.Get("/users/me/wrapped", wrappedHandler.Get)
+			r.Get("/users/me/taste", recommendationHandler.GetTasteDashboard)
 			r.Patch("/users/me/visibility", userHandler.UpdateVisibility)
 			r.Get("/users/me/follow-requests", userHandler.ListFollowRequests)
 			r.Post("/users/me/follow-requests/{username}", userHandler.AcceptFollowRequest)
@@ -329,7 +352,6 @@ func main() {
 			r.Patch("/users/me/avatar", userHandler.UpdateAvatar)
 			r.Post("/users/me/avatar/upload", userHandler.UploadAvatar)
 			r.Post("/users/me/banner/upload", userHandler.UploadBanner)
-			r.Post("/events", eventsHandler.Track)
 			r.Post("/reports", userHandler.CreateReport)
 		})
 
@@ -403,15 +425,31 @@ func main() {
 			r.Get("/home", recommendationHandler.GetHomeRecommendations)
 			r.Get("/similar/{bookId}", recommendationHandler.GetSimilarBooks)
 			r.Post("/feedback", recommendationHandler.PostFeedback)
+			r.Get("/feedback/options", recommendationHandler.GetFeedbackOptions)
+			r.Get("/feed", recommendationHandler.GetFeed)
+			r.Get("/twins", recommendationHandler.GetTasteTwins)
+			r.Get("/surprise", recommendationHandler.SurpriseMe)
 		})
 
 		// Vibe / semantic search — no auth required, personalised when logged in
-		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/vibe", bookHandler.VibeSearch)
+		r.With(tightLimit(20), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/vibe", bookHandler.VibeSearch)
+		// Personalised, conversational search. Same limit as vibe: both embed
+		// the query on every call.
+		r.With(tightLimit(20), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search", bookHandler.PersonalisedSearch)
+		// Jazy concierge: search with a voice, and permission to ask one
+		// question first. Tighter limit: every deck is a Claude completion.
+		r.With(tightLimit(10), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/jazy", bookHandler.Concierge)
+		// Context presets: a situation instead of a sentence. Same pipeline as
+		// /search, so the preset constraints and taste ranking both apply.
+		r.Get("/search/contexts", recommendationHandler.GetContextPresets)
+		r.With(tightLimit(20), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search/context", recommendationHandler.ContextDiscovery)
 
 		// Scan & Know
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
-			r.Post("/scan/analyze", scanHandler.Analyze)
+			// Every scan is a paid Claude completion; the quota is the real
+			// limit, this stops a loop burning it in seconds.
+			r.With(tightLimit(10)).Post("/scan/analyze", scanHandler.Analyze)
 		})
 
 		// Analytics (admin-gated via X-Internal-Secret, not user-token gated)
@@ -420,6 +458,8 @@ func main() {
 			r.Get("/overview", analyticsHandler.Overview)
 			r.Get("/users", analyticsHandler.Users)
 			r.Get("/features", analyticsHandler.Features)
+			r.Get("/retention", analyticsHandler.Retention)
+			r.Get("/discovery", analyticsHandler.Discovery)
 		})
 
 		// Admin — operator-only. Gated by X-Internal-Secret like /analytics, never

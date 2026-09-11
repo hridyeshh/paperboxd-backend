@@ -81,7 +81,7 @@ func TestClaudeReasonsLive(t *testing.T) {
 	}
 
 	got, err := reasoner.Reasons(context.Background(), "something quiet and lonely that will wreck me", books,
-		ReaderTaste{TopGenres: []string{"literary fiction"}, LovedBooks: []string{"Never Let Me Go"}})
+		ReaderContext{ReaderTaste: ReaderTaste{TopGenres: []string{"literary fiction"}, LovedBooks: []string{"Never Let Me Go"}}})
 	if err != nil {
 		t.Fatalf("Reasons: %v", err)
 	}

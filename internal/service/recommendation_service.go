@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +29,10 @@ type BookCandidate struct {
 	SimilarityScore float64  `json:"similarity_score"`
 	Reason          string   `json:"reason,omitempty"`
 	ReasonType      string   `json:"reasonType,omitempty"`
+	// Confidence is the human sentence, never the number — a percentage
+	// invites arithmetic the engine cannot back up.
+	Confidence  string `json:"confidence,omitempty"`
+	IsHiddenGem bool   `json:"isHiddenGem,omitempty"`
 }
 
 // CandidateSource identifies which retrieval path surfaced a candidate.
@@ -44,19 +47,34 @@ const (
 // Candidate is the internal pool entry used during the ranking pipeline.
 // BookCandidate is kept as the external API type for backwards compatibility.
 type Candidate struct {
-	BookID          string
-	Title           string
-	Authors         []string
-	Categories      []string
-	CoverURL        string
-	Embedding       []float32       // book embedding; populated before ranking for scoreV2
-	VectorScore     float32         // cosine similarity from Path A
-	SocialScore     float32         // friend-read score from Path B
-	FinalScore      float32         // set during ranking
-	Source          CandidateSource
-	FriendNames     []string // friends who read/liked this book
-	LikeCount       int
-	TotalReads      int
+	BookID      string
+	Title       string
+	Authors     []string
+	Categories  []string
+	CoverURL    string
+	Embedding   []float32 // book embedding; populated before ranking for scoreV2
+	VectorScore float32   // cosine similarity from Path A
+	SocialScore float32   // friend-read score from Path B
+	FinalScore  float32   // set during ranking
+	Source      CandidateSource
+	FriendNames []string // friends who read/liked this book
+	// FriendLovedCount is how many of FriendNames liked it rather than only
+	// read it — "loved this" is a stronger sentence and must be earned.
+	FriendLovedCount int
+	// LikeCount / TotalReads are counted live off bookshelf by
+	// fetchCandidateCommunity; the books.* columns of the same name are dead.
+	LikeCount  int
+	TotalReads int
+	// IsTrending: shelved by 2+ live accounts this week (getTrendingCandidates).
+	IsTrending bool
+	// TwinCount / TwinNames: taste twins who rated this 4+ (fetchTwinSignals).
+	TwinCount int
+	TwinNames []string
+	// Anchor is the reader's own shelf book this candidate most resembles,
+	// when one is close enough to name — see nearestAnchor.
+	AnchorTitle     string
+	AnchorKind      string
+	AnchorSim       float64
 	SimilarityScore float32 // kept for backwards-compatible JSON conversion
 	Reason          string  // human-readable reason string
 	ReasonType      string  // set by ReasonEngine, read by candidateToBookCandidate
@@ -64,6 +82,29 @@ type Candidate struct {
 	VelocityBoost float32
 	DiaryBoost    float32
 	IsAbandoned   bool
+
+	// Trait axes for this book, loaded by fetchCandidateTraits. Nil when the
+	// book has not been through the extractor yet, which ranking treats as
+	// "no trait term" rather than as a neutral book.
+	Traits          map[string]float64
+	TraitConfidence float64
+	IsSeries        bool
+	// TraitFit / TraitClash outputs, set during ranking and read by the reason
+	// engine so the sentence a reader sees is derived from the same numbers
+	// that ranked the book.
+	TraitFitScore   float64
+	TraitClashScore float64
+	HasTraitFit     bool
+	RecentFitScore  float64
+
+	// Community signal, used to tell a hidden gem from an unread dud.
+	AverageRating float64
+	RatingsCount  int
+
+	// Confidence and its human label, set during ranking.
+	Confidence      float64
+	ConfidenceLabel string
+	IsHiddenGem     bool
 }
 
 func candidateToBookCandidate(c Candidate) BookCandidate {
@@ -84,6 +125,8 @@ func candidateToBookCandidate(c Candidate) BookCandidate {
 		SimilarityScore: score,
 		Reason:          c.Reason,
 		ReasonType:      rt,
+		Confidence:      c.ConfidenceLabel,
+		IsHiddenGem:     c.IsHiddenGem,
 	}
 }
 
@@ -91,7 +134,7 @@ func candidateToBookCandidate(c Candidate) BookCandidate {
 // Used for cached candidates that predate Phase 5.
 func fallbackReasonType(reason string) string {
 	switch {
-	case strings.Contains(reason, "read this"):
+	case strings.Contains(reason, "read this"), strings.Contains(reason, "loved this"):
 		return "social"
 	case strings.HasPrefix(reason, "You read"):
 		return "author"
@@ -125,6 +168,15 @@ type BookRow struct {
 	CoverURL    string
 }
 
+const (
+	// homeRecCount is how many books one home request returns.
+	homeRecCount = 20
+	// diversityLambda weights relevance against variety inside diversify.
+	// High enough that the first picks stay in score order — the top of the
+	// page has to be the best books — low enough that the tail spreads out.
+	diversityLambda = 0.72
+)
+
 // vectorRow holds an embedding and the timestamp used for time-weighting.
 type vectorRow struct {
 	Embedding       []float32
@@ -142,17 +194,22 @@ type RecommendationService struct {
 	// reasoner writes the Ask Jazy match reasons. nil without an Anthropic key —
 	// vibe search then falls back to the templated ReasonEngine text.
 	reasoner *ClaudeReasoner
+	// traitExtractor reads the nine characteristic axes off a book. nil without
+	// an Anthropic key, in which case books simply carry no traits and ranking
+	// omits the trait term for them.
+	traitExtractor *TraitExtractor
 }
 
 func NewRecommendationService(pool *pgxpool.Pool, embedder Embedder, redisClient *redis.Client, eventSvc *EventService, anthropicKey string) *RecommendationService {
 	return &RecommendationService{
-		pool:        pool,
-		queries:     db.New(pool),
-		embedder:    embedder,
-		redisClient: redisClient,
-		flags:       NewFeatureFlags(pool),
-		eventSvc:    eventSvc,
-		reasoner:    NewClaudeReasoner(anthropicKey),
+		pool:           pool,
+		queries:        db.New(pool),
+		embedder:       embedder,
+		redisClient:    redisClient,
+		flags:          NewFeatureFlags(pool),
+		traitExtractor: NewTraitExtractor(anthropicKey),
+		eventSvc:       eventSvc,
+		reasoner:       NewClaudeReasoner(anthropicKey),
 	}
 }
 
@@ -172,13 +229,12 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	// 1. Cache hit — apply ranking on the cached raw pool and return.
 	if cached, err := s.getCachedPool(ctx, userID); err == nil && len(cached) > 0 {
 		profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-		if s.flags.Bool(ctx, "ranking_v2") {
-			_ = s.fetchCandidateEmbeddings(ctx, cached)
-		}
+		profile.Anchors = s.loadAnchors(ctx, uid)
+		s.hydrateForRanking(ctx, userID, cached)
 		results := s.rankCandidates(ctx, cached, profile)
 		results = s.filterSuppressed(ctx, userID, results)
 		results = deduplicateCandidates(results)
-		ranked := s.applyMMR(results, 20)
+		ranked := diversify(results, homeRecCount, diversityLambda)
 		ranked = s.blendExploration(ctx, userID, profile, ranked)
 		return toBookCandidates(ranked), "vector", nil
 	}
@@ -215,6 +271,22 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 				Source:          SourceVector,
 			}
 		}
+
+		// Hidden gems are close to the reader's taste but sit far enough down
+		// the popularity curve that the similarity-ordered query above never
+		// reaches them. Retrieved separately and merged so they compete on
+		// ranking rather than on reach.
+		gems := s.getHiddenGemCandidates(ctx, uid, tasteVector, 30)
+		seen := make(map[string]bool, len(candidates))
+		for _, c := range candidates {
+			seen[c.BookID] = true
+		}
+		for _, g := range gems {
+			if !seen[g.BookID] {
+				candidates = append(candidates, g)
+			}
+		}
+
 		vectorCh <- pathResult{candidates, nil}
 	}()
 
@@ -223,8 +295,25 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 		socialCh <- pathResult{candidates, err}
 	}()
 
+	// Path C: the smaller sources. Cheap indexed queries, so one goroutine
+	// runs them in sequence rather than four racing the pool.
+	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
+	profile.Anchors = s.loadAnchors(ctx, uid)
+	otherCh := make(chan []Candidate, 1)
+	go func() {
+		var other []Candidate
+		other = append(other, s.getAuthorCandidates(ctx, uid, profile, 30)...)
+		other = append(other, s.getTBRCandidates(ctx, uid, profile.Anchors, 30)...)
+		other = append(other, s.getTrendingCandidates(ctx, uid, 20)...)
+		if s.flags.Bool(ctx, "taste_twins") {
+			other = append(other, s.getTwinCandidates(ctx, uid, 30)...)
+		}
+		otherCh <- other
+	}()
+
 	vectorResult := <-vectorCh
 	socialResult := <-socialCh
+	otherCandidates := <-otherCh
 
 	// 3. Determine source label.
 	source := "fallback"
@@ -239,8 +328,10 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 		}
 	}
 
-	// 4. Merge into candidate pool (max 300).
-	pool := mergeCandidatePools(vectorResult.candidates, socialResult.candidates, 300)
+	// 4. Merge into candidate pool (max 400). Vector first so the pool is
+	// taste-ordered before the cap bites; the other sources add books the
+	// taste query could not reach, and the cap leaves room for all of them.
+	pool := mergeCandidatePools(400, vectorResult.candidates, socialResult.candidates, otherCandidates)
 
 	// 5. Fallback if pool is empty.
 	if len(pool) == 0 {
@@ -252,17 +343,12 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	copy(rawPool, pool)
 	go s.setCachedPool(context.Background(), userID, rawPool)
 
-	// 7. Rank → suppress → dedup → MMR → exploration blend.
-	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
-	if s.flags.Bool(ctx, "ranking_v2") {
-		if err := s.fetchCandidateEmbeddings(ctx, pool); err != nil {
-			slog.Warn("fetch candidate embeddings", "error", err)
-		}
-	}
+	// 7. Rank → suppress → dedup → diversify → exploration blend.
+	s.hydrateForRanking(ctx, userID, pool)
 	pool = s.rankCandidates(ctx, pool, profile)
 	pool = s.filterSuppressed(ctx, userID, pool)
 	pool = deduplicateCandidates(pool)
-	ranked := s.applyMMR(pool, 20)
+	ranked := diversify(pool, homeRecCount, diversityLambda)
 	ranked = s.blendExploration(ctx, userID, profile, ranked)
 
 	return toBookCandidates(ranked), source, nil
@@ -310,7 +396,12 @@ func (s *RecommendationService) GetSimilarBooks(ctx context.Context, bookID, use
 }
 
 // TrackEvent records a user interaction event (click, impression, dismiss).
-func (s *RecommendationService) TrackEvent(ctx context.Context, userID, bookID, eventType string) error {
+//
+// metadata is optional and carries the recommendation's reason_type. Without it
+// /analytics/discovery cannot split the funnel by reason, which is the whole
+// point of measuring: a reason with fewer clicks but more finished 4-star books
+// is the better reason, and raw CTR cannot see that.
+func (s *RecommendationService) TrackEvent(ctx context.Context, userID, bookID, eventType string, metadata map[string]any) error {
 	if s.eventSvc == nil {
 		return nil
 	}
@@ -328,6 +419,7 @@ func (s *RecommendationService) TrackEvent(ctx context.Context, userID, bookID, 
 		UserID:    uid,
 		BookID:    bookIDPtr,
 		EventType: eventType,
+		Metadata:  metadata,
 		Source:    "server",
 	})
 	return nil
@@ -345,9 +437,8 @@ func (s *RecommendationService) getSocialCandidates(ctx context.Context, userID 
 			b.authors,
 			b.categories,
 			COALESCE(b.cover_url, ''),
-			b.like_count,
-			b.total_reads_count,
 			SUM(CASE WHEN bs.status = 'liked' THEN 2 ELSE 1 END) AS social_score,
+			COUNT(*) FILTER (WHERE bs.status = 'liked') AS loved_count,
 			ARRAY_AGG(DISTINCT u.username) AS friend_names
 		FROM follows f
 		JOIN bookshelf bs ON bs.user_id = f.following_id
@@ -359,9 +450,8 @@ func (s *RecommendationService) getSocialCandidates(ctx context.Context, userID 
 		      SELECT book_id FROM bookshelf WHERE user_id = $1
 		  )
 		  AND b.embedding IS NOT NULL
-		GROUP BY b.id, b.title, b.authors, b.categories,
-		         b.cover_url, b.like_count, b.total_reads_count
-		ORDER BY social_score DESC, b.like_count DESC
+		GROUP BY b.id, b.title, b.authors, b.categories, b.cover_url
+		ORDER BY social_score DESC
 		LIMIT $2
 	`, userID, limit)
 	if err != nil {
@@ -373,21 +463,15 @@ func (s *RecommendationService) getSocialCandidates(ctx context.Context, userID 
 	for rows.Next() {
 		var c Candidate
 		var socialScore float64
-		var likeCount, totalReads *int32
+		var lovedCount int64
 		if err := rows.Scan(
 			&c.BookID, &c.Title, &c.Authors, &c.Categories,
-			&c.CoverURL, &likeCount, &totalReads,
-			&socialScore, &c.FriendNames,
+			&c.CoverURL, &socialScore, &lovedCount, &c.FriendNames,
 		); err != nil {
 			slog.Warn("scan social candidate", "error", err)
 			continue
 		}
-		if likeCount != nil {
-			c.LikeCount = int(*likeCount)
-		}
-		if totalReads != nil {
-			c.TotalReads = int(*totalReads)
-		}
+		c.FriendLovedCount = int(lovedCount)
 		c.SocialScore = float32(socialScore)
 		c.Source = SourceSocial
 		candidates = append(candidates, c)
@@ -438,42 +522,6 @@ func (s *RecommendationService) getSimilarSocialBooks(ctx context.Context, userI
 	return out, rows.Err()
 }
 
-// ── Candidate pool ────────────────────────────────────────────────────────────
-
-// mergeCandidatePools merges vector and social candidates into a single
-// deduplicated pool capped at maxSize. Books in both paths retain both scores.
-func mergeCandidatePools(vectorCandidates, socialCandidates []Candidate, maxSize int) []Candidate {
-	seen := make(map[string]*Candidate, len(vectorCandidates)+len(socialCandidates))
-	ordered := make([]string, 0, len(vectorCandidates)+len(socialCandidates))
-
-	for i := range vectorCandidates {
-		c := &vectorCandidates[i]
-		seen[c.BookID] = c
-		ordered = append(ordered, c.BookID)
-	}
-
-	for i := range socialCandidates {
-		c := &socialCandidates[i]
-		if existing, ok := seen[c.BookID]; ok {
-			existing.SocialScore = c.SocialScore
-			existing.FriendNames = c.FriendNames
-			// Source stays SourceVector — book appeared in both paths
-		} else {
-			seen[c.BookID] = c
-			ordered = append(ordered, c.BookID)
-		}
-	}
-
-	result := make([]Candidate, 0, min(maxSize, len(ordered)))
-	for _, id := range ordered {
-		if len(result) >= maxSize {
-			break
-		}
-		result = append(result, *seen[id])
-	}
-	return result
-}
-
 // ── Redis candidate cache ─────────────────────────────────────────────────────
 
 func (s *RecommendationService) getCachedPool(ctx context.Context, userID string) ([]Candidate, error) {
@@ -519,21 +567,45 @@ func (s *RecommendationService) rankCandidates(ctx context.Context, candidates [
 	if useV2 {
 		slog.Debug("ranking using scoreV2", "candidates", len(candidates))
 	}
+	// negative_taste is a kill switch on the ranking *effect* only. Verdicts
+	// and profile recomputes always run, so turning it off never loses data;
+	// it just stops clash and dislike from moving scores while the extracted
+	// traits are being sanity-checked.
+	opts := scoreOptions{
+		negativeTaste: s.flags.Bool(ctx, "negative_taste"),
+		recentTaste:   s.flags.Bool(ctx, "recent_taste"),
+	}
 	re := &ReasonEngine{}
 	for i := range candidates {
 		c := &candidates[i]
 		if useV2 {
-			c.FinalScore = s.scoreV2(c, &profile)
+			c.FinalScore = s.scoreV2(c, &profile, opts)
 		} else {
 			c.FinalScore = scoreV1(*c, profile)
 		}
+
+		// Confidence is computed after scoring and before the reason, because
+		// a low-confidence pick should be introduced as a wild card rather
+		// than asserted — the reason text is the same either way, the framing
+		// around it is not.
+		nearestAnchor(c, profile.Anchors)
+		c.Confidence = RecConfidence(*c, &profile)
+		c.ConfidenceLabel = ConfidenceLabel(c.Confidence)
+		c.IsHiddenGem = IsHiddenGem(*c, c.AverageRating, c.RatingsCount)
+
 		result := re.Build(*c, &profile, "")
 		c.Reason = result.Text
 		c.ReasonType = result.Type
+		if c.IsHiddenGem {
+			c.ReasonType = "hidden_gem"
+			if result.Type == "favorites" || result.Type == "cold" {
+				// Only override a reason that said nothing. A trait or social
+				// reason is more specific than "hidden gem" and should win.
+				c.Reason = "You probably haven't discovered this yet"
+			}
+		}
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].FinalScore > candidates[j].FinalScore
-	})
+	sortByScore(candidates)
 	return candidates
 }
 
@@ -572,77 +644,165 @@ func scoreV1(c Candidate, profile UserSignalProfile) float32 {
 	return float32(float64(c.VectorScore)*0.50 + socialBoost + genreBoost + authorBoost + recencyBoost)
 }
 
-// scoreV2 is the Phase 4 multi-signal formula. Sets VelocityBoost, DiaryBoost,
-// and IsAbandoned on c as side effects for the reason engine.
-func (s *RecommendationService) scoreV2(c *Candidate, profile *UserSignalProfile) float32 {
-	vectorScore := c.VectorScore * 0.43
+// Ranking weights. They are normalised by the weight of the signals that are
+// actually present, so a book nobody has extracted traits for is not quietly
+// penalised against one that has them.
+const (
+	wVector     = 0.30
+	wSocial     = 0.17
+	wTrait      = 0.14
+	wTwin       = 0.10 // taste twins rated it 4+; social proof from strangers who read like you
+	wRecent     = 0.08 // last-90-day trait fit; the roadmap's "recent taste"
+	wGenre      = 0.08
+	wAuthor     = 0.07
+	wVelocity   = 0.06
+	wDiary      = 0.06
+	wQuality    = 0.05 // external average rating, discounted by ratings count
+	wPopularity = 0.04 // Paperboxd shelf count, counted live
 
-	socialBoost := float32(0)
-	if c.SocialScore > 0 {
-		socialBoost = util.Min32(c.SocialScore/5.0, 1.0) * 0.18
+	// Penalties are applied after normalisation, in score units.
+	penaltyAbandoned  = 0.10
+	penaltyTraitClash = 0.12
+)
+
+// scoreOptions are the per-request flags scoreV2 reads.
+type scoreOptions struct {
+	negativeTaste bool
+	recentTaste   bool
+}
+
+// scoreV2 is the multi-signal ranking formula. Sets VelocityBoost, DiaryBoost,
+// TraitFitScore, TraitClashScore and IsAbandoned on c as side effects, so the
+// reason engine can explain the book using the same numbers that ranked it.
+//
+// Every term is accumulated as a (value, weight) pair and divided by the weight
+// present. Summing fixed-weight terms and letting absent ones contribute zero
+// would mean a book with no extracted traits could never score above 0.85 while
+// an extracted one could reach 1.0 — a ranking difference caused by the state of
+// our own backfill rather than by anything about the book.
+func (s *RecommendationService) scoreV2(c *Candidate, profile *UserSignalProfile, opts scoreOptions) float32 {
+	var sum, weight float64
+
+	add := func(value, w float64) {
+		sum += value * w
+		weight += w
 	}
 
-	genreBoost := float32(0)
+	add(float64(c.VectorScore), wVector)
+
+	if c.SocialScore > 0 {
+		add(math.Min(float64(c.SocialScore)/5.0, 1.0), wSocial)
+	}
+
 	if profile.GenreWeights != nil {
+		var g float64
 		for _, cat := range c.Categories {
 			if w, ok := profile.GenreWeights[cat]; ok {
-				genreBoost += float32(w)
+				g += w
 			}
 		}
-		genreBoost = util.Min32(genreBoost, 1.0) * 0.12
+		add(math.Min(g, 1.0), wGenre)
 	}
 
-	authorBoost := float32(0)
 	if profile.AuthorWeights != nil {
-		for _, a := range c.Authors {
-			if w, ok := profile.AuthorWeights[a]; ok {
-				authorBoost += float32(w)
+		var a float64
+		for _, author := range c.Authors {
+			if w, ok := profile.AuthorWeights[author]; ok {
+				a += w
 			}
 		}
-		authorBoost = util.Min32(authorBoost, 1.0) * 0.08
+		add(math.Min(a, 1.0), wAuthor)
 	}
 
-	recencyBoost := float32(0)
-	if c.LikeCount+c.TotalReads > 0 {
-		recencyBoost = util.Min32(float32(c.LikeCount+c.TotalReads)/100.0, 1.0) * 0.04
+	if c.TotalReads > 0 {
+		add(math.Min(float64(c.TotalReads)/float64(popularShelfCount), 1.0), wPopularity)
 	}
 
-	velocityBoost := float32(0)
+	if c.TwinCount > 0 {
+		add(math.Min(float64(c.TwinCount)/3.0, 1.0), wTwin)
+	}
+
+	// Community quality is a prior, not a taste signal: it keeps a badly
+	// reviewed book that happens to match from outranking a good one that
+	// matches slightly less. Small weight so it can break ties, not set them.
+	if q := qualityScore(c.AverageRating, c.RatingsCount); q > 0 {
+		add(q, wQuality)
+	}
+
 	if profile.FastFinishEmbedding != nil && c.Embedding != nil {
-		sim := float32(util.CosineSimilarity(c.Embedding, profile.FastFinishEmbedding))
-		velocityBoost = sim * 0.08
-		c.VelocityBoost = velocityBoost
+		sim := util.CosineSimilarity(c.Embedding, profile.FastFinishEmbedding)
+		c.VelocityBoost = float32(sim * wVelocity)
+		add(sim, wVelocity)
 	}
 
-	diaryBoost := float32(0)
 	if profile.DiaryEmbedding != nil && c.Embedding != nil {
-		sim := float32(util.CosineSimilarity(c.Embedding, profile.DiaryEmbedding))
-		diaryBoost = sim * 0.07
-		c.DiaryBoost = diaryBoost
+		sim := util.CosineSimilarity(c.Embedding, profile.DiaryEmbedding)
+		c.DiaryBoost = float32(sim * wDiary)
+		add(sim, wDiary)
 	}
 
-	abandonedPenalty := float32(0)
+	// Trait fit is scaled by the extractor's own confidence in the book: a
+	// guess made from a two-line blurb should move the ranking less than a
+	// reading of a full description.
+	if fit, ok := TraitFit(c.Traits, profile.Traits); ok {
+		c.TraitFitScore = fit
+		c.HasTraitFit = true
+		conf := c.TraitConfidence
+		if conf <= 0 {
+			conf = 0.5
+		}
+		add(fit, wTrait*conf)
+	}
+
+	// Recent taste: the same fit against the last 90 days. A reader whose
+	// last ten books were all bleak is, right now, a reader of bleak books,
+	// whatever their five-year average says. Separate term rather than a
+	// blended profile so the two clocks stay readable on the dashboard.
+	if opts.recentTaste {
+		if fit, ok := TraitFit(c.Traits, profile.RecentTraits); ok {
+			c.RecentFitScore = fit
+			conf := c.TraitConfidence
+			if conf <= 0 {
+				conf = 0.5
+			}
+			add(fit, wRecent*conf)
+		}
+	}
+
+	if weight == 0 {
+		return 0
+	}
+	score := sum / weight
+
+	// Negative taste. A book that looks like what this reader has rejected is
+	// pushed down even when it scores well on genre and author — which is the
+	// whole point: "likes historical fiction, bounces off plot-dense
+	// historical fiction" is invisible to every positive signal above.
+	if clash, ok := TraitClash(c.Traits, profile.Traits); ok && clash > 0.5 {
+		c.TraitClashScore = clash
+		if opts.negativeTaste {
+			score -= (clash - 0.5) * 2 * penaltyTraitClash
+		}
+	}
+
 	if profile.VelocitySignal != nil {
 		for _, id := range profile.VelocitySignal.AbandonedBookIDs {
 			if id == c.BookID {
-				abandonedPenalty = 0.10
+				score -= penaltyAbandoned
 				c.IsAbandoned = true
 				break
 			}
 		}
 	}
 
-	score := vectorScore + socialBoost + genreBoost + authorBoost +
-		recencyBoost + velocityBoost + diaryBoost - abandonedPenalty
 	if score < 0 {
 		score = 0
 	}
 	if score > 1 {
 		score = 1
 	}
-	return score
+	return float32(score)
 }
-
 
 // deduplicateCandidates removes duplicate editions by normalising titles.
 func deduplicateCandidates(candidates []Candidate) []Candidate {
@@ -663,40 +823,6 @@ func deduplicateCandidates(candidates []Candidate) []Candidate {
 		}
 	}
 	return result
-}
-
-// applyMMR applies Maximal Marginal Relevance diversity to a Candidate pool.
-func (s *RecommendationService) applyMMR(candidates []Candidate, k int) []Candidate {
-	if len(candidates) <= k {
-		return candidates
-	}
-	combinedScore := func(c Candidate) float64 {
-		return float64(c.VectorScore) + float64(c.SocialScore)*0.3
-	}
-	selected := make([]Candidate, 0, k)
-	remaining := make([]Candidate, len(candidates))
-	copy(remaining, candidates)
-
-	for len(selected) < k && len(remaining) > 0 {
-		bestIdx := 0
-		bestScore := math.Inf(-1)
-		for i, c := range remaining {
-			maxSim := 0.0
-			for _, sel := range selected {
-				if sim := cosineSimilarityByScore(combinedScore(sel), combinedScore(c)); sim > maxSim {
-					maxSim = sim
-				}
-			}
-			score := 0.5*combinedScore(c) - 0.5*maxSim
-			if score > bestScore {
-				bestScore = score
-				bestIdx = i
-			}
-		}
-		selected = append(selected, remaining[bestIdx])
-		remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
-	}
-	return selected
 }
 
 // ── Signal profiles ───────────────────────────────────────────────────────────
@@ -789,18 +915,24 @@ func (s *RecommendationService) getBookshelfWithMetadata(ctx context.Context, us
 func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, userID string) (UserSignalProfile, error) {
 	var profile UserSignalProfile
 	var genreJSON, authorJSON, velocityJSON []byte
+	var traitPrefsJSON, traitDislikesJSON, traitConfJSON []byte
+	var recentPrefsJSON, recentConfJSON []byte
 	var diaryVecLit, fastFinishVecLit *string
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT user_id::text, genre_weights, author_weights, computed_at,
 		       velocity_signal,
 		       CASE WHEN diary_embedding IS NOT NULL THEN diary_embedding::text END,
-		       CASE WHEN fast_finish_embedding IS NOT NULL THEN fast_finish_embedding::text END
+		       CASE WHEN fast_finish_embedding IS NOT NULL THEN fast_finish_embedding::text END,
+		       trait_prefs, trait_dislikes, trait_confidence,
+		       trait_recent, trait_recent_confidence
 		FROM user_signal_profiles
 		WHERE user_id = $1
 	`, userID).Scan(
 		&profile.UserID, &genreJSON, &authorJSON, &profile.ComputedAt,
 		&velocityJSON, &diaryVecLit, &fastFinishVecLit,
+		&traitPrefsJSON, &traitDislikesJSON, &traitConfJSON,
+		&recentPrefsJSON, &recentConfJSON,
 	)
 	if err != nil {
 		return UserSignalProfile{}, err
@@ -822,6 +954,26 @@ func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, user
 	if fastFinishVecLit != nil {
 		if vec, err := parsePGVectorLiteral(*fastFinishVecLit); err == nil {
 			profile.FastFinishEmbedding = vec
+		}
+	}
+	// Only attach a trait profile when at least one axis has evidence behind
+	// it. An all-zero-confidence profile would make TraitFit return a valid
+	// looking score with nothing underneath it.
+	if len(traitPrefsJSON) > 0 {
+		var tp TraitProfile
+		_ = json.Unmarshal(traitPrefsJSON, &tp.Prefs)
+		_ = json.Unmarshal(traitDislikesJSON, &tp.Dislikes)
+		_ = json.Unmarshal(traitConfJSON, &tp.Confidence)
+		if tp.HasSignal() {
+			profile.Traits = &tp
+		}
+	}
+	if len(recentPrefsJSON) > 0 {
+		var rp TraitProfile
+		_ = json.Unmarshal(recentPrefsJSON, &rp.Prefs)
+		_ = json.Unmarshal(recentConfJSON, &rp.Confidence)
+		if rp.HasSignal() {
+			profile.RecentTraits = &rp
 		}
 	}
 	return profile, nil
@@ -868,6 +1020,158 @@ func (s *RecommendationService) ComputeFastFinishEmbedding(ctx context.Context, 
 		}
 	}
 	return util.ComputeCentroid(vecs), nil
+}
+
+// fetchCandidateCommunity bulk-loads the global counts that separate a hidden
+// gem from a book nobody finished.
+//
+// Loaded here rather than threaded through each retrieval path because the
+// vector, social and fallback queries all produce candidates and all three
+// would otherwise need the same four columns bolted on.
+func (s *RecommendationService) fetchCandidateCommunity(ctx context.Context, candidates []Candidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		ids = append(ids, c.BookID)
+	}
+
+	// Shelf counts come from bookshelf, not books.like_count /
+	// total_reads_count — those columns have been 0 since migration 000003
+	// and nothing writes them.
+	rows, err := s.pool.Query(ctx, `
+		SELECT b.id::text,
+		       COALESCE(b.average_rating, 0),
+		       COALESCE(b.ratings_count, 0),
+		       COUNT(bs.id) FILTER (WHERE bs.status = 'liked'),
+		       COUNT(bs.id)
+		FROM books b
+		LEFT JOIN bookshelf bs ON bs.book_id = b.id
+		WHERE b.id = ANY($1::uuid[])
+		GROUP BY b.id
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type stats struct {
+		avg    float64
+		counts [3]int64
+	}
+	byID := make(map[string]stats, len(candidates))
+	for rows.Next() {
+		var id string
+		var st stats
+		if err := rows.Scan(&id, &st.avg, &st.counts[0], &st.counts[1], &st.counts[2]); err != nil {
+			continue
+		}
+		byID[id] = st
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range candidates {
+		st, ok := byID[candidates[i].BookID]
+		if !ok {
+			continue
+		}
+		candidates[i].AverageRating = st.avg
+		candidates[i].RatingsCount = int(st.counts[0])
+		candidates[i].LikeCount = int(st.counts[1])
+		candidates[i].TotalReads = int(st.counts[2])
+	}
+	return nil
+}
+
+// getHiddenGemCandidates finds books close to the reader's taste that almost
+// nobody has read but that the people who did read rated highly.
+//
+// A separate retrieval path because the main vector query orders by similarity
+// alone, and popular books dominate any pool built that way — the gems are
+// real candidates that simply never surface above them.
+func (s *RecommendationService) getHiddenGemCandidates(ctx context.Context, userID uuid.UUID, taste []float32, limit int) []Candidate {
+	if taste == nil {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT b.id::text, b.title, b.authors, COALESCE(b.cover_url, ''), b.categories,
+		       1 - (b.embedding <=> $1::vector) AS similarity_score,
+		       COALESCE(b.average_rating, 0), COALESCE(b.ratings_count, 0)
+		FROM books b
+		WHERE b.embedding IS NOT NULL
+		  AND b.id NOT IN (SELECT book_id FROM bookshelf WHERE user_id = $2)
+		  AND COALESCE(b.ratings_count, 0) BETWEEN 5 AND $3
+		  AND COALESCE(b.average_rating, 0) >= $4
+		ORDER BY b.embedding <=> $1::vector
+		LIMIT $5
+	`, float32SliceToLiteral(taste), userID, hiddenGemMaxGlobalRatings, hiddenGemMinRating, limit)
+	if err != nil {
+		slog.Warn("hidden gem candidates", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []Candidate
+	for rows.Next() {
+		var c Candidate
+		var sim float64
+		if err := rows.Scan(&c.BookID, &c.Title, &c.Authors, &c.CoverURL, &c.Categories,
+			&sim, &c.AverageRating, &c.RatingsCount); err != nil {
+			continue
+		}
+		c.VectorScore = float32(sim)
+		c.SimilarityScore = float32(sim)
+		c.Source = SourceVector
+		out = append(out, c)
+	}
+	return out
+}
+
+// hydrateForRanking loads the per-book data the active ranking formula needs.
+//
+// Both lookups are one indexed query over the whole pool, and both are
+// best-effort: a failure means the corresponding term is skipped for every
+// candidate equally, which degrades ranking rather than breaking the page.
+func (s *RecommendationService) hydrateForRanking(ctx context.Context, userID string, candidates []Candidate) {
+	if s.flags.Bool(ctx, "ranking_v2") {
+		if err := s.fetchCandidateEmbeddings(ctx, candidates); err != nil {
+			slog.Warn("fetch candidate embeddings", "error", err)
+		}
+	}
+	if s.flags.Bool(ctx, "trait_ranking") {
+		if err := s.fetchCandidateTraits(ctx, candidates); err != nil {
+			slog.Warn("fetch candidate traits", "error", err)
+		}
+	}
+	if err := s.fetchCandidateCommunity(ctx, candidates); err != nil {
+		slog.Warn("fetch candidate community stats", "error", err)
+	}
+	if s.flags.Bool(ctx, "taste_twins") {
+		s.fetchTwinSignals(ctx, userID, candidates)
+	}
+}
+
+// fetchTwinSignals attaches "N readers with your taste loved this" evidence
+// to every candidate a top twin rated 4+. One query over the pool.
+func (s *RecommendationService) fetchTwinSignals(ctx context.Context, userID string, candidates []Candidate) {
+	ids := make([]string, len(candidates))
+	for i, c := range candidates {
+		ids[i] = c.BookID
+	}
+	signals, err := s.PeopleLikeYouLoved(ctx, userID, ids)
+	if err != nil {
+		slog.Warn("fetch twin signals", "error", err)
+		return
+	}
+	for i := range candidates {
+		if sig, ok := signals[candidates[i].BookID]; ok {
+			candidates[i].TwinCount = sig.Count
+			candidates[i].TwinNames = sig.Names
+		}
+	}
 }
 
 // fetchCandidateEmbeddings bulk-fetches book embeddings for all candidates
@@ -954,6 +1258,41 @@ func (s *RecommendationService) EmbedBookAsync(book EnrichableBook, enricher *En
 	}
 
 	slog.Debug("embedded book", "book_id", book.ID, "title", book.Title, "source", descSource)
+
+	// Extract traits from the same (possibly just-enriched) description while
+	// we have it. Doing it here rather than leaving every new book to the
+	// nightly backfill means a book added today can carry a trait-based reason
+	// the first time it is recommended.
+	s.extractTraitsForBook(ctx, book, desc)
+}
+
+// extractTraitsForBook runs the trait extractor for a single freshly ingested
+// book. Best-effort: a failure leaves the book without traits, which ranking
+// already handles, and the backfill queue will retry it.
+func (s *RecommendationService) extractTraitsForBook(ctx context.Context, book EnrichableBook, desc string) {
+	if s.traitExtractor == nil {
+		return
+	}
+	// Below this the model is guessing from a title, and a low-confidence guess
+	// still costs a call. Matches the floor in GetBooksNeedingTraits.
+	if len(desc) < 80 {
+		return
+	}
+
+	traits, err := s.traitExtractor.Extract(ctx, []TraitInput{{
+		BookID:      book.ID,
+		Title:       book.Title,
+		Authors:     book.Authors,
+		Categories:  book.Categories,
+		Description: desc,
+	}})
+	if err != nil || len(traits) != 1 {
+		slog.Warn("extract book traits failed", "book_id", book.ID, "error", err)
+		return
+	}
+	if err := s.SaveBookTraits(ctx, book.ID, traits[0]); err != nil {
+		slog.Warn("save book traits failed", "book_id", book.ID, "error", err)
+	}
 }
 
 // GetBooksWithoutEmbeddings returns up to 500 books that have no embedding yet.
@@ -1026,12 +1365,21 @@ func (s *RecommendationService) GetBooksForEnrichment(ctx context.Context, limit
 
 // filterSuppressed removes books the user has already seen 3+ times recently.
 func (s *RecommendationService) filterSuppressed(ctx context.Context, userID string, candidates []Candidate) []Candidate {
+	// Three reasons a book is held back, with different lifetimes:
+	//   - seen too often without acting (24h rest, set by UpdateImpressions)
+	//   - "not now" / "maybe" (a dated rest, set by RecordFeedback)
+	//   - "not for me" / "already read" (permanent)
+	// Re-showing something a reader explicitly dismissed is the fastest way to
+	// teach them that the feedback controls are decorative.
 	rows, err := s.pool.Query(ctx, `
 		SELECT book_id::text
 		FROM recommendation_impressions
 		WHERE user_id = $1
-		  AND seen_count >= 3
-		  AND suppress_until > NOW()
+		  AND (
+		       (seen_count >= 3 AND suppress_until > NOW())
+		    OR dismissed_forever
+		    OR dismissed_until > NOW()
+		  )
 	`, userID)
 	if err != nil {
 		return candidates
@@ -1058,7 +1406,9 @@ func (s *RecommendationService) filterSuppressed(ctx context.Context, userID str
 	return filtered
 }
 
-// getExplorationCandidates returns popular books from genres the user has never engaged with.
+// getExplorationCandidates returns well-known books from genres the user has
+// never engaged with. Ordered by external ratings count: the old ORDER BY
+// total_reads_count sorted on a column that is always 0, i.e. not at all.
 func (s *RecommendationService) getExplorationCandidates(ctx context.Context, userID string, profile UserSignalProfile, limit int) []Candidate {
 	knownGenres := make([]string, 0, len(profile.GenreWeights))
 	for g := range profile.GenreWeights {
@@ -1070,8 +1420,7 @@ func (s *RecommendationService) getExplorationCandidates(ctx context.Context, us
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.id::text, b.title, b.authors, b.categories,
-		       COALESCE(b.cover_url, ''),
-		       COALESCE(b.like_count, 0), COALESCE(b.total_reads_count, 0)
+		       COALESCE(b.cover_url, '')
 		FROM books b
 		WHERE b.embedding IS NOT NULL
 		  AND b.id NOT IN (
@@ -1081,7 +1430,7 @@ func (s *RecommendationService) getExplorationCandidates(ctx context.Context, us
 		      SELECT 1 FROM unnest(b.categories) AS cat
 		      WHERE cat = ANY($2::text[])
 		  )
-		ORDER BY b.total_reads_count DESC NULLS LAST
+		ORDER BY COALESCE(b.ratings_count, 0) DESC
 		LIMIT $3
 	`, userID, knownGenres, limit)
 	if err != nil {
@@ -1092,15 +1441,11 @@ func (s *RecommendationService) getExplorationCandidates(ctx context.Context, us
 	var candidates []Candidate
 	for rows.Next() {
 		var c Candidate
-		var likeCount, totalReads int32
 		if err := rows.Scan(
-			&c.BookID, &c.Title, &c.Authors, &c.Categories,
-			&c.CoverURL, &likeCount, &totalReads,
+			&c.BookID, &c.Title, &c.Authors, &c.Categories, &c.CoverURL,
 		); err != nil {
 			continue
 		}
-		c.LikeCount = int(likeCount)
-		c.TotalReads = int(totalReads)
 		c.Source = SourceFallback
 		c.Reason = "Something different"
 		c.ReasonType = "explore"
@@ -1111,19 +1456,27 @@ func (s *RecommendationService) getExplorationCandidates(ctx context.Context, us
 
 // blendExploration replaces the last 2 slots of ranked with exploration picks.
 func (s *RecommendationService) blendExploration(ctx context.Context, userID string, profile UserSignalProfile, ranked []Candidate) []Candidate {
-	exploration := s.getExplorationCandidates(ctx, userID, profile, 4)
+	exploration := s.getExplorationCandidates(ctx, userID, profile, ExplorationSlots(homeRecCount)*2)
 	if len(exploration) == 0 {
 		return ranked
 	}
-	cutoff := len(ranked) - 2
-	if cutoff < 0 {
-		cutoff = 0
+
+	// Give the stretch picks a reason that names what *does* match, rather than
+	// the bare "Something different". An unexplained exploration slot reads as
+	// the algorithm giving up; "not your usual thing, but you love slow-burn
+	// books you live inside for a while" reads as a deliberate choice — which
+	// it is. Falls back to the flat label when no axis is confident enough.
+	if profile.Traits != nil {
+		if err := s.fetchCandidateTraits(ctx, exploration); err != nil {
+			slog.Warn("fetch exploration traits", "error", err)
+		}
+		for i := range exploration {
+			if text := buildExploreTraitReason(exploration[i], profile.Traits); text != "" {
+				exploration[i].Reason = text
+			}
+		}
 	}
-	end := 2
-	if len(exploration) < end {
-		end = len(exploration)
-	}
-	return append(ranked[:cutoff], exploration[:end]...)
+	return InterleaveExploration(ranked, exploration, ExplorationSlots(len(ranked)))
 }
 
 // UpdateImpressions records or increments that a user saw a recommendation.
@@ -1391,14 +1744,6 @@ func (s *RecommendationService) getUserGenres(ctx context.Context, userID string
 		return genres
 	}
 	return nil
-}
-
-func cosineSimilarityByScore(a, b float64) float64 {
-	diff := a - b
-	if diff < 0 {
-		diff = -diff
-	}
-	return 1.0 - diff
 }
 
 // ExportFloat32Literal is the exported form of float32SliceToLiteral for CLI tools.

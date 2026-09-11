@@ -231,7 +231,7 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "book.added_to_shelf",
+			EventType: service.EventBookAddedToShelf,
 			Source:    "server",
 			Metadata:  map[string]any{"shelf": status},
 		})
@@ -460,7 +460,7 @@ func (h *UserHandler) RemoveFromBookshelf(w http.ResponseWriter, r *http.Request
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "book.removed_from_shelf",
+			EventType: service.EventBookRemovedFromShelf,
 			Source:    "server",
 		})
 	}()
@@ -1168,7 +1168,7 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "reading.progress_updated",
+			EventType: service.EventReadingProgressUpdate,
 			Source:    "server",
 			Metadata:  map[string]any{"progress": req.CurrentPage},
 		})
@@ -1264,7 +1264,7 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    &bIDCopy,
-			EventType: "book.finished",
+			EventType: service.EventBookFinished,
 			Source:    "server",
 		})
 	}()

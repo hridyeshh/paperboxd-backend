@@ -119,7 +119,7 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 					profileID := user.ID
 					go h.EventSvc.Emit(context.Background(), service.EmitParams{
 						UserID:    viewerID,
-						EventType: "profile_viewed",
+						EventType: service.EventProfileViewed,
 						Source:    "server",
 						Metadata: map[string]any{
 							"profile_user_id": profileID.String(),

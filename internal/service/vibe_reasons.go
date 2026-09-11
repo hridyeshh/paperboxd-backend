@@ -73,7 +73,7 @@ type BookReasons struct {
 // Reasons returns one BookReasons per input book, index-aligned. On any
 // failure it returns an error and the caller keeps the templated reason —
 // a vibe search must never fail because the reason model was slow.
-func (r *ClaudeReasoner) Reasons(ctx context.Context, query string, books []ReasonBook, taste ReaderTaste) ([]BookReasons, error) {
+func (r *ClaudeReasoner) Reasons(ctx context.Context, query string, books []ReasonBook, reader ReaderContext) ([]BookReasons, error) {
 	if len(books) == 0 {
 		return nil, nil
 	}
@@ -85,7 +85,7 @@ func (r *ClaudeReasoner) Reasons(ctx context.Context, query string, books []Reas
 		"model":      vibeReasonModel,
 		"max_tokens": 1200,
 		"messages": []map[string]any{
-			{"role": "user", "content": buildVibeReasonPrompt(query, books, taste)},
+			{"role": "user", "content": buildVibeReasonPrompt(query, books, reader)},
 		},
 	})
 	if err != nil {
@@ -149,7 +149,7 @@ func stripFence(text string) string {
 	return strings.TrimSpace(strings.TrimSuffix(text, "```"))
 }
 
-func buildVibeReasonPrompt(query string, books []ReasonBook, taste ReaderTaste) string {
+func buildVibeReasonPrompt(query string, books []ReasonBook, reader ReaderContext) string {
 	var b strings.Builder
 
 	b.WriteString("A reader asked a book-recommendation app for: \"")
@@ -173,20 +173,7 @@ func buildVibeReasonPrompt(query string, books []ReasonBook, taste ReaderTaste) 
 		}
 	}
 
-	if taste.TotalRead > 0 || len(taste.TopGenres) > 0 || len(taste.LovedBooks) > 0 {
-		b.WriteString("\nWhat we know about this reader:\n")
-		if taste.TotalRead > 0 {
-			fmt.Fprintf(&b, "- has finished %d books\n", taste.TotalRead)
-		}
-		if len(taste.TopGenres) > 0 {
-			fmt.Fprintf(&b, "- reads mostly: %s\n", strings.Join(taste.TopGenres, ", "))
-		}
-		if len(taste.LovedBooks) > 0 {
-			fmt.Fprintf(&b, "- rated 4★+: %s\n", strings.Join(taste.LovedBooks, "; "))
-		}
-	} else {
-		b.WriteString("\nThis reader is anonymous — speak to the request itself, never invent reading history.\n")
-	}
+	b.WriteString(reader.PromptSection())
 
 	b.WriteString(`
 For each book, in the same order, write:

@@ -223,7 +223,7 @@ func (h *DiaryHandler) CreateDiaryEntry(w http.ResponseWriter, r *http.Request) 
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
 			BookID:    bookIDPtr,
-			EventType: "diary.entry_created",
+			EventType: service.EventDiaryEntryCreated,
 			Source:    "server",
 			Metadata:  map[string]any{"has_book": entry.BookID.Valid},
 		})
@@ -645,7 +645,7 @@ func (h *DiaryHandler) LikeDiaryEntry(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		h.EventSvc.Emit(context.Background(), service.EmitParams{
 			UserID:    userID,
-			EventType: "diary.entry_liked",
+			EventType: service.EventDiaryEntryLiked,
 			Source:    "server",
 		})
 	}()
