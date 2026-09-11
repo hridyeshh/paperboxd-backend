@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,6 +111,21 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 				}); err == nil {
 					isFollowing = following
 					resp.IsFollowing = &isFollowing
+				}
+				// Social signal: someone looked at someone else. Self-views and
+				// logged-out views are not emitted (events.user_id is NOT NULL).
+				if h.EventSvc != nil {
+					profileID := user.ID
+					go h.EventSvc.Emit(context.Background(), service.EmitParams{
+						UserID:    viewerID,
+						EventType: "profile_viewed",
+						Source:    "server",
+						Metadata: map[string]any{
+							"profile_user_id": profileID.String(),
+							"is_public":       user.IsPublic,
+							"is_following":    isFollowing,
+						},
+					})
 				}
 				if !user.IsPublic && !isFollowing {
 					if requested, err := h.Queries.CheckFollowRequest(r.Context(), db.CheckFollowRequestParams{
@@ -347,7 +365,7 @@ func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	emailSum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(user.Email))))
 	if err := h.Queries.RecordAccountDeletion(r.Context(), db.RecordAccountDeletionParams{
 		UserID:    pgtype.UUID{Bytes: userID, Valid: true},
-		EmailHash: hex.EncodeToString(emailSum[:]),
+		EmailHash: pgtype.Text{String: hex.EncodeToString(emailSum[:]), Valid: true},
 		Reasons:   req.Reasons,
 	}); err != nil {
 		// Non-fatal: don't block deletion just because the audit write failed.
@@ -366,6 +384,93 @@ func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	types.WriteJSON(w, http.StatusOK, types.SuccessResponse{Message: "Account deleted"})
+}
+
+// Suggested handles GET /api/v1/users/suggested?limit=8
+//
+// Readers to follow, for onboarding and empty-feed states. Ranked by
+// favourite-genre overlap with the caller; the reason string is built here so
+// web, iOS and Android render the same explanation.
+func (h *UserHandler) Suggested(w http.ResponseWriter, r *http.Request) {
+	viewerIDStr, ok := reqctx.GetUserID(r.Context())
+	if !ok {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	viewerID, err := uuid.Parse(viewerIDStr)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 {
+		limit = 8
+	}
+	if limit > 20 {
+		limit = 20
+	}
+
+	viewer, err := h.Queries.GetUserByID(r.Context(), viewerID)
+	if err != nil {
+		slog.Error("suggested users: get viewer", "error", err, "user_id", viewerID)
+		types.WriteInternalError(w)
+		return
+	}
+	genres := viewer.FavoriteGenres
+	if genres == nil {
+		genres = []string{}
+	}
+
+	rows, err := h.Queries.SuggestedUsers(r.Context(), db.SuggestedUsersParams{
+		ViewerGenres: genres,
+		ViewerID:     viewerID,
+		RowLimit:     int32(limit),
+	})
+	if err != nil {
+		slog.Error("suggested users", "error", err, "user_id", viewerID)
+		types.WriteInternalError(w)
+		return
+	}
+
+	out := make([]types.SuggestedUserResponse, 0, len(rows))
+	for _, u := range rows {
+		out = append(out, types.SuggestedUserResponse{
+			ID:             u.ID.String(),
+			Username:       u.Username,
+			Name:           u.Name.String,
+			AvatarURL:      u.AvatarUrl.String,
+			Bio:            u.Bio.String,
+			BooksReadCount: u.BooksReadCount,
+			FollowersCount: u.FollowersCount.Int32,
+			SharedGenres:   u.SharedGenres,
+			Reason:         suggestedUserReason(u.SharedGenres, u.BooksReadCount),
+		})
+	}
+
+	types.WriteJSON(w, http.StatusOK, map[string]any{"users": out})
+}
+
+// suggestedUserReason turns the ranking signals into one human line.
+// Only claims what the row supports: genre overlap first, else volume.
+func suggestedUserReason(shared []string, booksRead int32) string {
+	labels := make([]string, 0, 2)
+	for _, g := range shared {
+		if len(labels) == 2 {
+			break
+		}
+		labels = append(labels, strings.ReplaceAll(g, "-", " "))
+	}
+	switch len(labels) {
+	case 2:
+		return fmt.Sprintf("Also into %s and %s", labels[0], labels[1])
+	case 1:
+		return fmt.Sprintf("Also into %s", labels[0])
+	}
+	if booksRead >= 20 {
+		return fmt.Sprintf("Has read %d books", booksRead)
+	}
+	return "Active reader"
 }
 
 // Search handles GET /api/v1/users/search?query=... or ?q=...

@@ -96,3 +96,39 @@ INSERT INTO account_deletions (
 UPDATE users SET is_public = $2, updated_at = NOW()
 WHERE id = $1
 RETURNING *;
+
+-- name: SuggestedUsers :many
+-- Readers a new account should follow. Public, not self, not already followed,
+-- not blocked in either direction, and with something on their shelf so the
+-- feed they produce is non-empty. Ranked by favourite-genre overlap with the
+-- viewer ($2), then by live read count (the cached users.books_read_count
+-- drifts), then followers. Onboarding calls this once, so the per-row
+-- subqueries are fine at launch scale.
+SELECT
+    u.id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    u.bio,
+    u.followers_count,
+    (SELECT COUNT(*) FROM bookshelf bs WHERE bs.user_id = u.id AND bs.status = 'read')::int AS books_read_count,
+    ARRAY(SELECT g FROM unnest(u.favorite_genres) AS g WHERE g = ANY(sqlc.arg(viewer_genres)::text[]))::text[] AS shared_genres
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND u.is_public = true
+  AND u.id <> sqlc.arg(viewer_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM follows f
+      WHERE f.follower_id = sqlc.arg(viewer_id) AND f.following_id = u.id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = sqlc.arg(viewer_id))
+  )
+  AND EXISTS (SELECT 1 FROM bookshelf bs WHERE bs.user_id = u.id)
+ORDER BY
+    cardinality(ARRAY(SELECT g FROM unnest(u.favorite_genres) AS g WHERE g = ANY(sqlc.arg(viewer_genres)::text[]))) DESC,
+    books_read_count DESC,
+    u.followers_count DESC
+LIMIT sqlc.arg(row_limit);

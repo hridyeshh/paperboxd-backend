@@ -40,8 +40,12 @@ type Querier interface {
 	CheckListSaved(ctx context.Context, arg CheckListSavedParams) (bool, error)
 	CheckNewActivities(ctx context.Context, arg CheckNewActivitiesParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
-	// Sliding window: deletes books whose last_accessed_at is older than 15 days,
-	// excluding any book referenced by bookshelf or likes.
+	// Sliding window: deletes books whose last_accessed_at is older than 15 days
+	// and that no user-owned row points at. Every table below either CASCADEs
+	// (bookshelf, likes, favorites, list_books, reading_log) or SET NULLs
+	// (diary_entries, activities) on book delete — so any book referenced here is
+	// user data and must survive. NOT EXISTS rather than NOT IN so a NULL book_id
+	// in the nullable tables can never make the predicate unknown.
 	CleanupStaleBooks(ctx context.Context) (int64, error)
 	CountEntryLikes(ctx context.Context, entryID uuid.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
@@ -211,6 +215,8 @@ type Querier interface {
 	MarkReferralRewardClaimed(ctx context.Context, arg MarkReferralRewardClaimedParams) error
 	RebuildAllLeaderboardStats(ctx context.Context) error
 	RebuildUserLeaderboardStats(ctx context.Context, id uuid.UUID) (LeaderboardStat, error)
+	// email_hash, not the address: this row outlives the 30-day hard purge, so a
+	// cleartext address here would outlive the account forever. See migration 41.
 	RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error
 	RemoveBookFromList(ctx context.Context, arg RemoveBookFromListParams) error
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
@@ -231,6 +237,13 @@ type Querier interface {
 	// The UUID-based placeholders are deterministic and lowercase, satisfying the
 	// column-level UNIQUE constraints and the username_lowercase CHECK.
 	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
+	// Readers a new account should follow. Public, not self, not already followed,
+	// not blocked in either direction, and with something on their shelf so the
+	// feed they produce is non-empty. Ranked by favourite-genre overlap with the
+	// viewer ($2), then by live read count (the cached users.books_read_count
+	// drifts), then followers. Onboarding calls this once, so the per-row
+	// subqueries are fine at launch scale.
+	SuggestedUsers(ctx context.Context, arg SuggestedUsersParams) ([]SuggestedUsersRow, error)
 	UnblockUser(ctx context.Context, arg UnblockUserParams) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error

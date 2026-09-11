@@ -179,7 +179,6 @@ func main() {
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient, eventSvc)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
-	xpHandler := handler.NewXPHandler(queries)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
 	wrappedHandler := handler.NewWrappedHandler(queries)
@@ -332,13 +331,6 @@ func main() {
 			r.Post("/reports", userHandler.CreateReport)
 		})
 
-		// TEMPORARY TEST ROUTES - DELETE BEFORE PRODUCTION
-		r.Group(func(r chi.Router) {
-			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
-			r.Post("/test/award-xp", xpHandler.TestAwardXP)
-			r.Get("/test/xp-info", xpHandler.TestGetXPInfo)
-		})
-
 		// Authors (public)
 		r.Get("/authors/info", authorInfoHandler.Get)
 
@@ -422,9 +414,11 @@ func main() {
 			r.Get("/features", analyticsHandler.Features)
 		})
 
-		// Admin
+		// Admin — operator-only. Gated by X-Internal-Secret like /analytics, never
+		// by a user token: there is no admin role on users, so a Bearer JWT proves
+		// nothing about who is allowed to run destructive maintenance.
 		r.Route("/admin", func(r chi.Router) {
-			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Use(appMiddleware.RequireInternalSecret(cfg.InternalSecret))
 			r.Delete("/cleanup-books", bookHandler.CleanupStaleBooks)
 			r.Post("/leaderboard/rebuild", leaderboardHandler.RebuildLeaderboard)
 		})
@@ -432,6 +426,7 @@ func main() {
 		// Users
 		r.Route("/users", func(r chi.Router) {
 			r.Get("/search", userHandler.Search)
+			r.With(appMiddleware.Authenticate(cfg.JWTSecret)).Get("/suggested", userHandler.Suggested)
 
 			r.Route("/{username}", func(r chi.Router) {
 				// Identify the viewer, then refuse every GET under a private

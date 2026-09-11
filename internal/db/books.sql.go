@@ -23,17 +23,23 @@ func (q *Queries) BumpBookAccess(ctx context.Context, id uuid.UUID) error {
 }
 
 const cleanupStaleBooks = `-- name: CleanupStaleBooks :execrows
-DELETE FROM books
-WHERE last_accessed_at < NOW() - INTERVAL '15 days'
-  AND id NOT IN (
-      SELECT DISTINCT book_id FROM bookshelf
-      UNION
-      SELECT DISTINCT book_id FROM likes
-  )
+DELETE FROM books b
+WHERE b.last_accessed_at < NOW() - INTERVAL '15 days'
+  AND NOT EXISTS (SELECT 1 FROM bookshelf     x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM likes         x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM favorites     x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM list_books    x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM reading_log   x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM diary_entries x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM activities    x WHERE x.book_id = b.id)
 `
 
-// Sliding window: deletes books whose last_accessed_at is older than 15 days,
-// excluding any book referenced by bookshelf or likes.
+// Sliding window: deletes books whose last_accessed_at is older than 15 days
+// and that no user-owned row points at. Every table below either CASCADEs
+// (bookshelf, likes, favorites, list_books, reading_log) or SET NULLs
+// (diary_entries, activities) on book delete — so any book referenced here is
+// user data and must survive. NOT EXISTS rather than NOT IN so a NULL book_id
+// in the nullable tables can never make the predicate unknown.
 func (q *Queries) CleanupStaleBooks(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupStaleBooks)
 	if err != nil {

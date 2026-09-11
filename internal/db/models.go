@@ -12,11 +12,10 @@ import (
 
 type AccountDeletion struct {
 	ID        uuid.UUID          `json:"id"`
-	Email     string             `json:"email"`
-	Username  pgtype.Text        `json:"username"`
 	Reasons   []string           `json:"reasons"`
 	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 	UserID    pgtype.UUID        `json:"user_id"`
+	EmailHash pgtype.Text        `json:"email_hash"`
 }
 
 type Activity struct {

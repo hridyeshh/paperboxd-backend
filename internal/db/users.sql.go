@@ -336,16 +336,14 @@ INSERT INTO account_deletions (
 
 type RecordAccountDeletionParams struct {
 	UserID    pgtype.UUID `json:"user_id"`
-	EmailHash string      `json:"email_hash"`
+	EmailHash pgtype.Text `json:"email_hash"`
 	Reasons   []string    `json:"reasons"`
 }
 
+// email_hash, not the address: this row outlives the 30-day hard purge, so a
+// cleartext address here would outlive the account forever. See migration 41.
 func (q *Queries) RecordAccountDeletion(ctx context.Context, arg RecordAccountDeletionParams) error {
-	_, err := q.db.Exec(ctx, recordAccountDeletion,
-		arg.UserID,
-		arg.EmailHash,
-		arg.Reasons,
-	)
+	_, err := q.db.Exec(ctx, recordAccountDeletion, arg.UserID, arg.EmailHash, arg.Reasons)
 	return err
 }
 
@@ -507,6 +505,89 @@ WHERE id = $1 AND deleted_at IS NULL
 func (q *Queries) SoftDeleteUser(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, softDeleteUser, id)
 	return err
+}
+
+const suggestedUsers = `-- name: SuggestedUsers :many
+SELECT
+    u.id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    u.bio,
+    u.followers_count,
+    (SELECT COUNT(*) FROM bookshelf bs WHERE bs.user_id = u.id AND bs.status = 'read')::int AS books_read_count,
+    ARRAY(SELECT g FROM unnest(u.favorite_genres) AS g WHERE g = ANY($1::text[]))::text[] AS shared_genres
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND u.is_public = true
+  AND u.id <> $2
+  AND NOT EXISTS (
+      SELECT 1 FROM follows f
+      WHERE f.follower_id = $2 AND f.following_id = u.id
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = $2 AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = $2)
+  )
+  AND EXISTS (SELECT 1 FROM bookshelf bs WHERE bs.user_id = u.id)
+ORDER BY
+    cardinality(ARRAY(SELECT g FROM unnest(u.favorite_genres) AS g WHERE g = ANY($1::text[]))) DESC,
+    books_read_count DESC,
+    u.followers_count DESC
+LIMIT $3
+`
+
+type SuggestedUsersParams struct {
+	ViewerGenres []string  `json:"viewer_genres"`
+	ViewerID     uuid.UUID `json:"viewer_id"`
+	RowLimit     int32     `json:"row_limit"`
+}
+
+type SuggestedUsersRow struct {
+	ID             uuid.UUID   `json:"id"`
+	Username       string      `json:"username"`
+	Name           pgtype.Text `json:"name"`
+	AvatarUrl      pgtype.Text `json:"avatar_url"`
+	Bio            pgtype.Text `json:"bio"`
+	FollowersCount pgtype.Int4 `json:"followers_count"`
+	BooksReadCount int32       `json:"books_read_count"`
+	SharedGenres   []string    `json:"shared_genres"`
+}
+
+// Readers a new account should follow. Public, not self, not already followed,
+// not blocked in either direction, and with something on their shelf so the
+// feed they produce is non-empty. Ranked by favourite-genre overlap with the
+// viewer ($2), then by live read count (the cached users.books_read_count
+// drifts), then followers. Onboarding calls this once, so the per-row
+// subqueries are fine at launch scale.
+func (q *Queries) SuggestedUsers(ctx context.Context, arg SuggestedUsersParams) ([]SuggestedUsersRow, error) {
+	rows, err := q.db.Query(ctx, suggestedUsers, arg.ViewerGenres, arg.ViewerID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SuggestedUsersRow{}
+	for rows.Next() {
+		var i SuggestedUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.Bio,
+			&i.FollowersCount,
+			&i.BooksReadCount,
+			&i.SharedGenres,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateUser = `-- name: UpdateUser :one

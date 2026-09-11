@@ -407,3 +407,17 @@ func WriteJSON(w http.ResponseWriter, statusCode int, v any) {
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// SuggestedUserResponse is one row of GET /users/suggested. Reason is
+// server-authored so every client shows the same explanation.
+type SuggestedUserResponse struct {
+	ID             string   `json:"id"`
+	Username       string   `json:"username"`
+	Name           string   `json:"name,omitempty"`
+	AvatarURL      string   `json:"avatar_url,omitempty"`
+	Bio            string   `json:"bio,omitempty"`
+	BooksReadCount int32    `json:"books_read_count"`
+	FollowersCount int32    `json:"followers_count"`
+	SharedGenres   []string `json:"shared_genres"`
+	Reason         string   `json:"reason"`
+}
