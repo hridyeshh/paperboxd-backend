@@ -51,16 +51,23 @@ const (
 	ModuleHiddenGem     = "hidden_gem"
 	ModuleWildCard      = "wild_card"
 	ModuleContinue      = "continue_reading"
+	ModuleTrendingLike  = "trending_like_you"
+	ModuleReadyFor      = "ready_for"
 )
 
-// GetFeed assembles the home page for a reader.
-func (s *RecommendationService) GetFeed(ctx context.Context, userID string) (FeedResponse, error) {
+// GetFeed assembles the home page for a reader. loc is the reader's time
+// zone for the greeting — the server runs on UTC, and "Good morning" at
+// half past five in the evening in Kolkata is the opposite of personal.
+func (s *RecommendationService) GetFeed(ctx context.Context, userID string, loc *time.Location) (FeedResponse, error) {
 	uid, err := uuid.Parse(userID)
 	if err != nil {
 		return FeedResponse{}, err
 	}
+	if loc == nil {
+		loc = time.UTC
+	}
 
-	resp := FeedResponse{Greeting: greeting(time.Now()), Source: "feed"}
+	resp := FeedResponse{Greeting: greeting(time.Now().In(loc)), Source: "feed"}
 	profile, _ := s.GetOrComputeSignalProfile(ctx, userID)
 
 	// One ranked pool, sliced by reason type. Cheaper than N retrievals and
@@ -104,8 +111,8 @@ func (s *RecommendationService) GetFeed(ctx context.Context, userID string) (Fee
 
 	// 3. Picked for you — the strongest personal matches with a reason:
 	// trait lines, "because you loved X", TBR neighbours, then bare vector.
-	picked := take(append(append(append(byType["trait"], byType["recent"]...),
-		byType["because_loved"]...), append(byType["tbr_similar"], byType["favorites"]...)...), 8)
+	picked := take(append(append(byType["trait"], byType["because_loved"]...),
+		append(byType["tbr_similar"], byType["favorites"]...)...), 8)
 	if len(picked) > 0 {
 		resp.Modules = append(resp.Modules, FeedModule{
 			Kind: ModulePickedForYou, Title: "Picked for you",
@@ -137,14 +144,42 @@ func (s *RecommendationService) GetFeed(ctx context.Context, userID string) (Fee
 		if twins, err := s.GetTasteTwins(ctx, userID, 1); err == nil && len(twins) > 0 && twins[0].OverlapPct >= 40 {
 			tw := twins[0]
 			books := s.booksByIDs(ctx, tw.CouldRead, 6)
+			for _, b := range s.booksByIDs(ctx, tw.SharedLoved, 3) {
+				tw.SharedLovedTitles = append(tw.SharedLovedTitles, b.Title)
+			}
+			subtitle := "Books they loved that you haven't read"
+			if len(tw.SharedLovedTitles) > 0 {
+				subtitle = "You both loved " + namesLine(tw.SharedLovedTitles, "") + " · " + subtitle
+			}
 			resp.Modules = append(resp.Modules, FeedModule{
 				Kind:     ModuleTasteTwin,
 				Title:    fmt.Sprintf("%d%% taste overlap with @%s", tw.OverlapPct, tw.Username),
-				Subtitle: "Books they loved that you haven't read",
+				Subtitle: subtitle,
 				Books:    books,
 				Twin:     &tw,
 			})
 		}
+	}
+
+	// 6b. You might be ready for — books on the axis the reader has been
+	// drifting toward lately ("You've been drawn to bleak books lately").
+	// The drift is the story here, so these get their own rail rather than
+	// disappearing into "picked for you".
+	if ready := take(byType["recent"], 6); len(ready) > 0 {
+		resp.Modules = append(resp.Modules, FeedModule{
+			Kind: ModuleReadyFor, Title: "You might be ready for",
+			Subtitle: "Where your reading has been heading lately", Books: ready,
+		})
+	}
+
+	// 6c. Trending among readers like you — what the community shelved this
+	// week, kept only where it survived this reader's taste ranking. Honest
+	// framing: it is trending, and it fits them; not "20,000 people liked it".
+	if trending := take(byType["trending"], 6); len(trending) > 0 {
+		resp.Modules = append(resp.Modules, FeedModule{
+			Kind: ModuleTrendingLike, Title: "Trending among readers like you",
+			Subtitle: "Shelved a lot this week, and close to your taste", Books: trending,
+		})
 	}
 
 	// 7. From your TBR — nudge the pile.

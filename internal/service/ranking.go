@@ -119,7 +119,27 @@ func ConfidenceLabel(conf float64) string {
 const (
 	maxPerAuthor   = 2
 	maxPerCategory = 4
+	// Phase 17 axes beyond genre and author. Caps are per page of 20; each
+	// stops one shape of book from being the whole page, none forces any in.
+	maxPerLength    = 10 // short (≤250) / mid / long (≥450)
+	maxPopular      = 8  // TotalReads ≥ popularShelfCount
+	maxKnownAuthors = 8  // authors already on the reader's shelf
 )
+
+// lengthBucket groups a page count for the length cap. Unknown counts are
+// their own bucket so they are not mistaken for short.
+func lengthBucket(pages int) string {
+	switch {
+	case pages <= 0:
+		return "unknown"
+	case pages <= 250:
+		return "short"
+	case pages >= 450:
+		return "long"
+	default:
+		return "mid"
+	}
+}
 
 // candidateSimilarity measures how alike two books are.
 //
@@ -167,8 +187,9 @@ func candidateSimilarity(a, b Candidate) float64 {
 // lambda is the weight on relevance: 1.0 is pure ranking, 0.0 pure novelty.
 // 0.72 keeps the first few picks essentially in score order — the top of the
 // list has to be the best books or the whole page reads as noise — while
-// letting the tail spread out.
-func diversify(candidates []Candidate, k int, lambda float64) []Candidate {
+// letting the tail spread out. knownAuthors (lower-cased) are the authors
+// already on the reader's shelf; nil when unknown.
+func diversify(candidates []Candidate, k int, lambda float64, knownAuthors map[string]bool) []Candidate {
 	if len(candidates) <= k {
 		return candidates
 	}
@@ -179,6 +200,18 @@ func diversify(candidates []Candidate, k int, lambda float64) []Candidate {
 
 	authorCount := map[string]int{}
 	categoryCount := map[string]int{}
+	lengthCount := map[string]int{}
+	popular, known := 0, 0
+
+	isKnown := func(c Candidate) bool {
+		for _, a := range c.Authors {
+			if knownAuthors[strings.ToLower(a)] {
+				return true
+			}
+		}
+		return false
+	}
+	isPopular := func(c Candidate) bool { return c.TotalReads >= popularShelfCount }
 
 	overCap := func(c Candidate) bool {
 		for _, a := range c.Authors {
@@ -191,6 +224,15 @@ func diversify(candidates []Candidate, k int, lambda float64) []Candidate {
 				return true
 			}
 		}
+		if lengthCount[lengthBucket(c.PageCount)] >= maxPerLength {
+			return true
+		}
+		if isPopular(c) && popular >= maxPopular {
+			return true
+		}
+		if isKnown(c) && known >= maxKnownAuthors {
+			return true
+		}
 		return false
 	}
 
@@ -202,6 +244,13 @@ func diversify(candidates []Candidate, k int, lambda float64) []Candidate {
 		}
 		if len(c.Categories) > 0 {
 			categoryCount[strings.ToLower(c.Categories[0])]++
+		}
+		lengthCount[lengthBucket(c.PageCount)]++
+		if isPopular(c) {
+			popular++
+		}
+		if isKnown(c) {
+			known++
 		}
 		remaining = append(remaining[:idx], remaining[idx+1:]...)
 	}

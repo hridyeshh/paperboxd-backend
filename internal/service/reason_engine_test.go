@@ -118,3 +118,36 @@ func TestQualityScoreDiscountsThinEvidence(t *testing.T) {
 		t.Errorf("2 ratings (%v) should count for less than 100 (%v)", thin, strong)
 	}
 }
+
+// Phase 22: the "Paperboxd knows me" lines, each gated on the signal it names.
+func TestKnowsMeLinesRequireTheirSignal(t *testing.T) {
+	re := &ReasonEngine{}
+	heavy := &UserSignalProfile{RecentTraits: &TraitProfile{
+		Prefs: map[string]float64{"darkness": 0.85}, Confidence: map[string]float64{"darkness": 0.8}}}
+	light := Candidate{Traits: map[string]float64{"darkness": 0.1}}
+	if got := re.Build(light, heavy, "").Text; !strings.HasPrefix(got, "You've been reading heavier books lately") {
+		t.Errorf("antidote line missing: %q", got)
+	}
+	if got := re.Build(Candidate{Traits: map[string]float64{"darkness": 0.8}}, heavy, "").Text; strings.Contains(got, "heavier") {
+		t.Errorf("antidote line on a dark book: %q", got)
+	}
+
+	multi := Candidate{AnchorKind: AnchorLoved, AnchorTitle: "Stoner", AnchorCount: 4}
+	if got := re.Build(multi, nil, "").Text; got != "Connects 4 books you rated highly, including Stoner" {
+		t.Errorf("got %q", got)
+	}
+	short := Candidate{AnchorKind: AnchorTBR, AnchorTitle: "Stoner", PageCount: 180}
+	if got := re.Build(short, nil, "").Text; got != "Like Stoner on your TBR, but shorter" {
+		t.Errorf("got %q", got)
+	}
+
+	known := &UserSignalProfile{AuthorWeights: map[string]float64{"Ann": 1}}
+	newAuthor := Candidate{HasTraitFit: true, TraitFitScore: 0.9, Authors: []string{"Bea"}}
+	if got := re.Build(newAuthor, known, "").Text; got != "You haven't read Bea yet, but they feel very you" {
+		t.Errorf("got %q", got)
+	}
+	newAuthor.Authors = []string{"Ann"}
+	if got := re.Build(newAuthor, known, "").Text; strings.Contains(got, "haven't read") {
+		t.Errorf("new-author line for a known author: %q", got)
+	}
+}

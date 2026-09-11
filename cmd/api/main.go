@@ -380,6 +380,8 @@ func main() {
 				// Social proof: Paperboxd reader stats, friends, lists. Friends
 				// only when the viewer is signed in.
 				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/social", bookHandler.GetBookSocial)
+				// "Why you'll like this" — the feed's reason engine on one book.
+				r.With(appMiddleware.Authenticate(cfg.JWTSecret)).Get("/fit", bookHandler.GetBookFit)
 
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))

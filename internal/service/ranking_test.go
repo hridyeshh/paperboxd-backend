@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -37,7 +38,7 @@ func TestDiversifyCapsOneAuthorDominating(t *testing.T) {
 		cand("b1", 0.50, "Other Author", "Fiction"),
 		cand("c1", 0.40, "Third Author", "Fiction"),
 	}
-	got := diversify(pool, 4, diversityLambda)
+	got := diversify(pool, 4, diversityLambda, nil)
 
 	var sameAuthor int
 	for _, c := range got {
@@ -62,7 +63,7 @@ func TestDiversifyFillsPageEvenWhenCapsCannotBeMet(t *testing.T) {
 		cand("a3", 0.7, "Only Author", "Fiction"),
 		cand("a4", 0.6, "Only Author", "Fiction"),
 	}
-	if got := diversify(pool, 4, diversityLambda); len(got) != 4 {
+	if got := diversify(pool, 4, diversityLambda, nil); len(got) != 4 {
 		t.Errorf("got %d results from a 4-book pool, want 4", len(got))
 	}
 }
@@ -75,7 +76,7 @@ func TestDiversifyKeepsTheBestPickFirst(t *testing.T) {
 		cand("mid", 0.60, "B", "History"),
 		cand("low", 0.30, "C", "Poetry"),
 	}
-	got := diversify(pool, 2, diversityLambda)
+	got := diversify(pool, 2, diversityLambda, nil)
 	if got[0].BookID != "best" {
 		t.Errorf("first pick = %q, want the highest-scoring book", got[0].BookID)
 	}
@@ -83,7 +84,7 @@ func TestDiversifyKeepsTheBestPickFirst(t *testing.T) {
 
 func TestDiversifyReturnsEverythingWhenPoolIsSmall(t *testing.T) {
 	pool := []Candidate{cand("a", 0.9, "A", "F"), cand("b", 0.8, "B", "H")}
-	if got := diversify(pool, 5, diversityLambda); len(got) != 2 {
+	if got := diversify(pool, 5, diversityLambda, nil); len(got) != 2 {
 		t.Errorf("got %d, want the whole 2-book pool", len(got))
 	}
 }
@@ -276,5 +277,42 @@ func TestConfidenceLabelsAreOrderedAndSilentWhenUnsure(t *testing.T) {
 	// Below the wild-card floor the honest thing is to claim nothing.
 	if ConfidenceLabel(0.2) != "" {
 		t.Errorf("0.2 -> %q, want no claim at all", ConfidenceLabel(0.2))
+	}
+}
+
+// Phase 17: a page cannot be all doorstops, all bestsellers, or all authors
+// the reader already knows, even when those score highest.
+func TestDiversifyCapsLengthPopularityAndKnownAuthors(t *testing.T) {
+	var pool []Candidate
+	for i := 0; i < 30; i++ {
+		c := cand(fmt.Sprintf("known%d", i), 0.99-float32(i)*0.001, fmt.Sprintf("Known %d", i), fmt.Sprintf("G%d", i))
+		c.PageCount, c.TotalReads = 600, popularShelfCount+1
+		pool = append(pool, c)
+	}
+	for i := 0; i < 30; i++ {
+		c := cand(fmt.Sprintf("new%d", i), 0.5, fmt.Sprintf("New %d", i), fmt.Sprintf("H%d", i))
+		c.PageCount = 200 + 150*(i%2) // short and mid, so the length cap has room
+		pool = append(pool, c)
+	}
+	known := map[string]bool{}
+	for i := 0; i < 30; i++ {
+		known[strings.ToLower(fmt.Sprintf("Known %d", i))] = true
+	}
+	got := diversify(pool, 20, diversityLambda, known)
+	var long, popular, familiar int
+	for _, c := range got {
+		if c.PageCount >= 450 {
+			long++
+		}
+		if c.TotalReads >= popularShelfCount {
+			popular++
+		}
+		if known[strings.ToLower(c.Authors[0])] {
+			familiar++
+		}
+	}
+	if len(got) != 20 || long > maxPerLength || popular > maxPopular || familiar > maxKnownAuthors {
+		t.Errorf("got %d books: %d long, %d popular, %d familiar; caps %d/%d/%d",
+			len(got), long, popular, familiar, maxPerLength, maxPopular, maxKnownAuthors)
 	}
 }

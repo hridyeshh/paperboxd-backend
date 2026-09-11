@@ -281,6 +281,9 @@ func nearestAnchor(c *Candidate, anchors []Anchor) {
 				tbrSim, bestTBR = sim, a
 			}
 		default:
+			if sim >= anchorMinSim {
+				c.AnchorCount++
+			}
 			if sim > lovedSim {
 				lovedSim, bestLoved = sim, a
 			}

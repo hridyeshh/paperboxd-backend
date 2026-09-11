@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
@@ -225,7 +226,10 @@ func (h *RecommendationHandler) GetFeed(w http.ResponseWriter, r *http.Request) 
 		types.WriteJSON(w, http.StatusOK, service.FeedResponse{Modules: []service.FeedModule{}, Source: "anonymous"})
 		return
 	}
-	feed, err := h.svc.GetFeed(r.Context(), userID)
+	// ?tz=Asia/Kolkata — the reader's IANA zone, for the greeting. Unknown
+	// or absent falls back to UTC rather than failing the page.
+	loc, _ := time.LoadLocation(r.URL.Query().Get("tz"))
+	feed, err := h.svc.GetFeed(r.Context(), userID, loc)
 	if err != nil {
 		slog.Error("get feed", "error", err, "user_id", userID)
 		types.WriteJSON(w, http.StatusOK, service.FeedResponse{Modules: []service.FeedModule{}, Source: "fallback"})

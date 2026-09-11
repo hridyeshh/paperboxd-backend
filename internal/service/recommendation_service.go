@@ -72,9 +72,12 @@ type Candidate struct {
 	TwinNames []string
 	// Anchor is the reader's own shelf book this candidate most resembles,
 	// when one is close enough to name — see nearestAnchor.
-	AnchorTitle     string
-	AnchorKind      string
-	AnchorSim       float64
+	AnchorTitle string
+	AnchorKind  string
+	AnchorSim   float64
+	// AnchorCount is how many loved shelf books clear anchorMinSim — three or
+	// more is "this connects several books you rated highly".
+	AnchorCount     int
 	SimilarityScore float32 // kept for backwards-compatible JSON conversion
 	Reason          string  // human-readable reason string
 	ReasonType      string  // set by ReasonEngine, read by candidateToBookCandidate
@@ -100,6 +103,7 @@ type Candidate struct {
 	// Community signal, used to tell a hidden gem from an unread dud.
 	AverageRating float64
 	RatingsCount  int
+	PageCount     int
 
 	// Confidence and its human label, set during ranking.
 	Confidence      float64
@@ -234,7 +238,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 		results := s.rankCandidates(ctx, cached, profile)
 		results = s.filterSuppressed(ctx, userID, results)
 		results = deduplicateCandidates(results)
-		ranked := diversify(results, homeRecCount, diversityLambda)
+		ranked := diversify(results, homeRecCount, diversityLambda, knownAuthors(profile))
 		ranked = s.blendExploration(ctx, userID, profile, ranked)
 		return toBookCandidates(ranked), "vector", nil
 	}
@@ -348,7 +352,7 @@ func (s *RecommendationService) GetHomeRecommendations(ctx context.Context, user
 	pool = s.rankCandidates(ctx, pool, profile)
 	pool = s.filterSuppressed(ctx, userID, pool)
 	pool = deduplicateCandidates(pool)
-	ranked := diversify(pool, homeRecCount, diversityLambda)
+	ranked := diversify(pool, homeRecCount, diversityLambda, knownAuthors(profile))
 	ranked = s.blendExploration(ctx, userID, profile, ranked)
 
 	return toBookCandidates(ranked), source, nil
@@ -804,6 +808,16 @@ func (s *RecommendationService) scoreV2(c *Candidate, profile *UserSignalProfile
 	return float32(score)
 }
 
+// knownAuthors is the lower-cased set of authors already on the reader's
+// shelf, for the familiar-vs-new cap in diversify.
+func knownAuthors(p UserSignalProfile) map[string]bool {
+	out := make(map[string]bool, len(p.AuthorWeights))
+	for a := range p.AuthorWeights {
+		out[strings.ToLower(a)] = true
+	}
+	return out
+}
+
 // deduplicateCandidates removes duplicate editions by normalising titles.
 func deduplicateCandidates(candidates []Candidate) []Candidate {
 	seen := make(map[string]bool, len(candidates))
@@ -1045,7 +1059,8 @@ func (s *RecommendationService) fetchCandidateCommunity(ctx context.Context, can
 		       COALESCE(b.average_rating, 0),
 		       COALESCE(b.ratings_count, 0),
 		       COUNT(bs.id) FILTER (WHERE bs.status = 'liked'),
-		       COUNT(bs.id)
+		       COUNT(bs.id),
+		       COALESCE(b.page_count, 0)
 		FROM books b
 		LEFT JOIN bookshelf bs ON bs.book_id = b.id
 		WHERE b.id = ANY($1::uuid[])
@@ -1058,13 +1073,13 @@ func (s *RecommendationService) fetchCandidateCommunity(ctx context.Context, can
 
 	type stats struct {
 		avg    float64
-		counts [3]int64
+		counts [4]int64
 	}
 	byID := make(map[string]stats, len(candidates))
 	for rows.Next() {
 		var id string
 		var st stats
-		if err := rows.Scan(&id, &st.avg, &st.counts[0], &st.counts[1], &st.counts[2]); err != nil {
+		if err := rows.Scan(&id, &st.avg, &st.counts[0], &st.counts[1], &st.counts[2], &st.counts[3]); err != nil {
 			continue
 		}
 		byID[id] = st
@@ -1082,6 +1097,7 @@ func (s *RecommendationService) fetchCandidateCommunity(ctx context.Context, can
 		candidates[i].RatingsCount = int(st.counts[0])
 		candidates[i].LikeCount = int(st.counts[1])
 		candidates[i].TotalReads = int(st.counts[2])
+		candidates[i].PageCount = int(st.counts[3])
 	}
 	return nil
 }

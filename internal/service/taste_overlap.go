@@ -356,7 +356,13 @@ type TasteTwin struct {
 	SharedLoved []string `json:"shared_loved"` // book ids
 	Disagreed   []string `json:"disagreed"`
 	CouldRead   []string `json:"could_read"` // books they loved you haven't read
-	IsFollowing bool     `json:"is_following"`
+	// SharedAuthors both readers rated 4+ at least once — the roadmap's
+	// "shared authors" line under the overlap number.
+	SharedAuthors []string `json:"shared_authors"`
+	IsFollowing   bool     `json:"is_following"`
+	// SharedLovedTitles is filled on the feed's twin module only: the "You
+	// both loved" line needs names, not ids.
+	SharedLovedTitles []string `json:"shared_loved_titles,omitempty"`
 }
 
 // GetTasteTwins returns the readers most similar to userID, strongest first.
@@ -417,9 +423,65 @@ func (s *RecommendationService) GetTasteTwins(ctx context.Context, userID string
 		if t.CouldRead == nil {
 			t.CouldRead = []string{}
 		}
+		t.SharedAuthors = []string{}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	s.fillSharedAuthors(ctx, uid, out)
+	return out, nil
+}
+
+// fillSharedAuthors sets SharedAuthors on each twin: authors that both the
+// reader and the twin have rated 4+, most-shared first, capped at 5. One
+// query for the whole list.
+func (s *RecommendationService) fillSharedAuthors(ctx context.Context, uid uuid.UUID, twins []TasteTwin) {
+	if len(twins) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(twins))
+	for _, t := range twins {
+		if id, err := uuid.Parse(t.UserID); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows, err := s.pool.Query(ctx, `
+		WITH mine AS (
+		    SELECT DISTINCT a AS author
+		    FROM bookshelf b JOIN books bk ON bk.id = b.book_id, unnest(bk.authors) a
+		    WHERE b.user_id = $1 AND b.rating >= 4
+		)
+		SELECT b.user_id, a AS author, COUNT(*) AS n
+		FROM bookshelf b JOIN books bk ON bk.id = b.book_id, unnest(bk.authors) a
+		WHERE b.user_id = ANY($2::uuid[]) AND b.rating >= 4
+		  AND a IN (SELECT author FROM mine)
+		GROUP BY b.user_id, a
+		ORDER BY b.user_id, n DESC, a
+	`, uid, ids)
+	if err != nil {
+		slog.Warn("shared authors", "error", err)
+		return
+	}
+	defer rows.Close()
+	byUser := map[string][]string{}
+	for rows.Next() {
+		var other uuid.UUID
+		var author string
+		var n int64
+		if rows.Scan(&other, &author, &n) != nil {
+			continue
+		}
+		key := other.String()
+		if len(byUser[key]) < 5 {
+			byUser[key] = append(byUser[key], author)
+		}
+	}
+	for i := range twins {
+		if a, ok := byUser[twins[i].UserID]; ok {
+			twins[i].SharedAuthors = a
+		}
+	}
 }
 
 // PeopleLikeYouLoved returns, for a set of candidate books, how many of the

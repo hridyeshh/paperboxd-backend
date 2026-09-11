@@ -95,10 +95,16 @@ func buildTraitReason(c Candidate, p *TraitProfile) string {
 // your taste." That requires naming the axis that *does* match, which is only
 // possible because the axes are separate from genre.
 func buildExploreTraitReason(c Candidate, p *TraitProfile) string {
-	if m := matchedTraitPhrases(c, p, 1); len(m) == 1 {
-		return "Not your usual thing, but you love " + m[0]
+	m := matchedTraitPhrases(c, p, 1)
+	if len(m) != 1 {
+		return ""
 	}
-	return ""
+	// Exploration candidates come from genres the reader has never shelved,
+	// so the first category is honestly "not your usual".
+	if len(c.Categories) > 0 && c.Categories[0] != "" {
+		return "You don't usually read " + c.Categories[0] + ", but you love " + m[0]
+	}
+	return "Not your usual thing, but you love " + m[0]
 }
 
 // DescribeTaste renders a reader's strongest axes as short human lines, for the

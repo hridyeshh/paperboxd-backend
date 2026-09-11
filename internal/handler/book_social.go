@@ -69,6 +69,23 @@ type BookSocialResponse struct {
 // is therefore never cached.
 const bookSocialCacheTTL = 2 * time.Minute
 
+// GetBookFit handles GET /api/v1/books/{id}/fit — "Why you'll like this",
+// from the same engine as the home feed. 204 when there is nothing personal
+// to say, so the page draws nothing rather than a generic line.
+func (h *BookHandler) GetBookFit(w http.ResponseWriter, r *http.Request) {
+	userID, ok := reqctx.GetUserID(r.Context())
+	if !ok || h.RecommendationService == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	fit, err := h.RecommendationService.BookFit(r.Context(), userID, chi.URLParam(r, "id"))
+	if err != nil || fit == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	types.WriteJSON(w, http.StatusOK, fit)
+}
+
 // GetBookSocial handles GET /api/v1/books/{id}/social (optional auth).
 // One round trip for everything the book page needs to answer "what do
 // Paperboxd readers think, and does anyone I follow care?".

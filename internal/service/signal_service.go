@@ -135,6 +135,19 @@ func (p *UserSignalProfile) traits() *TraitProfile {
 	return p.Traits
 }
 
+// knowsAuthor reports whether any of the authors is already on the shelf.
+func (p *UserSignalProfile) knowsAuthor(authors []string) bool {
+	if p == nil {
+		return false
+	}
+	for _, a := range authors {
+		if _, ok := p.AuthorWeights[a]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // DecayedWeight applies exponential decay to an implicit signal.
 // Explicit signals (ratings, likes) should not pass through this function.
 func DecayedWeight(baseScore float64, eventTime time.Time, lambda float64) float64 {

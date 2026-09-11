@@ -127,7 +127,7 @@ func TestLooksOpenEnded(t *testing.T) {
 // the reader's genres; "close to my usual" doubles taste.
 func TestClarifyingAnswersSteerTaste(t *testing.T) {
 	for q, want := range map[string]string{
-		"recommend me something, Surprise me":      "surprise",
+		"recommend me something, Surprise me":       "surprise",
 		"recommend me something, Close to my usual": "comfort",
 		"something for my flight":                   "travel",
 	} {

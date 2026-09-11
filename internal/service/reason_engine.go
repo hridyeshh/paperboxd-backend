@@ -63,6 +63,8 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		switch {
 		case c.TwinCount <= 2 && len(c.TwinNames) >= c.TwinCount:
 			text = namesLine(c.TwinNames[:c.TwinCount], "@") + " loved this"
+		case c.TwinCount >= 5:
+			text = "Readers who rate books like you do are obsessed with this"
 		default:
 			text = fmt.Sprintf("%d readers with your taste loved this", c.TwinCount)
 		}
@@ -90,15 +92,42 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		return ReasonResult{Text: text, Type: "trait"}
 	}
 
+	// Rule 3a: Antidote — the reader has been going somewhere heavy and this
+	// book is the opposite. Only when the recent profile is confident on the
+	// axis and the book is clearly on the light side of it.
+	if profile != nil && profile.RecentTraits != nil && c.Traits != nil {
+		for _, axis := range []string{"darkness", "emotional_intensity"} {
+			if profile.RecentTraits.Prefs[axis] >= 0.7 && profile.RecentTraits.Confidence[axis] >= 0.5 && c.Traits[axis] <= 0.3 {
+				return ReasonResult{Text: "You've been reading heavier books lately. Maybe you need this", Type: "recent"}
+			}
+		}
+	}
+
 	// Rule 3b: Anchor — this book sits next to one specific book on the
 	// reader's shelf. The roadmap's "because you loved X", with the X real.
 	switch c.AnchorKind {
-	case AnchorRated5:
-		return ReasonResult{Text: "Because you rated " + c.AnchorTitle + " 5★", Type: "because_loved"}
-	case AnchorLoved:
+	case AnchorRated5, AnchorLoved:
+		if c.AnchorCount >= 3 {
+			return ReasonResult{Text: fmt.Sprintf("Connects %d books you rated highly, including %s", c.AnchorCount, c.AnchorTitle), Type: "because_loved"}
+		}
+		if c.AnchorKind == AnchorRated5 {
+			return ReasonResult{Text: "Because you rated " + c.AnchorTitle + " 5★", Type: "because_loved"}
+		}
 		return ReasonResult{Text: "Because you loved " + c.AnchorTitle, Type: "because_loved"}
 	case AnchorTBR:
+		// "You keep saving books like this but never starting them" — the
+		// shorter one is the honest nudge, and only when it actually is.
+		if c.PageCount > 0 && c.PageCount <= 250 {
+			return ReasonResult{Text: "Like " + c.AnchorTitle + " on your TBR, but shorter", Type: "tbr_similar"}
+		}
 		return ReasonResult{Text: "Similar to " + c.AnchorTitle + " on your TBR", Type: "tbr_similar"}
+	}
+
+	// Rule 3c: New author, strong fit — "you haven't discovered this author
+	// yet, but I think they're very you". Requires a confident trait match
+	// and an author with no history on the shelf.
+	if c.HasTraitFit && c.TraitFitScore >= 0.8 && len(c.Authors) > 0 && profile != nil && !profile.knowsAuthor(c.Authors) {
+		return ReasonResult{Text: "You haven't read " + c.Authors[0] + " yet, but they feel very you", Type: "trait"}
 	}
 
 	// Rule 4: Velocity — fast-finish centroid match (only non-zero with ranking_v2)
@@ -124,13 +153,13 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 6: Author weight — user has engaged with this author
-	// Text MUST start with 'You read' for the authors tab filter.
+	// Rule 6: Author weight — the reader has rated this author before.
+	// Type "author" is what the authors tab filters on.
 	if profile != nil && profile.AuthorWeights != nil {
 		for _, author := range c.Authors {
 			if w, ok := profile.AuthorWeights[author]; ok && w > 0.3 {
 				return ReasonResult{
-					Text: fmt.Sprintf("You read more by %s", author),
+					Text: fmt.Sprintf("You've loved %s before. Here's another of theirs", author),
 					Type: "author",
 				}
 			}
