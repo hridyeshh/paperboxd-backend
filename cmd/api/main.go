@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -203,6 +203,7 @@ func main() {
 
 	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
 	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient, hardcoverClient)
+	scanHandler.EventSvc = eventSvc
 
 	userHandler := &handler.UserHandler{
 		Queries:               queries,

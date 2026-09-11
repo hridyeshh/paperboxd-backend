@@ -23,10 +23,10 @@ type Config struct {
 	RedisURL      string
 	RedisPassword string
 
-	JWTSecret                string
-	AccessTokenExpiry        time.Duration
-	AccessTokenExpiryMobile  time.Duration // longer expiry for tokens issued by /api/mobile/auth/*
-	RefreshTokenExpiry       time.Duration
+	JWTSecret               string
+	AccessTokenExpiry       time.Duration
+	AccessTokenExpiryMobile time.Duration // longer expiry for tokens issued by /api/mobile/auth/*
+	RefreshTokenExpiry      time.Duration
 
 	GoogleBooksAPIKey string
 	ISBNdbAPIKey      string
@@ -35,6 +35,8 @@ type Config struct {
 	RateLimitPerMinute int
 
 	CORSAllowedOrigins []string
+	// ScanUnlimitedEmails are accounts that bypass the scan quota.
+	ScanUnlimitedEmails []string
 
 	InternalSecret string
 
@@ -123,7 +125,13 @@ func Load() (*Config, error) {
 		InternalSecret: getEnv("INTERNAL_SECRET", ""),
 
 		AllowedGoogleAudiences: getEnvAsStringSlice("GOOGLE_OAUTH_ALLOWED_AUDIENCES", ""),
-		AllowedAppleAudiences:  getEnvAsStringSlice("APPLE_ALLOWED_AUDIENCES", "com.paperboxd.PaperBoxd"),
+
+		// Accounts exempt from the Scan & Know quota. Empty in production
+		// unless deliberately set; this replaces an email hardcoded in
+		// handler/scan.go and is the first seam toward the Plus entitlement
+		// system (a `scan_unlimited` capability).
+		ScanUnlimitedEmails:   getEnvAsStringSlice("SCAN_UNLIMITED_EMAILS", ""),
+		AllowedAppleAudiences: getEnvAsStringSlice("APPLE_ALLOWED_AUDIENCES", "com.paperboxd.PaperBoxd"),
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),

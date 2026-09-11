@@ -20,6 +20,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/external"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
+	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,6 +35,7 @@ type ScanHandler struct {
 	Hardcover    *external.HardcoverClient
 	Client       *http.Client
 	ClaudeClient *http.Client
+	EventSvc     *service.EventService
 }
 
 func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config, isbndb *external.ISBNdbClient, hardcover *external.HardcoverClient) *ScanHandler {
@@ -45,6 +47,32 @@ func NewScanHandler(pool *pgxpool.Pool, queries *db.Queries, cfg *config.Config,
 		Hardcover:    hardcover,
 		Client:       &http.Client{Timeout: 10 * time.Second},
 		ClaudeClient: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// emitScan records a scan outcome. Fire and forget: instrumentation must never
+// change what the reader sees.
+func (h *ScanHandler) emitScan(userID uuid.UUID, eventType string, metadata map[string]any) {
+	if h.EventSvc == nil {
+		return
+	}
+	go h.EventSvc.Emit(context.Background(), service.EmitParams{
+		UserID:    userID,
+		EventType: eventType,
+		Source:    "server",
+		Metadata:  metadata,
+	})
+}
+
+// refundScan returns a reserved scan when the analysis never produced a score.
+// Best effort: a failed refund costs the reader one scan, which is why it is
+// logged loudly rather than swallowed.
+func (h *ScanHandler) refundScan(userID uuid.UUID) {
+	if _, err := h.Pool.Exec(context.Background(),
+		"UPDATE users SET scan_uses_remaining = scan_uses_remaining + 1 WHERE id = $1",
+		userID,
+	); err != nil {
+		slog.Error("scan quota refund failed", "error", err, "user_id", userID)
 	}
 }
 
@@ -97,25 +125,26 @@ type scanBookMeta struct {
 	Description string
 }
 
-// scanUnlimited bypasses the free-scan quota (no gate, no decrement) while testing.
-// Flip to false to re-enable the paywall.
-const scanUnlimited = false
-
-// scanUnlimitedEmails always bypass the quota (gate + decrement), even when
-// scanUnlimited is false — internal testing accounts while the paywall is live.
-var scanUnlimitedEmails = map[string]bool{
-	"hridyesh2309@gmail.com": true,
-}
-
-// isScanUnlimited reports whether this request skips the quota entirely.
-func isScanUnlimited(email string) bool {
-	return scanUnlimited || scanUnlimitedEmails[strings.ToLower(strings.TrimSpace(email))]
+// isScanUnlimited reports whether this account skips the scan quota. The
+// allowlist comes from SCAN_UNLIMITED_EMAILS and is empty unless deliberately
+// set — it used to be an email hardcoded in this file, which meant the owner's
+// account behaved differently from every other account in production with no
+// way to change it without a deploy.
+func (h *ScanHandler) isScanUnlimited(email string) bool {
+	needle := strings.ToLower(strings.TrimSpace(email))
+	if needle == "" || h.Config == nil {
+		return false
+	}
+	for _, allowed := range h.Config.ScanUnlimitedEmails {
+		if strings.ToLower(strings.TrimSpace(allowed)) == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // Analyze handles POST /api/v1/scan/analyze.
 func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
-	debug := r.URL.Query().Get("debug") == "true"
-
 	userIDStr, ok := reqctx.GetUserID(r.Context())
 	if !ok {
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
@@ -152,7 +181,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	unlimited := isScanUnlimited(userEmail)
+	unlimited := h.isScanUnlimited(userEmail)
 
 	if scansRemaining == 0 && !unlimited {
 		types.WriteJSON(w, http.StatusForbidden, map[string]any{
@@ -160,6 +189,35 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			"scans_remaining": 0,
 		})
 		return
+	}
+
+	// Reserve the scan up front. Checking here and decrementing after the
+	// Claude call let two concurrent requests with one scan left both pass the
+	// gate and both bill us for a completion. The conditional UPDATE makes the
+	// reservation atomic; every early return below refunds it, so a scan is
+	// only truly spent once a score comes back.
+	reserved := false
+	if !unlimited {
+		var afterReserve int32
+		if err := h.Pool.QueryRow(r.Context(),
+			"UPDATE users SET scan_uses_remaining = scan_uses_remaining - 1 WHERE id = $1 AND scan_uses_remaining > 0 RETURNING scan_uses_remaining",
+			userID,
+		).Scan(&afterReserve); err != nil {
+			// Lost the race: someone else spent the last scan between the read
+			// above and this update.
+			types.WriteJSON(w, http.StatusForbidden, map[string]any{
+				"error":           "scans_exhausted",
+				"scans_remaining": 0,
+			})
+			return
+		}
+		reserved = true
+		scansRemaining = afterReserve
+		defer func() {
+			if reserved {
+				h.refundScan(userID)
+			}
+		}()
 	}
 
 	if h.ISBNdb == nil {
@@ -170,6 +228,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	book, err := h.ISBNdb.GetByISBN(r.Context(), isbn)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
+			h.emitScan(userID, "scan_failed", map[string]any{"isbn": isbn, "stage": "lookup"})
 			types.WriteJSON(w, http.StatusNotFound, map[string]any{
 				"error":   "book_not_found",
 				"message": "Couldn't find this book — try searching by title",
@@ -351,6 +410,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	score, err := h.callClaudeForScore(r.Context(), meta, communitySummary, profile)
 	if err != nil {
 		slog.Error("claude scoring failed", "error", err, "isbn", isbn13, "user_id", userID)
+		h.emitScan(userID, "scan_failed", map[string]any{"isbn": isbn13, "stage": "scoring"})
 		types.WriteJSON(w, http.StatusBadGateway, map[string]any{
 			"error":   "scoring_failed",
 			"message": "Something took too long — your scan hasn't been used",
@@ -358,23 +418,10 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── Decrement quota (only after successful score) ─────────────────────────
-
-	var newRemaining int32
-	if unlimited {
-		// Testing / allowlisted account: don't consume quota.
-		newRemaining = scansRemaining
-	} else {
-		decrementErr := h.Pool.QueryRow(r.Context(),
-			"UPDATE users SET scan_uses_remaining = scan_uses_remaining - 1 WHERE id = $1 AND scan_uses_remaining > 0 RETURNING scan_uses_remaining",
-			userID,
-		).Scan(&newRemaining)
-		if decrementErr != nil {
-			// Race condition: quota hit 0 between check and now. Still return the score.
-			slog.Warn("scan quota decrement returned no rows", "user_id", userID)
-			newRemaining = 0
-		}
-	}
+	// The score arrived, so the reservation made above is now genuinely spent.
+	reserved = false
+	newRemaining := scansRemaining
+	h.emitScan(userID, "scan_succeeded", map[string]any{"isbn": isbn13})
 
 	// ── Response ──────────────────────────────────────────────────────────────
 
@@ -399,11 +446,6 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			"friends": len(profile.FollowedUsersWithBook),
 		},
 		"scans_remaining": newRemaining,
-	}
-
-	if debug {
-		resp["community_summary"] = communitySummary
-		resp["user_profile"] = profile
 	}
 
 	types.WriteJSON(w, http.StatusOK, resp)
