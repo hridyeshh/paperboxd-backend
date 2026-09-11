@@ -121,3 +121,51 @@ func TestLooksOpenEnded(t *testing.T) {
 		}
 	}
 }
+
+// Phase 8: the two replies Jazy offers must change the ranking, or the
+// question was a form field. "Surprise me" turns taste off and rewards leaving
+// the reader's genres; "close to my usual" doubles taste.
+func TestClarifyingAnswersSteerTaste(t *testing.T) {
+	for q, want := range map[string]string{
+		"recommend me something, Surprise me":      "surprise",
+		"recommend me something, Close to my usual": "comfort",
+		"something for my flight":                   "travel",
+	} {
+		if got := ParseQuery(q).Constraints.Context; got != want {
+			t.Errorf("%q: context = %q, want %q", q, got, want)
+		}
+	}
+
+	profile := &UserSignalProfile{GenreWeights: map[string]float64{"Fiction": 1}}
+	inGenre := Candidate{VectorScore: 0.7, Categories: []string{"Fiction"}}
+	outGenre := Candidate{VectorScore: 0.7, Categories: []string{"Science"}}
+
+	surprise := SearchConstraints{Context: "surprise"}
+	if searchScore(&inGenre, surprise, profile, false) >= searchScore(&outGenre, surprise, profile, false) {
+		t.Error("surprise me: a book in the reader's usual genre outranked one outside it")
+	}
+	comfort := SearchConstraints{Context: "comfort"}
+	if searchScore(&inGenre, comfort, profile, false) <= searchScore(&outGenre, comfort, profile, false) {
+		t.Error("close to my usual: a book outside the reader's genre outranked one inside it")
+	}
+}
+
+// Phase 7: the prompt must carry what the roadmap says Jazy knows — authors
+// they return to and their own diary words — and cut diary text at a word.
+func TestReaderContextCarriesAuthorsAndDiary(t *testing.T) {
+	rc := ReaderContext{
+		ReaderTaste: ReaderTaste{TotalRead: 12, LovedBooks: []string{"Stoner (5★)"}},
+		TopAuthors:  []string{"Kazuo Ishiguro"},
+		DiaryLines:  []string{diaryLine("Never Let Me Go", "This one wrecked me quietly over three evenings and I still think about the last page")},
+	}
+	got := rc.PromptSection()
+	for _, want := range []string{"keeps coming back to: Kazuo Ishiguro", "Never Let Me Go: This one wrecked me", "Stoner (5★)"} {
+		if !contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+	long := diaryLine("T", "word "+strings.Repeat("x", 200))
+	if len(long) > len("T: ")+ctxDiaryChars+len("…") || !strings.HasSuffix(long, "…") {
+		t.Errorf("diary line not cut: %d chars %q", len(long), long)
+	}
+}

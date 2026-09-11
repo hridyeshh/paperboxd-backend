@@ -142,6 +142,10 @@ var contextWords = []struct {
 	{regexp.MustCompile(`(?i)\b(haven't read in|get back into reading|reading slump|out of practice|first book in)\b`), "returning", map[string]float64{"pacing": 0.8, "prose_density": 0.3, "narrative_complexity": 0.2}},
 	{regexp.MustCompile(`(?i)\b(just finished|after a devastating|recover\w* from|need something (?:light|gentle) after|palate cleanser)\b`), "recovery", map[string]float64{"darkness": 0.2, "emotional_intensity": 0.3}},
 	{regexp.MustCompile(`(?i)\b(challenge me|challenge myself|stretch|something harder|more demanding)\b`), "stretch", map[string]float64{"narrative_complexity": 0.8, "prose_density": 0.8}},
+	// The two replies Jazy offers a known reader. Neither is an axis; they
+	// change how much the reader's own taste is allowed to steer the ranking.
+	{regexp.MustCompile(`(?i)\b(close to my usual|my usual taste|stay close|comfort read)\b`), "comfort", nil},
+	{regexp.MustCompile(`(?i)\b(surprise me|something different|something new|out of my comfort zone|broaden my horizons)\b`), "surprise", nil},
 }
 
 // ParseQuery reads a search string into intent, constraints and embed text.

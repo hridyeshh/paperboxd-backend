@@ -388,12 +388,22 @@ func searchScore(c *Candidate, con SearchConstraints, profile *UserSignalProfile
 	}
 
 	if profile != nil {
+		// "Close to my usual" doubles the pull of long-term taste; "surprise
+		// me" removes it and rewards leaving the reader's genres instead.
+		// Without this the two answers Jazy offers would change nothing.
+		tasteW := 1.0
+		switch con.Context {
+		case "comfort":
+			tasteW = 2.0
+		case "surprise":
+			tasteW = 0
+		}
 		if fit, ok := TraitFit(c.Traits, profile.Traits); ok {
 			c.TraitFitScore = fit
 			c.HasTraitFit = true
-			score += fit * 0.10
+			score += fit * 0.10 * tasteW
 		} else {
-			score += 0.5 * 0.10
+			score += 0.5 * 0.10 * tasteW
 		}
 		if clash, ok := TraitClash(c.Traits, profile.Traits); ok && clash > 0.5 {
 			c.TraitClashScore = clash
@@ -407,7 +417,12 @@ func searchScore(c *Candidate, con SearchConstraints, profile *UserSignalProfile
 				g += w
 			}
 		}
-		score += math.Min(g, 1.0) * 0.05
+		g = math.Min(g, 1.0)
+		if con.Context == "surprise" {
+			score += (1 - g) * 0.10
+		} else {
+			score += g * 0.05 * tasteW
+		}
 	} else {
 		score += 0.5*0.10 + 0.5*0.05
 	}

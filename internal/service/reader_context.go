@@ -38,6 +38,14 @@ type ReaderContext struct {
 	TBRCount          int
 	SavedNeverStarted int
 
+	// Authors they keep coming back to, strongest first.
+	TopAuthors []string
+
+	// Their own words. "Title: first line of what they wrote" for recent
+	// non-private diary entries — the one source that lets Jazy say "you
+	// wrote that X wrecked you" instead of guessing at it.
+	DiaryLines []string
+
 	// Interpretable taste, as sentences.
 	TasteLines []string // from DescribeTaste
 	// Recently trending axes vs. long-term, e.g. "reading darker than usual".
@@ -64,6 +72,8 @@ const (
 	ctxTBR            = 5
 	ctxFriendsLoved   = 5
 	ctxPreviousAsks   = 4
+	ctxDiaryLines     = 3
+	ctxDiaryChars     = 140
 )
 
 // BuildReaderContext gathers the reader's full picture in a handful of
@@ -77,6 +87,7 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 
 	if profile != nil {
 		rc.TopGenres = topWeighted(profile.GenreWeights, 3)
+		rc.TopAuthors = topWeighted(profile.AuthorWeights, 3)
 		if profile.VelocitySignal != nil {
 			rc.VelocityBucket = profile.VelocitySignal.VelocityBucket
 		}
@@ -132,7 +143,9 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 			if rating != nil {
 				switch {
 				case *rating >= 4 && len(rc.LovedBooks) < ctxLoved:
-					rc.LovedBooks = append(rc.LovedBooks, title)
+					// With the star, so the voice can say "you gave X 5★"
+					// rather than the vaguer "you liked X".
+					rc.LovedBooks = append(rc.LovedBooks, titleWithRating(title, rating))
 				case *rating <= 2 && len(rc.Disliked) < ctxDisliked:
 					rc.Disliked = append(rc.Disliked, title)
 				}
@@ -179,6 +192,27 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 		if saved != nil {
 			rc.SavedNeverStarted = *saved
 		}
+	}
+
+	// Diary, in their own words. Private entries never leave the app
+	// (migration 000040 retracted them from embedding for the same reason).
+	rows, err = s.pool.Query(ctx, `
+		SELECT COALESCE(bk.title, d.title, ''), d.content
+		FROM diary_entries d
+		LEFT JOIN books bk ON bk.id = d.book_id
+		WHERE d.user_id = $1 AND d.is_private = false AND LENGTH(d.content) >= 20
+		ORDER BY d.created_at DESC
+		LIMIT $2
+	`, userID, ctxDiaryLines)
+	if err == nil {
+		for rows.Next() {
+			var title, content string
+			if rows.Scan(&title, &content) != nil {
+				continue
+			}
+			rc.DiaryLines = append(rc.DiaryLines, diaryLine(title, content))
+		}
+		rows.Close()
 	}
 
 	// Explicit rejections and their reasons.
@@ -273,6 +307,22 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 
 	rc.RecentShift = s.recentTasteShift(ctx, userID, profile)
 	return rc
+}
+
+// diaryLine is "Title: the first sentence or so", cut at a word boundary.
+func diaryLine(title, content string) string {
+	c := strings.Join(strings.Fields(content), " ")
+	if len(c) > ctxDiaryChars {
+		cut := strings.LastIndex(c[:ctxDiaryChars], " ")
+		if cut < ctxDiaryChars/2 {
+			cut = ctxDiaryChars
+		}
+		c = c[:cut] + "…"
+	}
+	if title == "" {
+		return c
+	}
+	return title + ": " + c
 }
 
 func titleWithRating(title string, rating *int32) string {
@@ -378,6 +428,9 @@ func (rc ReaderContext) PromptSection() string {
 	if len(rc.TopGenres) > 0 {
 		fmt.Fprintf(&b, "- reads mostly: %s\n", strings.Join(rc.TopGenres, ", "))
 	}
+	if len(rc.TopAuthors) > 0 {
+		fmt.Fprintf(&b, "- keeps coming back to: %s\n", strings.Join(rc.TopAuthors, ", "))
+	}
 	for _, line := range rc.TasteLines {
 		fmt.Fprintf(&b, "- tends to love %s\n", strings.ToLower(line[:1])+line[1:])
 	}
@@ -389,6 +442,9 @@ func (rc ReaderContext) PromptSection() string {
 	}
 	if len(rc.RecentlyFinished) > 0 {
 		fmt.Fprintf(&b, "- finished recently: %s\n", strings.Join(rc.RecentlyFinished, "; "))
+	}
+	for _, line := range rc.DiaryLines {
+		fmt.Fprintf(&b, "- wrote in their diary — %s\n", line)
 	}
 	if len(rc.CurrentlyReading) > 0 {
 		fmt.Fprintf(&b, "- reading now: %s\n", strings.Join(rc.CurrentlyReading, "; "))
