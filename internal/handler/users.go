@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -323,10 +324,10 @@ func (h *UserHandler) SaveOnboarding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
-		"success":  true,
-		"message":  "Onboarding saved successfully",
-		"genres":   req.Genres,
-		"authors":  req.Authors,
+		"success": true,
+		"message": "Onboarding saved successfully",
+		"genres":  req.Genres,
+		"authors": req.Authors,
 	})
 }
 
@@ -422,10 +423,17 @@ func (h *UserHandler) Suggested(w http.ResponseWriter, r *http.Request) {
 		genres = []string{}
 	}
 
+	// Over-fetch: the genre query is only the first pass. The signals worth
+	// leading with — books you have both read, and people you follow who follow
+	// them — are joined on below and change the order.
+	candidateLimit := limit * 4
+	if candidateLimit > 60 {
+		candidateLimit = 60
+	}
 	rows, err := h.Queries.SuggestedUsers(r.Context(), db.SuggestedUsersParams{
 		ViewerGenres: genres,
 		ViewerID:     viewerID,
-		RowLimit:     int32(limit),
+		RowLimit:     int32(candidateLimit),
 	})
 	if err != nil {
 		slog.Error("suggested users", "error", err, "user_id", viewerID)
@@ -433,8 +441,16 @@ func (h *UserHandler) Suggested(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	candidateIDs := make([]uuid.UUID, len(rows))
+	for i, u := range rows {
+		candidateIDs[i] = u.ID
+	}
+	shared, mutuals := h.suggestionSignals(r.Context(), viewerID, candidateIDs)
+
 	out := make([]types.SuggestedUserResponse, 0, len(rows))
 	for _, u := range rows {
+		sh := shared[u.ID]
+		mu := mutuals[u.ID]
 		out = append(out, types.SuggestedUserResponse{
 			ID:             u.ID.String(),
 			Username:       u.Username,
@@ -444,18 +460,92 @@ func (h *UserHandler) Suggested(w http.ResponseWriter, r *http.Request) {
 			BooksReadCount: u.BooksReadCount,
 			FollowersCount: u.FollowersCount.Int32,
 			SharedGenres:   u.SharedGenres,
-			Reason:         suggestedUserReason(u.SharedGenres, u.BooksReadCount),
+			SharedBooks:    sh.count,
+			MutualFollows:  mu,
+			Reason:         suggestedUserReason(sh.count, sh.title, mu, u.SharedGenres, u.BooksReadCount),
 		})
+	}
+
+	// Strongest signal first; the query already ordered by genre overlap, and
+	// sort.SliceStable keeps that as the tie-break.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].SharedBooks != out[j].SharedBooks {
+			return out[i].SharedBooks > out[j].SharedBooks
+		}
+		return out[i].MutualFollows > out[j].MutualFollows
+	})
+	if len(out) > limit {
+		out = out[:limit]
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{"users": out})
 }
 
-// suggestedUserReason turns the ranking signals into one human line.
-// Only claims what the row supports: genre overlap first, else volume.
-func suggestedUserReason(shared []string, booksRead int32) string {
+type sharedReadSignal struct {
+	count int32
+	title string
+}
+
+// suggestionSignals fetches the two cross-reader signals for a candidate set in
+// two set-based queries rather than per candidate. Failures degrade to empty
+// maps: a weaker reason is better than no suggestions.
+func (h *UserHandler) suggestionSignals(ctx context.Context, viewerID uuid.UUID, candidateIDs []uuid.UUID) (map[uuid.UUID]sharedReadSignal, map[uuid.UUID]int32) {
+	shared := map[uuid.UUID]sharedReadSignal{}
+	mutuals := map[uuid.UUID]int32{}
+	if len(candidateIDs) == 0 {
+		return shared, mutuals
+	}
+
+	if bookIDs, err := h.Queries.UserReadBookIDs(ctx, viewerID); err != nil {
+		slog.Warn("suggested users: viewer read books", "error", err)
+	} else if len(bookIDs) > 0 {
+		rows, err := h.Queries.SharedReadCounts(ctx, db.SharedReadCountsParams{
+			CandidateIds: candidateIDs,
+			BookIds:      bookIDs,
+		})
+		if err != nil {
+			slog.Warn("suggested users: shared reads", "error", err)
+		}
+		for _, r := range rows {
+			shared[r.UserID] = sharedReadSignal{count: r.Shared, title: r.SampleTitle}
+		}
+	}
+
+	if followingIDs, err := h.Queries.FollowingIDs(ctx, viewerID); err != nil {
+		slog.Warn("suggested users: following ids", "error", err)
+	} else if len(followingIDs) > 0 {
+		rows, err := h.Queries.MutualFollowCounts(ctx, db.MutualFollowCountsParams{
+			CandidateIds: candidateIDs,
+			FollowerIds:  followingIDs,
+		})
+		if err != nil {
+			slog.Warn("suggested users: mutual follows", "error", err)
+		}
+		for _, r := range rows {
+			mutuals[r.UserID] = r.Mutuals
+		}
+	}
+	return shared, mutuals
+}
+
+// suggestedUserReason turns the ranking signals into one human line, strongest
+// first. Only claims what the row supports — a shared book is named, a shared
+// genre is not invented, and volume is the last resort.
+func suggestedUserReason(sharedBooks int32, sharedTitle string, mutualFollows int32, sharedGenres []string, booksRead int32) string {
+	if sharedBooks > 0 && sharedTitle != "" {
+		if sharedBooks == 1 {
+			return fmt.Sprintf("You both read %s", sharedTitle)
+		}
+		return fmt.Sprintf("You both read %s and %d more", sharedTitle, sharedBooks-1)
+	}
+	if mutualFollows > 0 {
+		if mutualFollows == 1 {
+			return "Followed by someone you follow"
+		}
+		return fmt.Sprintf("Followed by %d people you follow", mutualFollows)
+	}
 	labels := make([]string, 0, 2)
-	for _, g := range shared {
+	for _, g := range sharedGenres {
 		if len(labels) == 2 {
 			break
 		}
@@ -753,13 +843,13 @@ func (h *UserHandler) UploadBanner(w http.ResponseWriter, r *http.Request) {
 
 func userToResponse(u db.User) types.UserResponse {
 	resp := types.UserResponse{
-		ID:             u.ID.String(),
-		MongoID:        u.ID.String(),
-		Username:       u.Username,
-		Email:          u.Email,
-		IsPublic:       u.IsPublic,
-		BooksReadCount: u.BooksReadCount.Int32,
-		TotalPagesRead: u.TotalPagesRead.Int32,
+		ID:                u.ID.String(),
+		MongoID:           u.ID.String(),
+		Username:          u.Username,
+		Email:             u.Email,
+		IsPublic:          u.IsPublic,
+		BooksReadCount:    u.BooksReadCount.Int32,
+		TotalPagesRead:    u.TotalPagesRead.Int32,
 		FavoritesCount:    u.FavoritesCount,
 		ListsCount:        u.ListsCount,
 		DiaryEntriesCount: u.DiaryEntriesCount,

@@ -98,12 +98,15 @@ WHERE id = $1
 RETURNING *;
 
 -- name: SuggestedUsers :many
--- Readers a new account should follow. Public, not self, not already followed,
--- not blocked in either direction, and with something on their shelf so the
--- feed they produce is non-empty. Ranked by favourite-genre overlap with the
--- viewer ($2), then by live read count (the cached users.books_read_count
--- drifts), then followers. Onboarding calls this once, so the per-row
--- subqueries are fine at launch scale.
+-- Candidate readers to follow: public, not self, not already followed, not
+-- blocked either way, and with something on their shelf so the feed they
+-- produce is non-empty. Ordered by favourite-genre overlap, then live read
+-- count (the cached users.books_read_count drifts), then followers.
+--
+-- The handler over-fetches here and re-ranks with SharedReadCounts and
+-- MutualFollowCounts, which carry the stronger "you both read X" and "followed
+-- by people you follow" signals. Those cannot live in this query: sqlc's
+-- analyser cannot resolve the same table aliased twice inside a subquery.
 SELECT
     u.id,
     u.username,
@@ -132,6 +135,35 @@ ORDER BY
     books_read_count DESC,
     u.followers_count DESC
 LIMIT sqlc.arg(row_limit);
+
+-- name: UserReadBookIDs :many
+-- The viewer's finished books, for the "you both read X" signal. Capped: a
+-- heavy reader's whole shelf is not needed to find overlap worth naming.
+SELECT book_id FROM bookshelf
+WHERE user_id = $1 AND status = 'read'
+LIMIT 500;
+
+-- name: SharedReadCounts :many
+-- How many of those books each candidate has also finished, plus one title to
+-- name. MIN(title) keeps the sample stable between calls.
+SELECT bs.user_id, COUNT(*)::int AS shared, MIN(bk.title)::text AS sample_title
+FROM bookshelf bs
+JOIN books bk ON bk.id = bs.book_id
+WHERE bs.user_id = ANY(sqlc.arg(candidate_ids)::uuid[])
+  AND bs.status = 'read'
+  AND bs.book_id = ANY(sqlc.arg(book_ids)::uuid[])
+GROUP BY bs.user_id;
+
+-- name: FollowingIDs :many
+SELECT following_id FROM follows WHERE follower_id = $1 LIMIT 1000;
+
+-- name: MutualFollowCounts :many
+-- Candidates followed by people the viewer already follows.
+SELECT f.following_id AS user_id, COUNT(*)::int AS mutuals
+FROM follows f
+WHERE f.following_id = ANY(sqlc.arg(candidate_ids)::uuid[])
+  AND f.follower_id = ANY(sqlc.arg(follower_ids)::uuid[])
+GROUP BY f.following_id;
 
 -- name: GetPopularReaders :many
 -- Public readers for the logged-out "who is here" strip. Followers first, then

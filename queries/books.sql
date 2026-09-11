@@ -143,3 +143,49 @@ JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
 GROUP BY b.id
 ORDER BY adds_7d DESC, b.view_count DESC
 LIMIT $1;
+
+-- name: GetRisingBooks :many
+-- Books being shelved faster this week than last. Momentum, not volume: a
+-- steady bestseller does not qualify, a book three people just discovered does.
+SELECT
+    sqlc.embed(b),
+    COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')::int AS recent,
+    COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')::int AS prior
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.created_at > NOW() - INTERVAL '14 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+HAVING COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')
+     > COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')
+ORDER BY
+    (COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')
+   - COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')) DESC
+LIMIT $1;
+
+-- name: GetMostTBRBooks :many
+-- Most added to a TBR in the last week — intent to read, distinct from reads.
+SELECT sqlc.embed(b), COUNT(*)::int AS tbr_7d
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id
+    AND bs.status = 'to-read'
+    AND bs.created_at > NOW() - INTERVAL '7 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY tbr_7d DESC, b.view_count DESC
+LIMIT $1;
+
+-- name: GetHiddenGems :many
+-- Loved by the few who found it: a real Paperboxd average of 4+ from at least
+-- three raters, but not yet widely read. The upper bound is what makes it a
+-- gem rather than a hit.
+SELECT
+    sqlc.embed(b),
+    AVG(bs.rating)::float8 AS rating,
+    COUNT(bs.rating)::int AS ratings_count
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.rating IS NOT NULL
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+HAVING COUNT(bs.rating) >= 3 AND COUNT(bs.rating) <= 25 AND AVG(bs.rating) >= 4.0
+ORDER BY AVG(bs.rating) DESC, COUNT(bs.rating) DESC
+LIMIT $1;

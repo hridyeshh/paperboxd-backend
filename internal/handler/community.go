@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -57,10 +58,21 @@ type CommunityReader struct {
 	FavoriteCovers []string `json:"favorite_covers"`
 }
 
+// CommunityShelfBook is a book on a discovery shelf, carrying the one number
+// that justifies its place there ("shelved by 7 readers this week"). Label is
+// server-authored so every client makes the same claim.
+type CommunityShelfBook struct {
+	types.BookResponse
+	Label string `json:"label"`
+}
+
 // CommunityResponse is the payload of GET /api/v1/community.
 type CommunityResponse struct {
 	TrendingBooks []CommunityTrendingBook  `json:"trending_books"`
 	PopularBooks  []types.BookResponse     `json:"popular_books"`
+	Rising        []CommunityShelfBook     `json:"rising"`
+	MostTBR       []CommunityShelfBook     `json:"most_tbr"`
+	HiddenGems    []CommunityShelfBook     `json:"hidden_gems"`
 	Activity      []types.ActivityResponse `json:"activity"`
 	Lists         []CommunityList          `json:"lists"`
 	Readers       []CommunityReader        `json:"readers"`
@@ -100,6 +112,9 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 	resp := CommunityResponse{
 		TrendingBooks: []CommunityTrendingBook{},
 		PopularBooks:  []types.BookResponse{},
+		Rising:        []CommunityShelfBook{},
+		MostTBR:       []CommunityShelfBook{},
+		HiddenGems:    []CommunityShelfBook{},
 		Activity:      []types.ActivityResponse{},
 		Lists:         []CommunityList{},
 		Readers:       []CommunityReader{},
@@ -125,13 +140,51 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 		resp.PopularBooks = append(resp.PopularBooks, bookToResponse(b))
 	}
 
+	// Discovery shelves. Each is allowed to come back empty — a quiet week
+	// should render fewer shelves, not invented ones — so a failure here logs
+	// and leaves the shelf out rather than failing the whole snapshot.
+	if rising, err := h.Queries.GetRisingBooks(ctx, 12); err != nil {
+		slog.Error("get rising books", "error", err)
+	} else {
+		for _, row := range rising {
+			resp.Rising = append(resp.Rising, CommunityShelfBook{
+				BookResponse: bookToResponse(row.Book),
+				// gain is why it ranked; the label states the honest count.
+				Label: pluralReaders(row.Recent, "shelved by %d %s this week"),
+			})
+		}
+	}
+
+	if tbr, err := h.Queries.GetMostTBRBooks(ctx, 12); err != nil {
+		slog.Error("get most-tbr books", "error", err)
+	} else {
+		for _, row := range tbr {
+			resp.MostTBR = append(resp.MostTBR, CommunityShelfBook{
+				BookResponse: bookToResponse(row.Book),
+				Label:        pluralReaders(row.Tbr7d, "added by %d %s this week"),
+			})
+		}
+	}
+
+	if gems, err := h.Queries.GetHiddenGems(ctx, 12); err != nil {
+		slog.Error("get hidden gems", "error", err)
+	} else {
+		for _, row := range gems {
+			resp.HiddenGems = append(resp.HiddenGems, CommunityShelfBook{
+				BookResponse: bookToResponse(row.Book),
+				Label: fmt.Sprintf("%.1f from %d %s",
+					row.Rating, row.RatingsCount, plural(row.RatingsCount, "rating", "ratings")),
+			})
+		}
+	}
+
 	activityRows, err := h.Queries.GetPublicActivities(ctx, 80)
 	if err != nil {
 		return resp, err
 	}
 	resp.Activity = collapsePublicActivity(activityRows, 24)
 
-	lists, err := h.Queries.GetPublicLists(ctx, 6)
+	lists, err := h.Queries.GetPublicLists(ctx, 12)
 	if err != nil {
 		return resp, err
 	}
@@ -202,6 +255,17 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 	}
 
 	return resp, nil
+}
+
+func plural(n int32, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+func pluralReaders(n int32, format string) string {
+	return fmt.Sprintf(format, n, plural(n, "reader", "readers"))
 }
 
 // collapsePublicActivity turns the raw newest-first rows into a feed a stranger

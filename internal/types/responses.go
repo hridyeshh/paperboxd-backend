@@ -425,5 +425,7 @@ type SuggestedUserResponse struct {
 	BooksReadCount int32    `json:"books_read_count"`
 	FollowersCount int32    `json:"followers_count"`
 	SharedGenres   []string `json:"shared_genres"`
+	SharedBooks    int32    `json:"shared_books"`
+	MutualFollows  int32    `json:"mutual_follows"`
 	Reason         string   `json:"reason"`
 }

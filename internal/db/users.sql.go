@@ -86,6 +86,30 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const followingIDs = `-- name: FollowingIDs :many
+SELECT following_id FROM follows WHERE follower_id = $1 LIMIT 1000
+`
+
+func (q *Queries) FollowingIDs(ctx context.Context, followerID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, followingIDs, followerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var following_id uuid.UUID
+		if err := rows.Scan(&following_id); err != nil {
+			return nil, err
+		}
+		items = append(items, following_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPopularReaders = `-- name: GetPopularReaders :many
 SELECT
     u.id,
@@ -393,6 +417,45 @@ func (q *Queries) LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams
 	return err
 }
 
+const mutualFollowCounts = `-- name: MutualFollowCounts :many
+SELECT f.following_id AS user_id, COUNT(*)::int AS mutuals
+FROM follows f
+WHERE f.following_id = ANY($1::uuid[])
+  AND f.follower_id = ANY($2::uuid[])
+GROUP BY f.following_id
+`
+
+type MutualFollowCountsParams struct {
+	CandidateIds []uuid.UUID `json:"candidate_ids"`
+	FollowerIds  []uuid.UUID `json:"follower_ids"`
+}
+
+type MutualFollowCountsRow struct {
+	UserID  uuid.UUID `json:"user_id"`
+	Mutuals int32     `json:"mutuals"`
+}
+
+// Candidates followed by people the viewer already follows.
+func (q *Queries) MutualFollowCounts(ctx context.Context, arg MutualFollowCountsParams) ([]MutualFollowCountsRow, error) {
+	rows, err := q.db.Query(ctx, mutualFollowCounts, arg.CandidateIds, arg.FollowerIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MutualFollowCountsRow{}
+	for rows.Next() {
+		var i MutualFollowCountsRow
+		if err := rows.Scan(&i.UserID, &i.Mutuals); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordAccountDeletion = `-- name: RecordAccountDeletion :exec
 INSERT INTO account_deletions (
     user_id, email_hash, reasons
@@ -555,6 +618,49 @@ func (q *Queries) SetUserVisibility(ctx context.Context, arg SetUserVisibilityPa
 	return i, err
 }
 
+const sharedReadCounts = `-- name: SharedReadCounts :many
+SELECT bs.user_id, COUNT(*)::int AS shared, MIN(bk.title)::text AS sample_title
+FROM bookshelf bs
+JOIN books bk ON bk.id = bs.book_id
+WHERE bs.user_id = ANY($1::uuid[])
+  AND bs.status = 'read'
+  AND bs.book_id = ANY($2::uuid[])
+GROUP BY bs.user_id
+`
+
+type SharedReadCountsParams struct {
+	CandidateIds []uuid.UUID `json:"candidate_ids"`
+	BookIds      []uuid.UUID `json:"book_ids"`
+}
+
+type SharedReadCountsRow struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Shared      int32     `json:"shared"`
+	SampleTitle string    `json:"sample_title"`
+}
+
+// How many of those books each candidate has also finished, plus one title to
+// name. MIN(title) keeps the sample stable between calls.
+func (q *Queries) SharedReadCounts(ctx context.Context, arg SharedReadCountsParams) ([]SharedReadCountsRow, error) {
+	rows, err := q.db.Query(ctx, sharedReadCounts, arg.CandidateIds, arg.BookIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SharedReadCountsRow{}
+	for rows.Next() {
+		var i SharedReadCountsRow
+		if err := rows.Scan(&i.UserID, &i.Shared, &i.SampleTitle); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteUser = `-- name: SoftDeleteUser :exec
 UPDATE users
 SET deleted_at = NOW(),
@@ -622,12 +728,15 @@ type SuggestedUsersRow struct {
 	SharedGenres   []string    `json:"shared_genres"`
 }
 
-// Readers a new account should follow. Public, not self, not already followed,
-// not blocked in either direction, and with something on their shelf so the
-// feed they produce is non-empty. Ranked by favourite-genre overlap with the
-// viewer ($2), then by live read count (the cached users.books_read_count
-// drifts), then followers. Onboarding calls this once, so the per-row
-// subqueries are fine at launch scale.
+// Candidate readers to follow: public, not self, not already followed, not
+// blocked either way, and with something on their shelf so the feed they
+// produce is non-empty. Ordered by favourite-genre overlap, then live read
+// count (the cached users.books_read_count drifts), then followers.
+//
+// The handler over-fetches here and re-ranks with SharedReadCounts and
+// MutualFollowCounts, which carry the stronger "you both read X" and "followed
+// by people you follow" signals. Those cannot live in this query: sqlc's
+// analyser cannot resolve the same table aliased twice inside a subquery.
 func (q *Queries) SuggestedUsers(ctx context.Context, arg SuggestedUsersParams) ([]SuggestedUsersRow, error) {
 	rows, err := q.db.Query(ctx, suggestedUsers, arg.ViewerGenres, arg.ViewerID, arg.RowLimit)
 	if err != nil {
@@ -905,4 +1014,32 @@ func (q *Queries) UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadPara
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const userReadBookIDs = `-- name: UserReadBookIDs :many
+SELECT book_id FROM bookshelf
+WHERE user_id = $1 AND status = 'read'
+LIMIT 500
+`
+
+// The viewer's finished books, for the "you both read X" signal. Capped: a
+// heavy reader's whole shelf is not needed to find overlap worth naming.
+func (q *Queries) UserReadBookIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, userReadBookIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var book_id uuid.UUID
+		if err := rows.Scan(&book_id); err != nil {
+			return nil, err
+		}
+		items = append(items, book_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

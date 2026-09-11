@@ -95,6 +95,7 @@ type Querier interface {
 	DeleteStaleDeviceTokens(ctx context.Context, updatedAt pgtype.Timestamptz) error
 	DeleteUserActivities(ctx context.Context, arg DeleteUserActivitiesParams) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
+	FollowingIDs(ctx context.Context, followerID uuid.UUID) ([]uuid.UUID, error)
 	GetActivityByID(ctx context.Context, id uuid.UUID) (Activity, error)
 	GetBookByGoogleID(ctx context.Context, googleBooksID pgtype.Text) (Book, error)
 	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
@@ -137,6 +138,10 @@ type Querier interface {
 	// $1 = viewer's user_id (follower), $2 = book_id.
 	GetFriendsReadingBook(ctx context.Context, arg GetFriendsReadingBookParams) ([]GetFriendsReadingBookRow, error)
 	GetGlobalLeaderboard(ctx context.Context, limit int32) ([]LeaderboardStat, error)
+	// Loved by the few who found it: a real Paperboxd average of 4+ from at least
+	// three raters, but not yet widely read. The upper bound is what makes it a
+	// gem rather than a hit.
+	GetHiddenGems(ctx context.Context, limit int32) ([]GetHiddenGemsRow, error)
 	GetLastLoggedBook(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookRow, error)
 	GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookTodayRow, error)
 	GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error)
@@ -152,6 +157,8 @@ type Querier interface {
 	// owner + public list only; the viewer's own private lists are not surfaced
 	// here (they already appear in the add-to-list dialog).
 	GetListsContainingBook(ctx context.Context, arg GetListsContainingBookParams) ([]GetListsContainingBookRow, error)
+	// Most added to a TBR in the last week — intent to read, distinct from reads.
+	GetMostTBRBooks(ctx context.Context, limit int32) ([]GetMostTBRBooksRow, error)
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
@@ -176,6 +183,9 @@ type Querier interface {
 	GetReadingProgress(ctx context.Context, arg GetReadingProgressParams) (GetReadingProgressRow, error)
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
+	// Books being shelved faster this week than last. Momentum, not volume: a
+	// steady bestseller does not qualify, a book three people just discovered does.
+	GetRisingBooks(ctx context.Context, limit int32) ([]GetRisingBooksRow, error)
 	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)
 	// Books most shelved in the last 7 days by live accounts. bookshelf.created_at
 	// is untouched by the upsert, so re-saves do not count twice.
@@ -239,6 +249,8 @@ type Querier interface {
 	MarkOTPUsed(ctx context.Context, id uuid.UUID) error
 	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
 	MarkReferralRewardClaimed(ctx context.Context, arg MarkReferralRewardClaimedParams) error
+	// Candidates followed by people the viewer already follows.
+	MutualFollowCounts(ctx context.Context, arg MutualFollowCountsParams) ([]MutualFollowCountsRow, error)
 	RebuildAllLeaderboardStats(ctx context.Context) error
 	RebuildUserLeaderboardStats(ctx context.Context, id uuid.UUID) (LeaderboardStat, error)
 	// email_hash, not the address: this row outlives the 30-day hard purge, so a
@@ -257,18 +269,24 @@ type Querier interface {
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	SetUserReferredBy(ctx context.Context, arg SetUserReferredByParams) error
 	SetUserVisibility(ctx context.Context, arg SetUserVisibilityParams) (User, error)
+	// How many of those books each candidate has also finished, plus one title to
+	// name. MIN(title) keeps the sample stable between calls.
+	SharedReadCounts(ctx context.Context, arg SharedReadCountsParams) ([]SharedReadCountsRow, error)
 	// Soft-delete the user and free their email/username so they (or anyone) can
 	// re-register with the same identifiers. The original values are preserved in
 	// the account_deletions audit table by RecordAccountDeletion (called first).
 	// The UUID-based placeholders are deterministic and lowercase, satisfying the
 	// column-level UNIQUE constraints and the username_lowercase CHECK.
 	SoftDeleteUser(ctx context.Context, id uuid.UUID) error
-	// Readers a new account should follow. Public, not self, not already followed,
-	// not blocked in either direction, and with something on their shelf so the
-	// feed they produce is non-empty. Ranked by favourite-genre overlap with the
-	// viewer ($2), then by live read count (the cached users.books_read_count
-	// drifts), then followers. Onboarding calls this once, so the per-row
-	// subqueries are fine at launch scale.
+	// Candidate readers to follow: public, not self, not already followed, not
+	// blocked either way, and with something on their shelf so the feed they
+	// produce is non-empty. Ordered by favourite-genre overlap, then live read
+	// count (the cached users.books_read_count drifts), then followers.
+	//
+	// The handler over-fetches here and re-ranks with SharedReadCounts and
+	// MutualFollowCounts, which carry the stronger "you both read X" and "followed
+	// by people you follow" signals. Those cannot live in this query: sqlc's
+	// analyser cannot resolve the same table aliased twice inside a subquery.
 	SuggestedUsers(ctx context.Context, arg SuggestedUsersParams) ([]SuggestedUsersRow, error)
 	UnblockUser(ctx context.Context, arg UnblockUserParams) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
@@ -299,6 +317,9 @@ type Querier interface {
 	// different account signs in on that device the row must change hands rather
 	// than accumulate a second owner. See migrations/000036 for the full rationale.
 	UpsertDeviceToken(ctx context.Context, arg UpsertDeviceTokenParams) (DeviceToken, error)
+	// The viewer's finished books, for the "you both read X" signal. Capped: a
+	// heavy reader's whole shelf is not needed to find overlap worth naming.
+	UserReadBookIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 	VibeSearchBooks(ctx context.Context, arg VibeSearchBooksParams) ([]VibeSearchBooksRow, error)
 	// Still marked "reading", started before the month ended, and untouched since
 	// stall_before. Ordered by how little of it was read — the most abandoned one

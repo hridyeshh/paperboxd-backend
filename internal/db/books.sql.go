@@ -499,6 +499,82 @@ func (q *Queries) GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorPara
 	return items, nil
 }
 
+const getHiddenGems = `-- name: GetHiddenGems :many
+SELECT
+    b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at,
+    AVG(bs.rating)::float8 AS rating,
+    COUNT(bs.rating)::int AS ratings_count
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.rating IS NOT NULL
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+HAVING COUNT(bs.rating) >= 3 AND COUNT(bs.rating) <= 25 AND AVG(bs.rating) >= 4.0
+ORDER BY AVG(bs.rating) DESC, COUNT(bs.rating) DESC
+LIMIT $1
+`
+
+type GetHiddenGemsRow struct {
+	Book         Book    `json:"book"`
+	Rating       float64 `json:"rating"`
+	RatingsCount int32   `json:"ratings_count"`
+}
+
+// Loved by the few who found it: a real Paperboxd average of 4+ from at least
+// three raters, but not yet widely read. The upper bound is what makes it a
+// gem rather than a hit.
+func (q *Queries) GetHiddenGems(ctx context.Context, limit int32) ([]GetHiddenGemsRow, error) {
+	rows, err := q.db.Query(ctx, getHiddenGems, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetHiddenGemsRow{}
+	for rows.Next() {
+		var i GetHiddenGemsRow
+		if err := rows.Scan(
+			&i.Book.ID,
+			&i.Book.Title,
+			&i.Book.Slug,
+			&i.Book.Authors,
+			&i.Book.Isbn13,
+			&i.Book.GoogleBooksID,
+			&i.Book.Metadata,
+			&i.Book.ViewCount,
+			&i.Book.LikeCount,
+			&i.Book.CreatedAt,
+			&i.Book.UpdatedAt,
+			&i.Book.Description,
+			&i.Book.PublishedDate,
+			&i.Book.PageCount,
+			&i.Book.Language,
+			&i.Book.CoverUrl,
+			&i.Book.Categories,
+			&i.Book.Subtitle,
+			&i.Book.Publisher,
+			&i.Book.IsbndbID,
+			&i.Book.OpenLibraryID,
+			&i.Book.AverageRating,
+			&i.Book.RatingsCount,
+			&i.Book.PreviewLink,
+			&i.Book.TotalReadsCount,
+			&i.Book.TotalTbrCount,
+			&i.Book.Embedding,
+			&i.Book.EmbeddingText,
+			&i.Book.DescriptionSource,
+			&i.Book.LastAccessedAt,
+			&i.Rating,
+			&i.RatingsCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getLatestBooks = `-- name: GetLatestBooks :many
 SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
 ORDER BY created_at DESC
@@ -550,6 +626,76 @@ func (q *Queries) GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) 
 			&i.EmbeddingText,
 			&i.DescriptionSource,
 			&i.LastAccessedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMostTBRBooks = `-- name: GetMostTBRBooks :many
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, COUNT(*)::int AS tbr_7d
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id
+    AND bs.status = 'to-read'
+    AND bs.created_at > NOW() - INTERVAL '7 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY tbr_7d DESC, b.view_count DESC
+LIMIT $1
+`
+
+type GetMostTBRBooksRow struct {
+	Book  Book  `json:"book"`
+	Tbr7d int32 `json:"tbr_7d"`
+}
+
+// Most added to a TBR in the last week — intent to read, distinct from reads.
+func (q *Queries) GetMostTBRBooks(ctx context.Context, limit int32) ([]GetMostTBRBooksRow, error) {
+	rows, err := q.db.Query(ctx, getMostTBRBooks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetMostTBRBooksRow{}
+	for rows.Next() {
+		var i GetMostTBRBooksRow
+		if err := rows.Scan(
+			&i.Book.ID,
+			&i.Book.Title,
+			&i.Book.Slug,
+			&i.Book.Authors,
+			&i.Book.Isbn13,
+			&i.Book.GoogleBooksID,
+			&i.Book.Metadata,
+			&i.Book.ViewCount,
+			&i.Book.LikeCount,
+			&i.Book.CreatedAt,
+			&i.Book.UpdatedAt,
+			&i.Book.Description,
+			&i.Book.PublishedDate,
+			&i.Book.PageCount,
+			&i.Book.Language,
+			&i.Book.CoverUrl,
+			&i.Book.Categories,
+			&i.Book.Subtitle,
+			&i.Book.Publisher,
+			&i.Book.IsbndbID,
+			&i.Book.OpenLibraryID,
+			&i.Book.AverageRating,
+			&i.Book.RatingsCount,
+			&i.Book.PreviewLink,
+			&i.Book.TotalReadsCount,
+			&i.Book.TotalTbrCount,
+			&i.Book.Embedding,
+			&i.Book.EmbeddingText,
+			&i.Book.DescriptionSource,
+			&i.Book.LastAccessedAt,
+			&i.Tbr7d,
 		); err != nil {
 			return nil, err
 		}
@@ -669,6 +815,84 @@ func (q *Queries) GetRandomBooks(ctx context.Context, limit int32) ([]Book, erro
 			&i.EmbeddingText,
 			&i.DescriptionSource,
 			&i.LastAccessedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRisingBooks = `-- name: GetRisingBooks :many
+SELECT
+    b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at,
+    COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')::int AS recent,
+    COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')::int AS prior
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.created_at > NOW() - INTERVAL '14 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+HAVING COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')
+     > COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')
+ORDER BY
+    (COUNT(*) FILTER (WHERE bs.created_at > NOW() - INTERVAL '7 days')
+   - COUNT(*) FILTER (WHERE bs.created_at <= NOW() - INTERVAL '7 days')) DESC
+LIMIT $1
+`
+
+type GetRisingBooksRow struct {
+	Book   Book  `json:"book"`
+	Recent int32 `json:"recent"`
+	Prior  int32 `json:"prior"`
+}
+
+// Books being shelved faster this week than last. Momentum, not volume: a
+// steady bestseller does not qualify, a book three people just discovered does.
+func (q *Queries) GetRisingBooks(ctx context.Context, limit int32) ([]GetRisingBooksRow, error) {
+	rows, err := q.db.Query(ctx, getRisingBooks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRisingBooksRow{}
+	for rows.Next() {
+		var i GetRisingBooksRow
+		if err := rows.Scan(
+			&i.Book.ID,
+			&i.Book.Title,
+			&i.Book.Slug,
+			&i.Book.Authors,
+			&i.Book.Isbn13,
+			&i.Book.GoogleBooksID,
+			&i.Book.Metadata,
+			&i.Book.ViewCount,
+			&i.Book.LikeCount,
+			&i.Book.CreatedAt,
+			&i.Book.UpdatedAt,
+			&i.Book.Description,
+			&i.Book.PublishedDate,
+			&i.Book.PageCount,
+			&i.Book.Language,
+			&i.Book.CoverUrl,
+			&i.Book.Categories,
+			&i.Book.Subtitle,
+			&i.Book.Publisher,
+			&i.Book.IsbndbID,
+			&i.Book.OpenLibraryID,
+			&i.Book.AverageRating,
+			&i.Book.RatingsCount,
+			&i.Book.PreviewLink,
+			&i.Book.TotalReadsCount,
+			&i.Book.TotalTbrCount,
+			&i.Book.Embedding,
+			&i.Book.EmbeddingText,
+			&i.Book.DescriptionSource,
+			&i.Book.LastAccessedAt,
+			&i.Recent,
+			&i.Prior,
 		); err != nil {
 			return nil, err
 		}
