@@ -86,6 +86,73 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const getPopularReaders = `-- name: GetPopularReaders :many
+SELECT
+    u.id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    u.bio,
+    u.followers_count,
+    (SELECT COUNT(*) FROM bookshelf bs WHERE bs.user_id = u.id AND bs.status = 'read')::int AS books_read_count,
+    ARRAY(
+        SELECT COALESCE(b.cover_url, '')
+        FROM favorites f JOIN books b ON b.id = f.book_id
+        WHERE f.user_id = u.id
+        ORDER BY f.display_order
+        LIMIT 4
+    )::text[] AS favorite_covers
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND u.is_public = true
+  AND EXISTS (SELECT 1 FROM bookshelf bs WHERE bs.user_id = u.id)
+ORDER BY u.followers_count DESC, books_read_count DESC, u.created_at ASC
+LIMIT $1
+`
+
+type GetPopularReadersRow struct {
+	ID             uuid.UUID   `json:"id"`
+	Username       string      `json:"username"`
+	Name           pgtype.Text `json:"name"`
+	AvatarUrl      pgtype.Text `json:"avatar_url"`
+	Bio            pgtype.Text `json:"bio"`
+	FollowersCount pgtype.Int4 `json:"followers_count"`
+	BooksReadCount int32       `json:"books_read_count"`
+	FavoriteCovers []string    `json:"favorite_covers"`
+}
+
+// Public readers for the logged-out "who is here" strip. Followers first, then
+// live read count; must have something on the shelf so the Top 4 / count are
+// not both empty.
+func (q *Queries) GetPopularReaders(ctx context.Context, limit int32) ([]GetPopularReadersRow, error) {
+	rows, err := q.db.Query(ctx, getPopularReaders, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetPopularReadersRow{}
+	for rows.Next() {
+		var i GetPopularReadersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.Bio,
+			&i.FollowersCount,
+			&i.BooksReadCount,
+			&i.FavoriteCovers,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserByAppleUserID = `-- name: GetUserByAppleUserID :one
 SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE apple_user_id = $1 AND deleted_at IS NULL

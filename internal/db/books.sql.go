@@ -680,6 +680,75 @@ func (q *Queries) GetRandomBooks(ctx context.Context, limit int32) ([]Book, erro
 	return items, nil
 }
 
+const getTrendingBooks = `-- name: GetTrendingBooks :many
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, COUNT(bs.id)::int AS adds_7d
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.created_at > NOW() - INTERVAL '7 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY adds_7d DESC, b.view_count DESC
+LIMIT $1
+`
+
+type GetTrendingBooksRow struct {
+	Book   Book  `json:"book"`
+	Adds7d int32 `json:"adds_7d"`
+}
+
+// Books most shelved in the last 7 days by live accounts. bookshelf.created_at
+// is untouched by the upsert, so re-saves do not count twice.
+func (q *Queries) GetTrendingBooks(ctx context.Context, limit int32) ([]GetTrendingBooksRow, error) {
+	rows, err := q.db.Query(ctx, getTrendingBooks, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTrendingBooksRow{}
+	for rows.Next() {
+		var i GetTrendingBooksRow
+		if err := rows.Scan(
+			&i.Book.ID,
+			&i.Book.Title,
+			&i.Book.Slug,
+			&i.Book.Authors,
+			&i.Book.Isbn13,
+			&i.Book.GoogleBooksID,
+			&i.Book.Metadata,
+			&i.Book.ViewCount,
+			&i.Book.LikeCount,
+			&i.Book.CreatedAt,
+			&i.Book.UpdatedAt,
+			&i.Book.Description,
+			&i.Book.PublishedDate,
+			&i.Book.PageCount,
+			&i.Book.Language,
+			&i.Book.CoverUrl,
+			&i.Book.Categories,
+			&i.Book.Subtitle,
+			&i.Book.Publisher,
+			&i.Book.IsbndbID,
+			&i.Book.OpenLibraryID,
+			&i.Book.AverageRating,
+			&i.Book.RatingsCount,
+			&i.Book.PreviewLink,
+			&i.Book.TotalReadsCount,
+			&i.Book.TotalTbrCount,
+			&i.Book.Embedding,
+			&i.Book.EmbeddingText,
+			&i.Book.DescriptionSource,
+			&i.Book.LastAccessedAt,
+			&i.Adds7d,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const incrementBookViews = `-- name: IncrementBookViews :exec
 UPDATE books SET view_count = view_count + 1, last_accessed_at = NOW() WHERE id = $1
 `

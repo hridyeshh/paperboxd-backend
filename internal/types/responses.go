@@ -23,19 +23,19 @@ type TokenResponse struct {
 
 // UserResponse with all frontend-expected fields.
 type UserResponse struct {
-	ID             string   `json:"id"`
-	MongoID        string   `json:"_id"`
-	Username       string   `json:"username"`
-	Email          string   `json:"email,omitempty"`
-	Name           string   `json:"name"`
-	AvatarURL      *string  `json:"avatar_url,omitempty"`
-	BannerURL      *string  `json:"banner_url,omitempty"`
-	Bio            *string  `json:"bio,omitempty"`
-	Pronouns       []string `json:"pronouns"`
-	Birthday       *string  `json:"birthday,omitempty"`
-	Gender         *string  `json:"gender,omitempty"`
-	Links          []string `json:"links"`
-	IsPublic       bool     `json:"is_public"`
+	ID                string   `json:"id"`
+	MongoID           string   `json:"_id"`
+	Username          string   `json:"username"`
+	Email             string   `json:"email,omitempty"`
+	Name              string   `json:"name"`
+	AvatarURL         *string  `json:"avatar_url,omitempty"`
+	BannerURL         *string  `json:"banner_url,omitempty"`
+	Bio               *string  `json:"bio,omitempty"`
+	Pronouns          []string `json:"pronouns"`
+	Birthday          *string  `json:"birthday,omitempty"`
+	Gender            *string  `json:"gender,omitempty"`
+	Links             []string `json:"links"`
+	IsPublic          bool     `json:"is_public"`
 	BooksReadCount    int32    `json:"books_read_count"`
 	TotalPagesRead    int32    `json:"total_pages_read"`
 	FavoritesCount    int32    `json:"favorites_count"`
@@ -221,8 +221,8 @@ func (r UserListResponse) WithPagination() UserListResponse {
 
 // FollowResponse with enriched follower/following counts.
 type FollowResponse struct {
-	Message        string `json:"message"`
-	IsFollowing    bool   `json:"isFollowing"`
+	Message     string `json:"message"`
+	IsFollowing bool   `json:"isFollowing"`
 	// HasRequested is true when the target is private and the follow was
 	// recorded as a pending request instead.
 	HasRequested   bool  `json:"hasRequested"`
@@ -370,6 +370,12 @@ type ActivityResponse struct {
 	TargetUserID   *string   `json:"target_user_id"`
 	TargetUsername *string   `json:"target_username"`
 	CreatedAt      time.Time `json:"created_at"`
+	// Metadata carries per-type extras, e.g. {"rating": 5} on "rated" and
+	// "finished_reading". Omitted when the row has none.
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// BookCover is only populated by the community feed, which renders
+	// covers inline; the follow feed clients fetch the book themselves.
+	BookCover *string `json:"book_cover,omitempty"`
 }
 
 // VibeBookResult is a single result from vibe/semantic search.

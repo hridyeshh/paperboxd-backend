@@ -132,3 +132,29 @@ ORDER BY
     books_read_count DESC,
     u.followers_count DESC
 LIMIT sqlc.arg(row_limit);
+
+-- name: GetPopularReaders :many
+-- Public readers for the logged-out "who is here" strip. Followers first, then
+-- live read count; must have something on the shelf so the Top 4 / count are
+-- not both empty.
+SELECT
+    u.id,
+    u.username,
+    u.name,
+    u.avatar_url,
+    u.bio,
+    u.followers_count,
+    (SELECT COUNT(*) FROM bookshelf bs WHERE bs.user_id = u.id AND bs.status = 'read')::int AS books_read_count,
+    ARRAY(
+        SELECT COALESCE(b.cover_url, '')
+        FROM favorites f JOIN books b ON b.id = f.book_id
+        WHERE f.user_id = u.id
+        ORDER BY f.display_order
+        LIMIT 4
+    )::text[] AS favorite_covers
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND u.is_public = true
+  AND EXISTS (SELECT 1 FROM bookshelf bs WHERE bs.user_id = u.id)
+ORDER BY u.followers_count DESC, books_read_count DESC, u.created_at ASC
+LIMIT $1;

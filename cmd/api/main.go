@@ -179,6 +179,7 @@ func main() {
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient, eventSvc)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
+	communityHandler := handler.NewCommunityHandler(queries, cacheClient)
 	leaderboardHandler := handler.NewLeaderboardHandler(queries, cacheClient)
 	referralHandler := handler.NewReferralHandler(queries)
 	wrappedHandler := handler.NewWrappedHandler(queries)
@@ -366,6 +367,9 @@ func main() {
 		})
 
 		// Activity feed
+		// Public community snapshot (trending, activity, lists, readers).
+		r.Get("/community", communityHandler.Get)
+
 		r.Route("/activities", func(r chi.Router) {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
 			r.Get("/me", activitiesHandler.GetUserActivities)

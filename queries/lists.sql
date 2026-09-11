@@ -225,3 +225,27 @@ SELECT EXISTS(
 SELECT u.username FROM lists l
 JOIN users u ON l.user_id = u.id
 WHERE l.id = $1;
+
+-- name: GetPublicLists :many
+-- Lists worth browsing without an account: public owner, public list, at least
+-- three books so the card has covers. Saves first, then freshness.
+SELECT
+    l.id,
+    l.user_id,
+    l.title,
+    l.description,
+    l.created_at,
+    l.updated_at,
+    u.username,
+    u.name,
+    u.avatar_url,
+    (SELECT COUNT(*) FROM list_books lb WHERE lb.list_id = l.id)::int AS book_count,
+    (SELECT COUNT(*) FROM saved_lists sl WHERE sl.list_id = l.id)::int AS save_count
+FROM lists l
+JOIN users u ON u.id = l.user_id
+WHERE l.is_private = false
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+  AND (SELECT COUNT(*) FROM list_books lb WHERE lb.list_id = l.id) >= 3
+ORDER BY save_count DESC, l.updated_at DESC
+LIMIT $1;

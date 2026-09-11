@@ -100,45 +100,8 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	count, err := h.Queries.CountUserFavorites(r.Context(), userID)
-	if err != nil {
-		slog.Error("count user favorites", "error", err)
-		types.WriteInternalError(w)
-		return
-	}
-	if count >= 4 {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
-		return
-	}
-
-	// Auto-assign next slot when caller omits display_order.
-	// We cannot use count+1 because removals leave gaps (e.g. positions 1,3
-	// after position 2 was deleted → count=2, count+1=3 collides).
-	if req.DisplayOrder < 1 || req.DisplayOrder > 4 {
-		existingFavs, favErr := h.Queries.GetUserFavorites(r.Context(), userID)
-		if favErr != nil {
-			slog.Error("get favorites for slot assignment", "error", favErr)
-			types.WriteInternalError(w)
-			return
-		}
-		used := make(map[int]bool)
-		for _, f := range existingFavs {
-			used[int(f.DisplayOrder)] = true
-		}
-		req.DisplayOrder = 0
-		for i := 1; i <= 4; i++ {
-			if !used[i] {
-				req.DisplayOrder = i
-				break
-			}
-		}
-		if req.DisplayOrder == 0 {
-			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
-			return
-		}
-	}
-
-	// Resolve book
+	// Resolve the book first, outside the lock below: this may call an external
+	// API and must not hold the per-user favourites lock while it does.
 	var book db.Book
 	switch {
 	case req.BookID != nil:
@@ -172,7 +135,69 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	exists, err := h.Queries.CheckFavoriteExists(r.Context(), db.CheckFavoriteExistsParams{
+	var noteParam pgtype.Text
+	if req.Note != nil {
+		noteParam = pgtype.Text{String: *req.Note, Valid: true}
+	}
+
+	// Count → pick slot → insert must be atomic per user. Onboarding adds up to
+	// four favourites in parallel; without the lock every request saw zero
+	// existing rows, chose slot 1, and all but the first died on
+	// UNIQUE(user_id, display_order). A transaction-scoped advisory lock keyed
+	// on the user serialises just those requests and releases on commit/rollback.
+	tx, err := h.Pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("begin favorites tx", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), "SELECT pg_advisory_xact_lock(hashtext($1))", "favorites:"+userID.String()); err != nil {
+		slog.Error("lock favorites", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	q := h.Queries.WithTx(tx)
+
+	count, err := q.CountUserFavorites(r.Context(), userID)
+	if err != nil {
+		slog.Error("count user favorites", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if count >= 4 {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
+		return
+	}
+
+	// Auto-assign next slot when caller omits display_order.
+	// We cannot use count+1 because removals leave gaps (e.g. positions 1,3
+	// after position 2 was deleted → count=2, count+1=3 collides).
+	if req.DisplayOrder < 1 || req.DisplayOrder > 4 {
+		existingFavs, favErr := q.GetUserFavorites(r.Context(), userID)
+		if favErr != nil {
+			slog.Error("get favorites for slot assignment", "error", favErr)
+			types.WriteInternalError(w)
+			return
+		}
+		used := make(map[int]bool)
+		for _, f := range existingFavs {
+			used[int(f.DisplayOrder)] = true
+		}
+		req.DisplayOrder = 0
+		for i := 1; i <= 4; i++ {
+			if !used[i] {
+				req.DisplayOrder = i
+				break
+			}
+		}
+		if req.DisplayOrder == 0 {
+			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Maximum 4 favorites allowed. Please remove one before adding another.")
+			return
+		}
+	}
+
+	exists, err := q.CheckFavoriteExists(r.Context(), db.CheckFavoriteExistsParams{
 		UserID: userID,
 		BookID: book.ID,
 	})
@@ -186,12 +211,7 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var noteParam pgtype.Text
-	if req.Note != nil {
-		noteParam = pgtype.Text{String: *req.Note, Valid: true}
-	}
-
-	fav, err := h.Queries.AddToFavorites(r.Context(), db.AddToFavoritesParams{
+	fav, err := q.AddToFavorites(r.Context(), db.AddToFavoritesParams{
 		UserID:       userID,
 		BookID:       book.ID,
 		DisplayOrder: int32(req.DisplayOrder),
@@ -199,6 +219,11 @@ func (h *FavoritesHandler) AddToFavorites(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		slog.Error("add to favorites", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit favorites", "error", err)
 		types.WriteInternalError(w)
 		return
 	}

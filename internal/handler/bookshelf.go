@@ -27,6 +27,39 @@ var validStatuses = map[string]bool{
 	"to-read": true,
 }
 
+// shelfActivityType maps a shelf status to the activity the feed shows for it.
+// The names read as a sentence after "<name> " even on clients that only
+// replace underscores with spaces (older iOS/Android builds).
+func shelfActivityType(status string) string {
+	switch status {
+	case "read":
+		return "finished_reading"
+	case "reading":
+		return "started_reading"
+	case "to-read":
+		return "wants_to_read"
+	}
+	return "added_book"
+}
+
+// recordBookActivity inserts a feed row unless the same (user, book, type) was
+// already recorded in the last day — re-saving a book from its page or an
+// import retry must not repeat "finished Dune" for every follower.
+func (h *UserHandler) recordBookActivity(ctx context.Context, userID, bookID uuid.UUID, activityType string, metadata map[string]any) {
+	bID := pgtype.UUID{Bytes: bookID, Valid: true}
+	exists, err := h.Queries.ActivityExistsRecent(ctx, db.ActivityExistsRecentParams{
+		UserID: userID, BookID: bID, ActivityType: activityType,
+	})
+	if err != nil || exists {
+		return
+	}
+	params := db.CreateActivityParams{UserID: userID, ActivityType: activityType, BookID: bID}
+	if metadata != nil {
+		params.Metadata, _ = json.Marshal(metadata)
+	}
+	_, _ = h.Queries.CreateActivity(ctx, params)
+}
+
 // MinPagesToRate is how far into a book a reader must be before they can rate
 // or review it. Finishing the book satisfies the gate on its own — see
 // canRateEntry — because MarkAsFinished leaves current_page NULL for books
@@ -175,11 +208,11 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 	bID := bookID
 	status := req.Status
 	go func() {
-		_, _ = h.Queries.CreateActivity(context.Background(), db.CreateActivityParams{
-			UserID:       userID,
-			ActivityType: "added_book",
-			BookID:       pgtype.UUID{Bytes: bID, Valid: true},
-		})
+		var meta map[string]any
+		if params.Rating.Valid {
+			meta = map[string]any{"rating": params.Rating.Int32}
+		}
+		h.recordBookActivity(context.Background(), userID, bID, shelfActivityType(status), meta)
 		xpSvc := service.NewXPService(h.Queries)
 		switch status {
 		case "read":
@@ -295,7 +328,6 @@ func cacheBookFromGoogleBooks(ctx context.Context, q *db.Queries, gb *external.G
 	return created, nil
 }
 
-
 // UpdateBookshelfRating handles PATCH /api/v1/users/:username/bookshelf/:bookId
 func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := h.resolveOwner(w, r)
@@ -331,6 +363,7 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 	// one (rating 0 / null review) is always allowed so a reader can undo.
 	isClearing := (req.Rating == nil || *req.Rating == 0) &&
 		(req.Review == nil || *req.Review == "")
+	var prevRating int32
 	if !isClearing {
 		entry, err := h.Queries.GetBookshelfEntry(r.Context(), db.GetBookshelfEntryParams{
 			UserID: userID,
@@ -349,6 +382,7 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 			types.WriteError(w, http.StatusForbidden, types.ErrCodeForbidden, rateGateMessage)
 			return
 		}
+		prevRating = entry.Rating.Int32
 	}
 
 	params := db.UpdateBookshelfRatingParams{
@@ -371,6 +405,12 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 		slog.Error("update bookshelf rating", "error", err)
 		types.WriteInternalError(w)
 		return
+	}
+
+	// A new or changed star rating is feed-worthy; review-only edits are not.
+	if entry.Rating.Valid && entry.Rating.Int32 != prevRating {
+		bID, rating := bookID, entry.Rating.Int32
+		go h.recordBookActivity(context.Background(), userID, bID, "rated", map[string]any{"rating": rating})
 	}
 
 	var ratingPtr *int
@@ -1170,6 +1210,9 @@ func (h *UserHandler) MarkAsStarted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bID := bookID
+	go h.recordBookActivity(context.Background(), userID, bID, "started_reading", nil)
+
 	types.WriteJSON(w, http.StatusOK, entry)
 }
 
@@ -1198,6 +1241,11 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 
 	bID := bookID
 	go func() {
+		var meta map[string]any
+		if entry.Rating.Valid {
+			meta = map[string]any{"rating": entry.Rating.Int32}
+		}
+		h.recordBookActivity(context.Background(), userID, bID, "finished_reading", meta)
 		xpSvc := service.NewXPService(h.Queries)
 		_ = xpSvc.AwardXP(context.Background(), userID, "book_read", service.XPBookRead, &bID)
 		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
@@ -1344,12 +1392,12 @@ func currentlyReadingBookToResponse(row db.GetCurrentlyReadingRow) types.BookRes
 		})
 	}
 	resp := types.BookResponse{
-		ID:        row.BookID.String(),
-		MongoID:   row.BookID.String(),
+		ID:         row.BookID.String(),
+		MongoID:    row.BookID.String(),
 		VolumeInfo: vi,
-		APISource: "db",
-		FromCache: true,
-		Slug:      row.Slug,
+		APISource:  "db",
+		FromCache:  true,
+		Slug:       row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String
@@ -1411,12 +1459,12 @@ func tbrBookToResponse(row db.GetUserTBRRow) types.BookResponse {
 		})
 	}
 	resp := types.BookResponse{
-		ID:        row.BookID.String(),
-		MongoID:   row.BookID.String(),
+		ID:         row.BookID.String(),
+		MongoID:    row.BookID.String(),
 		VolumeInfo: vi,
-		APISource: "db",
-		FromCache: true,
-		Slug:      row.Slug,
+		APISource:  "db",
+		FromCache:  true,
+		Slug:       row.Slug,
 	}
 	if row.GoogleBooksID.Valid {
 		resp.GoogleBooksID = row.GoogleBooksID.String

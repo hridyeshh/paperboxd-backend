@@ -15,6 +15,9 @@ type Querier interface {
 	// Going public accepts everyone who was waiting, so no request is orphaned
 	// behind a switch the requester cannot see.
 	AcceptAllFollowRequests(ctx context.Context, targetID uuid.UUID) error
+	// Dedupe guard for shelf activities: the same (user, book, type) within a day
+	// is a re-save, not news.
+	ActivityExistsRecent(ctx context.Context, arg ActivityExistsRecentParams) (bool, error)
 	// List Books Operations
 	AddBookToList(ctx context.Context, arg AddBookToListParams) (ListBook, error)
 	AddToBookshelf(ctx context.Context, arg AddToBookshelfParams) (Bookshelf, error)
@@ -144,6 +147,18 @@ type Querier interface {
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)
+	// Public readers for the logged-out "who is here" strip. Followers first, then
+	// live read count; must have something on the shelf so the Top 4 / count are
+	// not both empty.
+	GetPopularReaders(ctx context.Context, limit int32) ([]GetPopularReadersRow, error)
+	// Community feed for logged-out visitors and thin follow graphs. Only public,
+	// live accounts; only broadcast rows (anything addressed to a target user is a
+	// notification, not news); private lists and diary entries stay hidden.
+	// Over-fetch and collapse per user in Go so one import does not own the feed.
+	GetPublicActivities(ctx context.Context, limit int32) ([]GetPublicActivitiesRow, error)
+	// Lists worth browsing without an account: public owner, public list, at least
+	// three books so the card has covers. Saves first, then freshness.
+	GetPublicLists(ctx context.Context, limit int32) ([]GetPublicListsRow, error)
 	GetRandomBooks(ctx context.Context, limit int32) ([]Book, error)
 	// Per-day page totals across an inclusive date range, for the GitHub-style
 	// reading heatmap. Only days with at least one logged entry are returned; the
@@ -154,6 +169,9 @@ type Querier interface {
 	GetReferralStats(ctx context.Context, referredBy pgtype.UUID) (GetReferralStatsRow, error)
 	GetRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)
+	// Books most shelved in the last 7 days by live accounts. bookshelf.created_at
+	// is untouched by the upsert, so re-saves do not count twice.
+	GetTrendingBooks(ctx context.Context, limit int32) ([]GetTrendingBooksRow, error)
 	GetUserActivities(ctx context.Context, arg GetUserActivitiesParams) ([]GetUserActivitiesRow, error)
 	GetUserAuthors(ctx context.Context, userID uuid.UUID) ([]GetUserAuthorsRow, error)
 	// Most-recently-touched first: a freshly added/updated book (updated_at = NOW())

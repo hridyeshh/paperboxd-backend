@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -57,6 +58,7 @@ func (h *ActivitiesHandler) GetUserActivities(w http.ResponseWriter, r *http.Req
 			createdAt: row.CreatedAt, username: row.Username, name: row.Name, avatarUrl: row.AvatarUrl,
 			bookTitle: row.BookTitle, bookSlug: row.BookSlug,
 			listTitle: row.ListTitle, entryTitle: row.EntryTitle, targetUsername: row.TargetUsername,
+			metadata: row.Metadata,
 		})
 	}
 
@@ -97,6 +99,7 @@ func (h *ActivitiesHandler) GetFollowingActivities(w http.ResponseWriter, r *htt
 			createdAt: row.CreatedAt, username: row.Username, name: row.Name, avatarUrl: row.AvatarUrl,
 			bookTitle: row.BookTitle, bookSlug: row.BookSlug,
 			listTitle: row.ListTitle, entryTitle: row.EntryTitle, targetUsername: row.TargetUsername,
+			metadata: row.Metadata,
 		})
 	}
 
@@ -160,22 +163,24 @@ func (h *ActivitiesHandler) CheckNewActivities(w http.ResponseWriter, r *http.Re
 
 // activityRowFields is a normalised view of either GetUserActivitiesRow or GetFollowingActivitiesRow.
 type activityRowFields struct {
-	id           uuid.UUID
-	userID       uuid.UUID
-	activityType string
-	bookID       pgtype.UUID
-	listID       pgtype.UUID
-	entryID      pgtype.UUID
-	targetUserID pgtype.UUID
-	createdAt    pgtype.Timestamp
-	username     string
-	name         pgtype.Text
-	avatarUrl    pgtype.Text
-	bookTitle    pgtype.Text
-	bookSlug     pgtype.Text
-	listTitle    pgtype.Text
-	entryTitle   pgtype.Text
+	id             uuid.UUID
+	userID         uuid.UUID
+	activityType   string
+	bookID         pgtype.UUID
+	listID         pgtype.UUID
+	entryID        pgtype.UUID
+	targetUserID   pgtype.UUID
+	createdAt      pgtype.Timestamp
+	username       string
+	name           pgtype.Text
+	avatarUrl      pgtype.Text
+	bookTitle      pgtype.Text
+	bookSlug       pgtype.Text
+	listTitle      pgtype.Text
+	entryTitle     pgtype.Text
 	targetUsername pgtype.Text
+	metadata       []byte
+	bookCover      pgtype.Text
 }
 
 func activityRowToResponse(f activityRowFields) types.ActivityResponse {
@@ -222,6 +227,12 @@ func activityRowToResponse(f activityRowFields) types.ActivityResponse {
 	}
 	if f.targetUsername.Valid {
 		resp.TargetUsername = &f.targetUsername.String
+	}
+	if len(f.metadata) > 0 && string(f.metadata) != "null" {
+		resp.Metadata = json.RawMessage(f.metadata)
+	}
+	if f.bookCover.Valid && f.bookCover.String != "" {
+		resp.BookCover = &f.bookCover.String
 	}
 	return resp
 }

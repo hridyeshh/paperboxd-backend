@@ -12,6 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activityExistsRecent = `-- name: ActivityExistsRecent :one
+SELECT EXISTS(
+    SELECT 1 FROM activities
+    WHERE user_id = $1 AND book_id = $2 AND activity_type = $3
+      AND created_at > NOW() - INTERVAL '1 day'
+)
+`
+
+type ActivityExistsRecentParams struct {
+	UserID       uuid.UUID   `json:"user_id"`
+	BookID       pgtype.UUID `json:"book_id"`
+	ActivityType string      `json:"activity_type"`
+}
+
+// Dedupe guard for shelf activities: the same (user, book, type) within a day
+// is a re-save, not news.
+func (q *Queries) ActivityExistsRecent(ctx context.Context, arg ActivityExistsRecentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, activityExistsRecent, arg.UserID, arg.BookID, arg.ActivityType)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const checkNewActivities = `-- name: CheckNewActivities :one
 SELECT EXISTS(
     SELECT 1 FROM activities a
@@ -221,6 +244,105 @@ func (q *Queries) GetFollowingActivities(ctx context.Context, arg GetFollowingAc
 			&i.AvatarUrl,
 			&i.BookTitle,
 			&i.BookSlug,
+			&i.ListTitle,
+			&i.EntryTitle,
+			&i.TargetUsername,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicActivities = `-- name: GetPublicActivities :many
+SELECT
+    a.id,
+    a.user_id,
+    a.activity_type,
+    a.book_id,
+    a.list_id,
+    a.entry_id,
+    a.target_user_id,
+    a.metadata,
+    a.created_at,
+    u.username,
+    u.name,
+    u.avatar_url,
+    b.title as book_title,
+    b.slug as book_slug,
+    b.cover_url as book_cover,
+    l.title as list_title,
+    de.title as entry_title,
+    tu.username as target_username
+FROM activities a
+JOIN users u ON a.user_id = u.id
+LEFT JOIN books b ON a.book_id = b.id
+LEFT JOIN lists l ON a.list_id = l.id
+LEFT JOIN diary_entries de ON a.entry_id = de.id
+LEFT JOIN users tu ON a.target_user_id = tu.id
+WHERE u.deleted_at IS NULL
+  AND u.is_public = true
+  AND a.target_user_id IS NULL
+  AND (a.list_id IS NULL OR l.is_private = false)
+  AND (a.entry_id IS NULL OR de.is_private = false)
+ORDER BY a.created_at DESC
+LIMIT $1
+`
+
+type GetPublicActivitiesRow struct {
+	ID             uuid.UUID        `json:"id"`
+	UserID         uuid.UUID        `json:"user_id"`
+	ActivityType   string           `json:"activity_type"`
+	BookID         pgtype.UUID      `json:"book_id"`
+	ListID         pgtype.UUID      `json:"list_id"`
+	EntryID        pgtype.UUID      `json:"entry_id"`
+	TargetUserID   pgtype.UUID      `json:"target_user_id"`
+	Metadata       []byte           `json:"metadata"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	Username       string           `json:"username"`
+	Name           pgtype.Text      `json:"name"`
+	AvatarUrl      pgtype.Text      `json:"avatar_url"`
+	BookTitle      pgtype.Text      `json:"book_title"`
+	BookSlug       pgtype.Text      `json:"book_slug"`
+	BookCover      pgtype.Text      `json:"book_cover"`
+	ListTitle      pgtype.Text      `json:"list_title"`
+	EntryTitle     pgtype.Text      `json:"entry_title"`
+	TargetUsername pgtype.Text      `json:"target_username"`
+}
+
+// Community feed for logged-out visitors and thin follow graphs. Only public,
+// live accounts; only broadcast rows (anything addressed to a target user is a
+// notification, not news); private lists and diary entries stay hidden.
+// Over-fetch and collapse per user in Go so one import does not own the feed.
+func (q *Queries) GetPublicActivities(ctx context.Context, limit int32) ([]GetPublicActivitiesRow, error) {
+	rows, err := q.db.Query(ctx, getPublicActivities, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetPublicActivitiesRow{}
+	for rows.Next() {
+		var i GetPublicActivitiesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.ActivityType,
+			&i.BookID,
+			&i.ListID,
+			&i.EntryID,
+			&i.TargetUserID,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.Username,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.BookTitle,
+			&i.BookSlug,
+			&i.BookCover,
 			&i.ListTitle,
 			&i.EntryTitle,
 			&i.TargetUsername,

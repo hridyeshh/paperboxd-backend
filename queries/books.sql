@@ -132,3 +132,14 @@ SELECT id::text AS id, embedding
 FROM books
 WHERE id::text = ANY($1::text[])
   AND embedding IS NOT NULL;
+
+-- name: GetTrendingBooks :many
+-- Books most shelved in the last 7 days by live accounts. bookshelf.created_at
+-- is untouched by the upsert, so re-saves do not count twice.
+SELECT sqlc.embed(b), COUNT(bs.id)::int AS adds_7d
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id AND bs.created_at > NOW() - INTERVAL '7 days'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY adds_7d DESC, b.view_count DESC
+LIMIT $1;
