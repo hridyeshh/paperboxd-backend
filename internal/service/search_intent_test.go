@@ -139,7 +139,8 @@ func TestParseQueryIntentClassification(t *testing.T) {
 		"under 250 pages":                              IntentConstraint,
 		"something for my flight":                      IntentContext,
 		"something that will destroy me":               IntentEmotional,
-		"sad but hopeful, under 300 pages, no romance": IntentEmotional, // constraint on top of emotional is still emotional
+		"sad but hopeful, under 300 pages, no romance": IntentMulti, // emotional + mood at once; the roadmap's "multi-constraint discovery"
+		"something funny":                              IntentMood,
 		"like Murakami, something comforting":          IntentMulti,
 	}
 	for q, want := range cases {
@@ -273,4 +274,24 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// First "shorter" with no ceiling means "under 300" — the roadmap's own
+// example — not an arbitrary two-thirds of an arbitrary default.
+func TestFirstShorterIsUnder300(t *testing.T) {
+	sess, _ := ParseRefinement(ParseQuery("books like Murakami"), "shorter")
+	if sess.Constraints.MaxPages != 300 {
+		t.Errorf("MaxPages = %d, want 300", sess.Constraints.MaxPages)
+	}
+}
+
+// The understood line must not reshuffle between renders.
+func TestSearchSessionDescribeIsStable(t *testing.T) {
+	sess := &SearchSession{Current: ParseQuery("short, dark, literary, character-driven")}
+	first := sess.Describe()
+	for i := 0; i < 20; i++ {
+		if got := sess.Describe(); got != first {
+			t.Fatalf("Describe() changed between calls: %q vs %q", first, got)
+		}
+	}
 }

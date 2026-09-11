@@ -1071,12 +1071,19 @@ SELECT
   (1 - (b.embedding <=> $1::vector))::float8 AS similarity_score
 FROM books b
 WHERE b.embedding IS NOT NULL
+  -- Page bounds are applied here, not after retrieval: "under 250 pages"
+  -- over the 120 nearest neighbours of a long-book query leaves a handful.
+  -- A book with no page count cannot satisfy a length request.
+  AND ($2::int IS NULL OR (b.page_count > 0 AND b.page_count <= $2::int))
+  AND ($3::int IS NULL OR (b.page_count > 0 AND b.page_count >= $3::int))
 ORDER BY b.embedding <=> $1::vector
-LIMIT $2::int
+LIMIT $4::int
 `
 
 type VibeSearchBooksParams struct {
 	QueryVec pgvector.Vector `json:"query_vec"`
+	MaxPages pgtype.Int4     `json:"max_pages"`
+	MinPages pgtype.Int4     `json:"min_pages"`
 	Lim      int32           `json:"lim"`
 }
 
@@ -1104,7 +1111,12 @@ type VibeSearchBooksRow struct {
 }
 
 func (q *Queries) VibeSearchBooks(ctx context.Context, arg VibeSearchBooksParams) ([]VibeSearchBooksRow, error) {
-	rows, err := q.db.Query(ctx, vibeSearchBooks, arg.QueryVec, arg.Lim)
+	rows, err := q.db.Query(ctx, vibeSearchBooks,
+		arg.QueryVec,
+		arg.MaxPages,
+		arg.MinPages,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

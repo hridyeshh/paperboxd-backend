@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 
 	"github.com/hridyesh/paperboxd-backend/internal/db"
@@ -86,11 +87,16 @@ func (s *RecommendationService) searchWithSession(ctx context.Context, queries *
 		return SearchResponse{}, err
 	}
 
-	// 2. Retrieve. Over-fetch so hard filters and taste re-ranking have room.
-	rows, err := queries.VibeSearchBooks(ctx, db.VibeSearchBooksParams{
-		QueryVec: pgvector.NewVector(queryVec),
-		Lim:      searchCandidates,
-	})
+	// 2. Retrieve. Over-fetch so taste re-ranking has room. Page bounds go
+	// into the query so the 120 nearest are 120 that qualify.
+	params := db.VibeSearchBooksParams{QueryVec: pgvector.NewVector(queryVec), Lim: searchCandidates}
+	if pq.Constraints.MaxPages > 0 {
+		params.MaxPages = pgtype.Int4{Int32: int32(pq.Constraints.MaxPages), Valid: true}
+	}
+	if pq.Constraints.MinPages > 0 {
+		params.MinPages = pgtype.Int4{Int32: int32(pq.Constraints.MinPages), Valid: true}
+	}
+	rows, err := queries.VibeSearchBooks(ctx, params)
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("search ann: %w", err)
 	}
@@ -146,9 +152,12 @@ func (s *RecommendationService) searchWithSession(ctx context.Context, queries *
 
 	// 5. Rank. Query similarity dominates — this is search, the reader asked
 	// for something specific — but taste breaks ties and constraint axes pull.
+	// Same negative_taste kill switch as the home feed, so the flag means one
+	// thing everywhere.
+	negativeTaste := s.flags.Bool(ctx, "negative_taste")
 	for i := range candidates {
 		c := &candidates[i]
-		c.FinalScore = searchScore(c, pq.Constraints, profile)
+		c.FinalScore = searchScore(c, pq.Constraints, profile, negativeTaste)
 		if profile != nil {
 			c.Confidence = RecConfidence(*c, profile)
 			c.ConfidenceLabel = ConfidenceLabel(c.Confidence)
@@ -340,7 +349,7 @@ func passesHardFilters(r db.VibeSearchBooksRow, c SearchConstraints) bool {
 // about what the reader asked for should not outrank one that is because it
 // suits their taste. Constraint axes are next — they are the reader's own
 // words about this search — and long-term taste last, as a tiebreak.
-func searchScore(c *Candidate, con SearchConstraints, profile *UserSignalProfile) float32 {
+func searchScore(c *Candidate, con SearchConstraints, profile *UserSignalProfile, negativeTaste bool) float32 {
 	score := float64(c.VectorScore) * 0.60
 
 	// Axis constraints. Only meaningful when the book has traits; a book
@@ -388,7 +397,9 @@ func searchScore(c *Candidate, con SearchConstraints, profile *UserSignalProfile
 		}
 		if clash, ok := TraitClash(c.Traits, profile.Traits); ok && clash > 0.5 {
 			c.TraitClashScore = clash
-			score -= (clash - 0.5) * 2 * 0.08
+			if negativeTaste {
+				score -= (clash - 0.5) * 2 * 0.08
+			}
 		}
 		var g float64
 		for _, cat := range c.Categories {

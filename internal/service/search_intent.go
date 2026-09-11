@@ -107,7 +107,7 @@ var axisWords = []struct {
 	{regexp.MustCompile(`(?i)\b(character[- ]driven|interior|introspective|psychological|intimate)\b`), "character_driven", 0.9},
 	{regexp.MustCompile(`(?i)\b(plot[- ]driven|twisty|thriller|action[- ]packed|high[- ]stakes)\b`), "plot_intensity", 0.9},
 	{regexp.MustCompile(`(?i)\b(devastat\w*|destroy me|wreck me|gut[- ]wrench\w*|heartbreaking|emotional|make me cry|tearjerker|sad|melancholy)\b`), "emotional_intensity", 0.95},
-	{regexp.MustCompile(`(?i)\b(light|fun|breezy|easy read|palate cleanser|low[- ]stakes)\b`), "emotional_intensity", 0.2},
+	{regexp.MustCompile(`(?i)\b(light|fun|funny|humou?rous|hilarious|witty|breezy|easy read|palate cleanser|low[- ]stakes)\b`), "emotional_intensity", 0.2},
 	{regexp.MustCompile(`(?i)\b(dark|bleak|grim|brutal|disturbing|unsettling)\b`), "darkness", 0.9},
 	{regexp.MustCompile(`(?i)\b(cosy|cozy|comforting|warm|gentle|wholesome|hopeful|uplifting|feel[- ]good)\b`), "darkness", 0.1},
 	{regexp.MustCompile(`(?i)\b(literary|lyrical|beautiful prose|beautifully written|rich prose)\b`), "prose_density", 0.85},
@@ -252,9 +252,12 @@ func ParseQuery(q string) ParsedQuery {
 			sawMood = true
 		}
 	}
+	// Both at once ("sad but hopeful") is the roadmap's multi-constraint
+	// discovery, not merely an emotional search.
 	if sawEmotional {
 		kinds = append(kinds, IntentEmotional)
-	} else if sawMood {
+	}
+	if sawMood {
 		kinds = append(kinds, IntentMood)
 	}
 
@@ -471,9 +474,12 @@ func ParseRefinement(prev ParsedQuery, q string) (ParsedQuery, bool) {
 		cur := out.Constraints.MaxPages
 		if adj.delta < 0 {
 			if cur == 0 {
-				cur = 350
+				// First "shorter" with no ceiling: 300 is what most readers
+				// mean, and a third off that on each further ask.
+				out.Constraints.MaxPages = 300
+			} else {
+				out.Constraints.MaxPages = max(80, cur*2/3)
 			}
-			out.Constraints.MaxPages = max(80, cur*2/3)
 		} else {
 			out.Constraints.MaxPages = 0
 			if out.Constraints.MinPages == 0 {

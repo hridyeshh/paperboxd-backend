@@ -185,7 +185,12 @@ func (sess *SearchSession) Describe() string {
 	if c.Standalone {
 		parts = append(parts, "standalone")
 	}
-	for axis, v := range c.PreferAxes {
+	// Fixed axis order, or the line reshuffles on every refresh.
+	for _, axis := range TraitAxes {
+		v, ok := c.PreferAxes[axis]
+		if !ok {
+			continue
+		}
 		if p, ok := traitPhrases[axis]; ok {
 			idx := 0
 			if v > 0.5 {

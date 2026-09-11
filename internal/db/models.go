@@ -70,6 +70,23 @@ type Book struct {
 	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
 }
 
+type BookTrait struct {
+	BookID              uuid.UUID          `json:"book_id"`
+	CharacterDriven     float32            `json:"character_driven"`
+	EmotionalIntensity  float32            `json:"emotional_intensity"`
+	PlotIntensity       float32            `json:"plot_intensity"`
+	Pacing              float32            `json:"pacing"`
+	ProseDensity        float32            `json:"prose_density"`
+	NarrativeComplexity float32            `json:"narrative_complexity"`
+	Darkness            float32            `json:"darkness"`
+	RomanceCentrality   float32            `json:"romance_centrality"`
+	Worldbuilding       float32            `json:"worldbuilding"`
+	Traits              []byte             `json:"traits"`
+	Confidence          float32            `json:"confidence"`
+	ExtractorVersion    int32              `json:"extractor_version"`
+	ExtractedAt         pgtype.Timestamptz `json:"extracted_at"`
+}
+
 type Bookshelf struct {
 	ID                  uuid.UUID          `json:"id"`
 	UserID              uuid.UUID          `json:"user_id"`
@@ -125,7 +142,7 @@ type DiaryEntryLike struct {
 
 type Event struct {
 	ID        uuid.UUID          `json:"id"`
-	UserID    uuid.UUID          `json:"user_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
 	BookID    pgtype.UUID        `json:"book_id"`
 	EventType string             `json:"event_type"`
 	Metadata  []byte             `json:"metadata"`
@@ -133,6 +150,7 @@ type Event struct {
 	SessionID pgtype.UUID        `json:"session_id"`
 	Source    pgtype.Text        `json:"source"`
 	Path      pgtype.Text        `json:"path"`
+	AnonID    pgtype.UUID        `json:"anon_id"`
 }
 
 type Favorite struct {
@@ -265,12 +283,24 @@ type ReadingLog struct {
 	LoggedAt   pgtype.Timestamptz `json:"logged_at"`
 }
 
+type RecommendationFeedback struct {
+	UserID      uuid.UUID          `json:"user_id"`
+	BookID      uuid.UUID          `json:"book_id"`
+	Verdict     string             `json:"verdict"`
+	ReasonCodes []string           `json:"reason_codes"`
+	ReasonType  pgtype.Text        `json:"reason_type"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RecommendationImpression struct {
-	UserID        uuid.UUID          `json:"user_id"`
-	BookID        uuid.UUID          `json:"book_id"`
-	SeenCount     pgtype.Int4        `json:"seen_count"`
-	LastSeen      pgtype.Timestamptz `json:"last_seen"`
-	SuppressUntil pgtype.Timestamptz `json:"suppress_until"`
+	UserID           uuid.UUID          `json:"user_id"`
+	BookID           uuid.UUID          `json:"book_id"`
+	SeenCount        pgtype.Int4        `json:"seen_count"`
+	LastSeen         pgtype.Timestamptz `json:"last_seen"`
+	SuppressUntil    pgtype.Timestamptz `json:"suppress_until"`
+	DismissedUntil   pgtype.Timestamptz `json:"dismissed_until"`
+	DismissedForever bool               `json:"dismissed_forever"`
 }
 
 type RefreshToken struct {
@@ -308,6 +338,18 @@ type ScanCommunityCache struct {
 	ReadersCount     int32              `json:"readers_count"`
 	RatingsCount     int32              `json:"ratings_count"`
 	RatingsAverage   float64            `json:"ratings_average"`
+}
+
+type TasteOverlap struct {
+	UserA       uuid.UUID          `json:"user_a"`
+	UserB       uuid.UUID          `json:"user_b"`
+	Overlap     float32            `json:"overlap"`
+	SharedCount int32              `json:"shared_count"`
+	SharedLoved []uuid.UUID        `json:"shared_loved"`
+	Disagreed   []uuid.UUID        `json:"disagreed"`
+	ACouldRead  []uuid.UUID        `json:"a_could_read"`
+	BCouldRead  []uuid.UUID        `json:"b_could_read"`
+	ComputedAt  pgtype.Timestamptz `json:"computed_at"`
 }
 
 type User struct {
@@ -374,17 +416,23 @@ type UserPreferencesLegacy struct {
 }
 
 type UserSignalProfile struct {
-	UserID              uuid.UUID          `json:"user_id"`
-	GenreWeights        []byte             `json:"genre_weights"`
-	AuthorWeights       []byte             `json:"author_weights"`
-	ComputedAt          pgtype.Timestamptz `json:"computed_at"`
-	BookshelfHash       pgtype.Text        `json:"bookshelf_hash"`
-	VelocitySignal      []byte             `json:"velocity_signal"`
-	DiarySignal         []byte             `json:"diary_signal"`
-	DiaryEmbedding      pgvector.Vector    `json:"diary_embedding"`
-	SocialSignal        []byte             `json:"social_signal"`
-	SignalVersion       int32              `json:"signal_version"`
-	FastFinishEmbedding pgvector.Vector    `json:"fast_finish_embedding"`
+	UserID                uuid.UUID          `json:"user_id"`
+	GenreWeights          []byte             `json:"genre_weights"`
+	AuthorWeights         []byte             `json:"author_weights"`
+	ComputedAt            pgtype.Timestamptz `json:"computed_at"`
+	BookshelfHash         pgtype.Text        `json:"bookshelf_hash"`
+	VelocitySignal        []byte             `json:"velocity_signal"`
+	DiarySignal           []byte             `json:"diary_signal"`
+	DiaryEmbedding        pgvector.Vector    `json:"diary_embedding"`
+	SocialSignal          []byte             `json:"social_signal"`
+	SignalVersion         int32              `json:"signal_version"`
+	FastFinishEmbedding   pgvector.Vector    `json:"fast_finish_embedding"`
+	TraitPrefs            []byte             `json:"trait_prefs"`
+	TraitDislikes         []byte             `json:"trait_dislikes"`
+	TraitConfidence       []byte             `json:"trait_confidence"`
+	DepthSignal           []byte             `json:"depth_signal"`
+	TraitRecent           []byte             `json:"trait_recent"`
+	TraitRecentConfidence []byte             `json:"trait_recent_confidence"`
 }
 
 type XpTransaction struct {

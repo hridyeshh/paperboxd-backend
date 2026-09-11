@@ -124,6 +124,11 @@ SELECT
   (1 - (b.embedding <=> sqlc.arg(query_vec)::vector))::float8 AS similarity_score
 FROM books b
 WHERE b.embedding IS NOT NULL
+  -- Page bounds are applied here, not after retrieval: "under 250 pages"
+  -- over the 120 nearest neighbours of a long-book query leaves a handful.
+  -- A book with no page count cannot satisfy a length request.
+  AND (sqlc.narg(max_pages)::int IS NULL OR (b.page_count > 0 AND b.page_count <= sqlc.narg(max_pages)::int))
+  AND (sqlc.narg(min_pages)::int IS NULL OR (b.page_count > 0 AND b.page_count >= sqlc.narg(min_pages)::int))
 ORDER BY b.embedding <=> sqlc.arg(query_vec)::vector
 LIMIT sqlc.arg(lim)::int;
 

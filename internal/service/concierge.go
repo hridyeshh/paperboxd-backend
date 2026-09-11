@@ -67,6 +67,11 @@ type ConciergeResponse struct {
 	Intro        string                 `json:"intro,omitempty"`
 	Personalised bool                   `json:"personalised"`
 	Items        []types.VibeBookResult `json:"items"`
+	// Understood is the accumulated ask ("like Murakami · under 300 pages")
+	// and Refined whether this turn edited the previous one — the same two
+	// fields search returns, so mobile can show the conversation too.
+	Understood string `json:"understood,omitempty"`
+	Refined    bool   `json:"refined"`
 }
 
 // Concierge runs one turn.
@@ -93,7 +98,7 @@ func (s *RecommendationService) Concierge(ctx context.Context, queries *db.Queri
 
 	// 1. Ask first if the request is too open to answer well. Only when there
 	// was no answer already — a second question is an interrogation.
-	sess, _ := s.AdvanceSearchSession(ctx, req.SessionID, req.UserID, req.AnonID, query)
+	sess, refined := s.AdvanceSearchSession(ctx, req.SessionID, req.UserID, req.AnonID, query)
 	if req.Answer == "" {
 		if q, opts := clarifyingQuestion(sess.Current, reader); q != "" {
 			s.SaveSearchSession(ctx, sess)
@@ -110,14 +115,16 @@ func (s *RecommendationService) Concierge(ctx context.Context, queries *db.Queri
 
 	// 2. Retrieve + rank through the same pipeline as search, so Jazy's deck
 	// respects the reader's constraints and negative signals. The concierge is
-	// search with a voice, not a separate engine.
-	searchResp, err := s.Search(ctx, queries, SearchRequest{
+	// search with a voice, not a separate engine. The session was advanced
+	// above; going through Search would advance it again and apply "shorter"
+	// twice.
+	searchResp, err := s.searchWithSession(ctx, queries, SearchRequest{
 		Query:     query,
 		SessionID: sess.ID,
 		UserID:    req.UserID,
 		AnonID:    req.AnonID,
 		Limit:     req.Limit,
-	})
+	}, sess, refined)
 	if err != nil {
 		return ConciergeResponse{}, err
 	}
@@ -128,6 +135,8 @@ func (s *RecommendationService) Concierge(ctx context.Context, queries *db.Queri
 		Query:        req.Query,
 		Personalised: searchResp.Personalised,
 		Items:        searchResp.Items,
+		Understood:   searchResp.Understood,
+		Refined:      searchResp.Refined,
 	}
 
 	// 3. Voice. Claude writes the intro and per-book reasons with the full
