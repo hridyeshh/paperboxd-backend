@@ -249,3 +249,27 @@ WHERE l.is_private = false
   AND (SELECT COUNT(*) FROM list_books lb WHERE lb.list_id = l.id) >= 3
 ORDER BY save_count DESC, l.updated_at DESC
 LIMIT $1;
+
+-- name: GetListsContainingBook :many
+-- Public lists that include this book, for the book page's Lists tab. Public
+-- owner + public list only; the viewer's own private lists are not surfaced
+-- here (they already appear in the add-to-list dialog).
+SELECT
+    l.id,
+    l.title,
+    l.description,
+    l.updated_at,
+    u.username,
+    u.name,
+    u.avatar_url,
+    (SELECT COUNT(*) FROM list_books lb2 WHERE lb2.list_id = l.id)::int AS book_count,
+    (SELECT COUNT(*) FROM saved_lists sl WHERE sl.list_id = l.id)::int  AS save_count
+FROM list_books lb
+JOIN lists l ON l.id = lb.list_id
+JOIN users u ON u.id = l.user_id
+WHERE lb.book_id = $1
+  AND l.is_private = false
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+ORDER BY save_count DESC, l.updated_at DESC
+LIMIT $2;

@@ -102,6 +102,10 @@ type Querier interface {
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
 	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
 	GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string) ([]GetBookEmbeddingsByIDsRow, error)
+	// What Paperboxd readers actually did with this book. Live from the shelf —
+	// books.total_reads_count / total_tbr_count have been 0 since migration 000003
+	// and nothing writes them. Ratings here are Paperboxd's own, not Google's.
+	GetBookReaderStats(ctx context.Context, bookID uuid.UUID) (GetBookReaderStatsRow, error)
 	// viewer_id filters out reviews across a block in either direction;
 	// anonymous viewers pass the nil UUID (matches no blocks rows).
 	GetBookReviews(ctx context.Context, arg GetBookReviewsParams) ([]GetBookReviewsRow, error)
@@ -144,6 +148,10 @@ type Querier interface {
 	// id or ISBN so list cards still show art when cover_url was never backfilled.
 	GetListCoverURLs(ctx context.Context, listID uuid.UUID) ([]string, error)
 	GetListOwnerUsername(ctx context.Context, id uuid.UUID) (string, error)
+	// Public lists that include this book, for the book page's Lists tab. Public
+	// owner + public list only; the viewer's own private lists are not surfaced
+	// here (they already appear in the add-to-list dialog).
+	GetListsContainingBook(ctx context.Context, arg GetListsContainingBookParams) ([]GetListsContainingBookRow, error)
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
 	GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordResetToken, error)
 	GetPopularBooks(ctx context.Context, arg GetPopularBooksParams) ([]Book, error)

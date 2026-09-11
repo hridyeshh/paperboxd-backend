@@ -354,6 +354,9 @@ func main() {
 				// OptionalAuthenticate so the block filter sees the viewer.
 				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/diary", diaryHandler.GetBookDiaryEntries)
 				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/reviews", bookHandler.GetBookReviews)
+				// Social proof: Paperboxd reader stats, friends, lists. Friends
+				// only when the viewer is signed in.
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/social", bookHandler.GetBookSocial)
 
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))

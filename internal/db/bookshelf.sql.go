@@ -109,6 +109,60 @@ func (q *Queries) CountUserBooks(ctx context.Context, arg CountUserBooksParams) 
 	return count, err
 }
 
+const getBookReaderStats = `-- name: GetBookReaderStats :one
+SELECT
+    COUNT(*) FILTER (WHERE bs.status = 'read')::int     AS reads,
+    COUNT(*) FILTER (WHERE bs.status = 'reading')::int  AS reading,
+    COUNT(*) FILTER (WHERE bs.status = 'to-read')::int  AS tbr,
+    COUNT(*) FILTER (WHERE bs.status = 'to-read' AND bs.created_at > NOW() - INTERVAL '30 days')::int AS tbr_30d,
+    COUNT(bs.rating)::int                               AS ratings_count,
+    COALESCE(AVG(bs.rating), 0)::float8                 AS rating,
+    COUNT(*) FILTER (WHERE bs.rating = 1)::int          AS rating_1,
+    COUNT(*) FILTER (WHERE bs.rating = 2)::int          AS rating_2,
+    COUNT(*) FILTER (WHERE bs.rating = 3)::int          AS rating_3,
+    COUNT(*) FILTER (WHERE bs.rating = 4)::int          AS rating_4,
+    COUNT(*) FILTER (WHERE bs.rating = 5)::int          AS rating_5
+FROM bookshelf bs
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+WHERE bs.book_id = $1
+`
+
+type GetBookReaderStatsRow struct {
+	Reads        int32   `json:"reads"`
+	Reading      int32   `json:"reading"`
+	Tbr          int32   `json:"tbr"`
+	Tbr30d       int32   `json:"tbr_30d"`
+	RatingsCount int32   `json:"ratings_count"`
+	Rating       float64 `json:"rating"`
+	Rating1      int32   `json:"rating_1"`
+	Rating2      int32   `json:"rating_2"`
+	Rating3      int32   `json:"rating_3"`
+	Rating4      int32   `json:"rating_4"`
+	Rating5      int32   `json:"rating_5"`
+}
+
+// What Paperboxd readers actually did with this book. Live from the shelf —
+// books.total_reads_count / total_tbr_count have been 0 since migration 000003
+// and nothing writes them. Ratings here are Paperboxd's own, not Google's.
+func (q *Queries) GetBookReaderStats(ctx context.Context, bookID uuid.UUID) (GetBookReaderStatsRow, error) {
+	row := q.db.QueryRow(ctx, getBookReaderStats, bookID)
+	var i GetBookReaderStatsRow
+	err := row.Scan(
+		&i.Reads,
+		&i.Reading,
+		&i.Tbr,
+		&i.Tbr30d,
+		&i.RatingsCount,
+		&i.Rating,
+		&i.Rating1,
+		&i.Rating2,
+		&i.Rating3,
+		&i.Rating4,
+		&i.Rating5,
+	)
+	return i, err
+}
+
 const getBookReviews = `-- name: GetBookReviews :many
 SELECT
     bs.user_id,
@@ -405,6 +459,7 @@ SELECT
     bs.current_page,
     bs.started_at,
     bs.status,
+    bs.rating,
     bs.updated_at
 FROM follows f
 JOIN bookshelf bs ON bs.user_id = f.following_id
@@ -435,6 +490,7 @@ type GetFriendsReadingBookRow struct {
 	CurrentPage pgtype.Int4        `json:"current_page"`
 	StartedAt   pgtype.Timestamptz `json:"started_at"`
 	Status      string             `json:"status"`
+	Rating      pgtype.Int4        `json:"rating"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
@@ -458,6 +514,7 @@ func (q *Queries) GetFriendsReadingBook(ctx context.Context, arg GetFriendsReadi
 			&i.CurrentPage,
 			&i.StartedAt,
 			&i.Status,
+			&i.Rating,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err

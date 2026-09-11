@@ -464,6 +464,78 @@ func (q *Queries) GetListOwnerUsername(ctx context.Context, id uuid.UUID) (strin
 	return username, err
 }
 
+const getListsContainingBook = `-- name: GetListsContainingBook :many
+SELECT
+    l.id,
+    l.title,
+    l.description,
+    l.updated_at,
+    u.username,
+    u.name,
+    u.avatar_url,
+    (SELECT COUNT(*) FROM list_books lb2 WHERE lb2.list_id = l.id)::int AS book_count,
+    (SELECT COUNT(*) FROM saved_lists sl WHERE sl.list_id = l.id)::int  AS save_count
+FROM list_books lb
+JOIN lists l ON l.id = lb.list_id
+JOIN users u ON u.id = l.user_id
+WHERE lb.book_id = $1
+  AND l.is_private = false
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+ORDER BY save_count DESC, l.updated_at DESC
+LIMIT $2
+`
+
+type GetListsContainingBookParams struct {
+	BookID uuid.UUID `json:"book_id"`
+	Limit  int32     `json:"limit"`
+}
+
+type GetListsContainingBookRow struct {
+	ID          uuid.UUID        `json:"id"`
+	Title       string           `json:"title"`
+	Description pgtype.Text      `json:"description"`
+	UpdatedAt   pgtype.Timestamp `json:"updated_at"`
+	Username    string           `json:"username"`
+	Name        pgtype.Text      `json:"name"`
+	AvatarUrl   pgtype.Text      `json:"avatar_url"`
+	BookCount   int32            `json:"book_count"`
+	SaveCount   int32            `json:"save_count"`
+}
+
+// Public lists that include this book, for the book page's Lists tab. Public
+// owner + public list only; the viewer's own private lists are not surfaced
+// here (they already appear in the add-to-list dialog).
+func (q *Queries) GetListsContainingBook(ctx context.Context, arg GetListsContainingBookParams) ([]GetListsContainingBookRow, error) {
+	rows, err := q.db.Query(ctx, getListsContainingBook, arg.BookID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetListsContainingBookRow{}
+	for rows.Next() {
+		var i GetListsContainingBookRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.UpdatedAt,
+			&i.Username,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.BookCount,
+			&i.SaveCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPublicLists = `-- name: GetPublicLists :many
 SELECT
     l.id,

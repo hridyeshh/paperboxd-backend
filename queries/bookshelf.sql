@@ -286,6 +286,7 @@ SELECT
     bs.current_page,
     bs.started_at,
     bs.status,
+    bs.rating,
     bs.updated_at
 FROM follows f
 JOIN bookshelf bs ON bs.user_id = f.following_id
@@ -324,3 +325,23 @@ SELECT
 FROM bookshelf bs
 JOIN books b ON b.id = bs.book_id
 WHERE bs.user_id = $1 AND bs.book_id = $2;
+
+-- name: GetBookReaderStats :one
+-- What Paperboxd readers actually did with this book. Live from the shelf —
+-- books.total_reads_count / total_tbr_count have been 0 since migration 000003
+-- and nothing writes them. Ratings here are Paperboxd's own, not Google's.
+SELECT
+    COUNT(*) FILTER (WHERE bs.status = 'read')::int     AS reads,
+    COUNT(*) FILTER (WHERE bs.status = 'reading')::int  AS reading,
+    COUNT(*) FILTER (WHERE bs.status = 'to-read')::int  AS tbr,
+    COUNT(*) FILTER (WHERE bs.status = 'to-read' AND bs.created_at > NOW() - INTERVAL '30 days')::int AS tbr_30d,
+    COUNT(bs.rating)::int                               AS ratings_count,
+    COALESCE(AVG(bs.rating), 0)::float8                 AS rating,
+    COUNT(*) FILTER (WHERE bs.rating = 1)::int          AS rating_1,
+    COUNT(*) FILTER (WHERE bs.rating = 2)::int          AS rating_2,
+    COUNT(*) FILTER (WHERE bs.rating = 3)::int          AS rating_3,
+    COUNT(*) FILTER (WHERE bs.rating = 4)::int          AS rating_4,
+    COUNT(*) FILTER (WHERE bs.rating = 5)::int          AS rating_5
+FROM bookshelf bs
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+WHERE bs.book_id = $1;
