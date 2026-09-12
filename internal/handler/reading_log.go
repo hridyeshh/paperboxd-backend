@@ -170,9 +170,19 @@ type StreakResponse struct {
 }
 
 // GetStreak handles GET /api/v1/users/:username/streak.
-// The streak is computed server-side from reading_log: a "streak day" is any UTC
-// calendar day with >=1 page logged; the current streak is the run of consecutive
-// UTC days ending today or yesterday. Works for both own and other users.
+//
+// The streak is the activity streak kept on `users`: any UTC day the reader
+// does something that earns XP — opening either app, opening the web, logging
+// pages, rating, a diary entry — advances it (see UpdateUserStreak).
+//
+// This was computed from reading_log alone (UTC days with >=1 page logged),
+// which gave the product two different numbers both called "streak": profiles
+// and book pages showed the reading one while the leaderboard ranked by the
+// activity one, and a day spent signed in on the web never reached the apps.
+// One definition, fed by every platform. The reading-only run is still
+// reported, under its own name, by GET /users/:username/reading/activity.
+//
+// Works for both own and other users.
 func (h *UserHandler) GetStreak(w http.ResponseWriter, r *http.Request) {
 	username := chi.URLParam(r, "username")
 	target, err := h.Queries.GetUserByUsername(r.Context(), strings.ToLower(username))
@@ -186,14 +196,26 @@ func (h *UserHandler) GetStreak(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	streak, err := h.Queries.GetCurrentStreak(r.Context(), target.ID)
-	if err != nil {
-		slog.Error("get current streak", "error", err)
-		types.WriteInternalError(w)
-		return
-	}
+	types.WriteJSON(w, http.StatusOK, StreakResponse{
+		Streak: activeStreak(target.CurrentStreak, target.LastActivityDate),
+	})
+}
 
-	types.WriteJSON(w, http.StatusOK, StreakResponse{Streak: int(streak)})
+// activeStreak reads users.current_streak, which UpdateUserStreak only ever
+// advances: nothing decays it, so a reader who stopped two weeks ago still has
+// their old run sitting in the column until their next activity resets it to 1.
+// A streak whose last activity is older than yesterday is already broken, so
+// report 0 rather than a number that is no longer true.
+func activeStreak(streak pgtype.Int4, last pgtype.Date) int {
+	if !streak.Valid || streak.Int32 <= 0 || !last.Valid {
+		return 0
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	lastDay := last.Time.UTC().Truncate(24 * time.Hour)
+	if today.Sub(lastDay) > 24*time.Hour {
+		return 0
+	}
+	return int(streak.Int32)
 }
 
 // ActivityDay is one calendar day of the reading heatmap.

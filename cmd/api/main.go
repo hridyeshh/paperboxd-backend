@@ -73,6 +73,14 @@ func main() {
 	// vector columns (slice OOB inside DecodeBinary); the wrapper short-circuits
 	// NULL src to a zero-value pgvector.Vector.
 	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		// Pin the session to UTC. Every date computation in this codebase is
+		// UTC-based (time.Now().UTC() in Go, `AT TIME ZONE 'UTC'` in SQL), but
+		// the streak SQL compares against bare CURRENT_DATE — which follows the
+		// server's TimeZone setting. Pinning it here keeps the day a streak is
+		// written on and the day it is read on from ever disagreeing.
+		if _, err := conn.Exec(ctx, "SET TIME ZONE 'UTC'"); err != nil {
+			return err
+		}
 		return db.RegisterPgvectorTypes(ctx, conn)
 	}
 
