@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -19,13 +20,16 @@ func (h *RecommendationHandler) SurpriseMe(w http.ResponseWriter, r *http.Reques
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
 		return
 	}
+	// Validate the mode up front. Inferring "unknown mode" from any error
+	// returned with mode set reported a DB failure as a client mistake, which
+	// hid every real breakage behind a 400.
 	mode := r.URL.Query().Get("mode")
+	if mode != "" && !slices.Contains(service.SurpriseModes(), mode) {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "unknown mode")
+		return
+	}
 	res, err := h.svc.SurpriseMe(r.Context(), userID, mode)
 	if err != nil {
-		if mode != "" {
-			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "unknown mode")
-			return
-		}
 		slog.Error("surprise me", "error", err, "user_id", userID)
 		types.WriteInternalError(w)
 		return
