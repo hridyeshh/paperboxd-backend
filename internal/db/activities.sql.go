@@ -41,8 +41,9 @@ SELECT EXISTS(
     JOIN users u ON a.user_id = u.id
     WHERE u.deleted_at IS NULL
     AND (
-        a.user_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
-        OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry')
+        (a.user_id IN (SELECT following_id FROM follows WHERE follower_id = $1)
+         AND a.activity_type <> 'fusion_joined')
+        OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry', 'fusion_joined')
             AND a.target_user_id = $1)
     )
     AND a.created_at > $2
@@ -68,7 +69,7 @@ WHERE target_user_id = $1 AND read_at IS NULL
 
 // Unread badge for the notifications sheet. target_user_id is the "addressed to
 // you" marker — every activity type that carries one (liked_diary_entry,
-// shared_list, shared_book, granted_access) is notification-worthy, so no
+// shared_list, shared_book, granted_access, fusion_joined) is notification-worthy, so no
 // activity_type filter is needed here.
 func (q *Queries) CountUnreadActivities(ctx context.Context, targetUserID pgtype.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadActivities, targetUserID)
@@ -184,10 +185,12 @@ LEFT JOIN diary_entries de ON a.entry_id = de.id
 LEFT JOIN users tu ON a.target_user_id = tu.id
 WHERE u.deleted_at IS NULL
   AND (
-    a.user_id IN (
+    -- fusion_joined is addressed to the inviter only, never broadcast to the
+    -- invitee's followers.
+    (a.user_id IN (
         SELECT following_id FROM follows WHERE follower_id = $1
-    )
-    OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry')
+    ) AND a.activity_type <> 'fusion_joined')
+    OR (a.activity_type IN ('shared_list', 'shared_book', 'granted_access', 'liked_diary_entry', 'fusion_joined')
         AND a.target_user_id = $1)
   )
 ORDER BY a.created_at DESC
@@ -383,6 +386,8 @@ LEFT JOIN lists l ON a.list_id = l.id
 LEFT JOIN diary_entries de ON a.entry_id = de.id
 LEFT JOIN users tu ON a.target_user_id = tu.id
 WHERE a.user_id = $1
+  -- fusion_joined is addressed to one reader; never on a profile.
+  AND a.activity_type <> 'fusion_joined'
 ORDER BY a.created_at DESC
 LIMIT $2 OFFSET $3
 `

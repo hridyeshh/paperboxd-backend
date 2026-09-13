@@ -270,13 +270,30 @@ func (s *RecommendationService) RecomputeTasteOverlaps(ctx context.Context) erro
 }
 
 func (s *RecommendationService) loadAllShelves(ctx context.Context) ([]readerShelf, error) {
+	byUser, err := s.loadShelves(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]readerShelf, 0, len(byUser))
+	for _, sh := range byUser {
+		// A shelf of one book produces overlaps that are pure coincidence.
+		if len(sh.Books) >= 3 {
+			out = append(out, *sh)
+		}
+	}
+	return out, nil
+}
+
+// loadShelves returns reading shelves with trait profiles attached, keyed by
+// user id. nil ids loads every reader.
+func (s *RecommendationService) loadShelves(ctx context.Context, ids []uuid.UUID) (map[string]*readerShelf, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.user_id::text, b.book_id::text, b.rating
 		FROM bookshelf b
 		JOIN users u ON u.id = b.user_id AND u.deleted_at IS NULL
-		WHERE b.status IN ('read', 'reading', 'liked')
-		   OR b.rating IS NOT NULL
-	`)
+		WHERE (b.status IN ('read', 'reading', 'liked') OR b.rating IS NOT NULL)
+		  AND ($1::uuid[] IS NULL OR b.user_id = ANY($1::uuid[]))
+	`, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +327,8 @@ func (s *RecommendationService) loadAllShelves(ctx context.Context) ([]readerShe
 		SELECT user_id::text, trait_prefs, trait_confidence
 		FROM user_signal_profiles
 		WHERE trait_prefs IS NOT NULL
-	`)
+		  AND ($1::uuid[] IS NULL OR user_id = ANY($1::uuid[]))
+	`, ids)
 	if err == nil {
 		for prows.Next() {
 			var uid string
@@ -332,14 +350,7 @@ func (s *RecommendationService) loadAllShelves(ctx context.Context) ([]readerShe
 		prows.Close()
 	}
 
-	out := make([]readerShelf, 0, len(byUser))
-	for _, sh := range byUser {
-		// A shelf of one book produces overlaps that are pure coincidence.
-		if len(sh.Books) >= 3 {
-			out = append(out, *sh)
-		}
-	}
-	return out, nil
+	return byUser, nil
 }
 
 // ── Read side ─────────────────────────────────────────────────────────────────
@@ -446,6 +457,17 @@ func (s *RecommendationService) fillSharedAuthors(ctx context.Context, uid uuid.
 			ids = append(ids, id)
 		}
 	}
+	byUser := s.sharedAuthorsByUser(ctx, uid, ids, 5)
+	for i := range twins {
+		if a, ok := byUser[twins[i].UserID]; ok {
+			twins[i].SharedAuthors = a
+		}
+	}
+}
+
+// sharedAuthorsByUser returns, per other reader, authors both they and uid
+// rated 4+ at least once, most-shared first, capped at limit each.
+func (s *RecommendationService) sharedAuthorsByUser(ctx context.Context, uid uuid.UUID, ids []uuid.UUID, limit int) map[string][]string {
 	rows, err := s.pool.Query(ctx, `
 		WITH mine AS (
 		    SELECT DISTINCT a AS author
@@ -461,7 +483,7 @@ func (s *RecommendationService) fillSharedAuthors(ctx context.Context, uid uuid.
 	`, uid, ids)
 	if err != nil {
 		slog.Warn("shared authors", "error", err)
-		return
+		return nil
 	}
 	defer rows.Close()
 	byUser := map[string][]string{}
@@ -473,15 +495,11 @@ func (s *RecommendationService) fillSharedAuthors(ctx context.Context, uid uuid.
 			continue
 		}
 		key := other.String()
-		if len(byUser[key]) < 5 {
+		if len(byUser[key]) < limit {
 			byUser[key] = append(byUser[key], author)
 		}
 	}
-	for i := range twins {
-		if a, ok := byUser[twins[i].UserID]; ok {
-			twins[i].SharedAuthors = a
-		}
-	}
+	return byUser
 }
 
 // PeopleLikeYouLoved returns, for a set of candidate books, how many of the

@@ -207,6 +207,7 @@ func main() {
 	}
 	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient, eventSvc, cfg.AnthropicAPIKey)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
+	fusionHandler := handler.NewFusionHandler(recommendationSvc)
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
@@ -399,6 +400,21 @@ func main() {
 					r.Get("/friends-reading", bookHandler.GetFriendsReadingBook)
 					r.Get("/reviews/friends", bookHandler.GetBookReviewsByFriends)
 				})
+			})
+		})
+
+		// Fusion: one-time invite links and the two-reader story. The preview is
+		// open so the web join page can render for signed-out visitors.
+		r.Route("/fusions", func(r chi.Router) {
+			r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/invites/{token}", fusionHandler.PreviewInvite)
+			r.Group(func(r chi.Router) {
+				r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+				r.Get("/", fusionHandler.List)
+				r.With(tightLimit(10)).Post("/invites", fusionHandler.CreateInvite)
+				r.Delete("/invites/{token}", fusionHandler.CancelInvite)
+				r.With(tightLimit(10)).Post("/invites/{token}/accept", fusionHandler.AcceptInvite)
+				r.Get("/{id}", fusionHandler.Get)
+				r.Delete("/{id}", fusionHandler.Delete)
 			})
 		})
 

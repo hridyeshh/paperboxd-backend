@@ -4,7 +4,7 @@
 
 The REST API server for [PaperBoxd](https://paperboxd.in) — a social book-tracking platform inspired by Letterboxd, but built exclusively for books. A single Go service backs the web app, the iOS app, and the Android app.
 
-**Website:** [paperboxd.in](https://paperboxd.in) · **API:** [api.paperboxd.com](https://api.paperboxd.com) · **Contact:** paperboxd@gmail.com
+**Website:** [paperboxd.in](https://paperboxd.in) · **API:** [api.paperboxd.com](https://api.paperboxd.com) · **Contact:** contact@paperboxd.in
 
 ---
 
@@ -18,8 +18,15 @@ The REST API server for [PaperBoxd](https://paperboxd.in) — a social book-trac
 - [Authentication & Two Surfaces](#authentication--two-surfaces)
 - [Data Layer (sqlc + migrations)](#data-layer-sqlc--migrations)
 - [Caching & Graceful Degradation](#caching--graceful-degradation)
-- [Recommendation Engine](#recommendation-engine)
+- [Discovery Engine](#discovery-engine)
+- [Search & Jazy](#search--jazy)
+- [Feed, Taste Twins & Intelligence](#feed-taste-twins--intelligence)
+- [Feature Flags & Rollout](#feature-flags--rollout)
 - [Scan & Know](#scan--know)
+- [Wrapped](#wrapped)
+- [Fusion](#fusion)
+- [Privacy, Moderation & Push](#privacy-moderation--push)
+- [Analytics](#analytics)
 - [External Services](#external-services)
 - [Background Jobs](#background-jobs)
 - [The MongoDB → PostgreSQL Migration](#the-mongodb--postgresql-migration)
@@ -44,10 +51,12 @@ This is the only backend PaperBoxd has. Every client — Next.js web, SwiftUI iO
 | HTTP router | [chi v5](https://github.com/go-chi/chi) |
 | Database | PostgreSQL 16 via [pgx/v5](https://github.com/jackc/pgx) — no ORM |
 | SQL → Go | [sqlc](https://sqlc.dev) (compile-time-checked, `internal/db`) |
-| Migrations | [golang-migrate](https://github.com/golang-migrate/migrate), embedded and auto-applied on boot |
+| Migrations | [golang-migrate](https://github.com/golang-migrate/migrate), embedded and auto-applied on boot (48 so far) |
 | Cache | Redis 7 — soft dependency, degrades to DB-only |
 | Auth | Stateless JWT (HS256), Bearer only, no cookies, no server session store |
-| Vector search | [pgvector](https://github.com/pgvector/pgvector) for embedding-based recommendations |
+| Vector search | [pgvector](https://github.com/pgvector/pgvector) for embedding-based recommendations, vibe search and Jazy |
+| AI | Anthropic Claude — Sonnet 4.6 for Scan & Know and Jazy's voice, Haiku 4.5 for book-trait extraction · Cohere `embed-v3` (1024-d) |
+| Feature flags | Rows in the `feature_flags` table, 60 s in-process cache — flip without a deploy |
 | Logging | `log/slog` structured JSON |
 | Deployment | Railway (Singapore), single binary |
 
@@ -88,7 +97,8 @@ The backend was rewritten from a Node/MongoDB stack. Every choice below was made
                                               │  per-route
                          ┌────────────────────▼──────────────────────┐
                          │  Authenticate / OptionalAuthenticate /    │
-                         │  RequireInternalSecret                    │
+                         │  RequireInternalSecret /                  │
+                         │  RequireProfileAccess                     │
                          └────────────────────┬──────────────────────┘
                                               │
                          ┌────────────────────▼──────────────────────┐
@@ -99,8 +109,10 @@ The backend was rewritten from a Node/MongoDB stack. Every choice below was made
                  ┌──────────────▼─────────┐   ┌─────────▼────────────────┐
                  │  Services              │   │  External clients        │
                  │  recommendations,      │   │  ISBNdb, Google Books,   │
-                 │  scan, xp, events,     │   │  Hardcover, Cloudinary,  │
-                 │  signals, mailer       │   │  Resend, Cohere, Claude  │
+                 │  search, jazy, feed,   │   │  Hardcover, Brave,       │
+                 │  traits, feedback,     │   │  Cloudinary, Resend,     │
+                 │  taste overlap, xp,    │   │  Cohere, Claude          │
+                 │  events, mailer        │   │                          │
                  └──────┬─────────────────┘   └──────────────────────────┘
                         │
           ┌─────────────▼───────────┐        ┌──────────────────────────┐
@@ -117,7 +129,7 @@ The backend was rewritten from a Node/MongoDB stack. Every choice below was made
 **Layer rules:**
 
 - **Handlers** parse the request, call one or more services or queries, and write the response. They contain no business logic worth unit-testing on their own.
-- **Services** (`internal/service`) own the multi-step logic — the recommendation funnel, XP math, signal profiles, event recording. They depend on `db.Queries` and external clients, never on `net/http`.
+- **Services** (`internal/service`) own the multi-step logic — the discovery engine (candidates, ranking, reasons, traits, feedback), search and Jazy, the feed, XP math, event recording. They depend on `db.Queries` and external clients, never on `net/http`.
 - **`internal/db`** is 100% sqlc-generated. Never edit it by hand; edit `queries/*.sql` and regenerate.
 - **`internal/token` is separate from `internal/auth`** on purpose — the middleware validates tokens without importing the auth package, avoiding an import cycle.
 
@@ -129,6 +141,7 @@ The backend was rewritten from a Node/MongoDB stack. Every choice below was made
 cmd/
 ├── api/                     # The server. main.go wires everything.
 ├── backfill-embeddings/     # One-shot: embed all books for recommendations
+├── backfill-traits/         # One-shot: Claude-extract book traits, rebuild reader trait profiles
 ├── embed-one/               # Debug: embed a single book
 ├── dbutil/                  # DB inspection helpers
 └── migrate-mongo-to-pg/     # The MongoDB → Postgres migration tool
@@ -137,20 +150,23 @@ internal/
 ├── auth/                    # Register/login/refresh/OTP/Google/Apple, web + mobile handlers
 ├── cache/                   # Typed Redis wrapper (Get/Set/GetJSON, ErrMiss)
 ├── config/                  # Env → Config, with Validate()
-├── cron/                    # Nightly jobs (profile recompute, soft-delete purge)
+├── cron/                    # Nightly jobs (signal, diary & trait profiles, taste overlaps, soft-delete purge)
 ├── db/                      # sqlc-GENERATED queries + models — do not hand-edit
 ├── external/                # ISBNdb, Google Books, Hardcover, Cloudinary clients
-├── handler/                 # HTTP handlers, one file per domain
-├── middleware/              # Authenticate, OptionalAuthenticate, RequireInternalSecret, rate-limit key
+├── handler/                 # HTTP handlers, one file per domain (incl. wrapped, community, device tokens)
+├── middleware/              # Authenticate, OptionalAuthenticate, RequireInternalSecret, RequireProfileAccess, rate-limit key
 ├── reqctx/                  # Typed request-context helpers (user_id in/out)
-├── service/                 # Recommendation engine, scan profile, XP, events, signals, mailer
+├── service/                 # Discovery engine: candidates, ranking, reason_engine, traits, feedback,
+│                            #   taste_overlap, feed, search + search_intent + search_session,
+│                            #   concierge (Jazy), intelligence, book_fit, fusion + fusion_view —
+│                            #   plus XP, events, mailer
 ├── token/                   # JWT generate/parse (HS256) — no import cycle with auth
 ├── types/                   # Shared request/response shapes + the error envelope
 └── util/                    # pgvector NULL-safe codec, misc
 
-migrations/                  # 35+ numbered up/down SQL pairs — the schema source of truth
+migrations/                  # 48 numbered up/down SQL pairs — the schema source of truth
 queries/                     # sqlc query files (input to code generation)
-docs/                        # API.md, MIGRATION_REPORT.md, LESSONS_LEARNED.md, privacy, terms
+docs/                        # API.md, MIGRATION_REPORT.md, LESSONS_LEARNED.md, PRIVACY_AUDIT.md, privacy, terms
 ```
 
 ---
@@ -174,6 +190,15 @@ Then per-route auth middleware runs (`Authenticate`, `OptionalAuthenticate`, or 
 
 **Rate limiting** is keyed by Bearer token when one is present, otherwise by IP (`middleware.KeyByAuthorizationOrIP`), so one user on a shared NAT doesn't rate-limit their whole office, and a 429 returns the same JSON error envelope every client already parses.
 
+**Per-route limits** stack on top of the global one wherever a single request is expensive or abusable:
+
+| Route | Limit | Why |
+|---|---|---|
+| `/api/v1/auth/*`, `/api/mobile/auth/*` | 10/min | Credential guessing and OTP email-bombing; a human never needs more |
+| `POST /search`, `/search/vibe`, `/search/context` | 20/min | Every call embeds the query |
+| `POST /jazy`, `/scan/analyze` | 10/min | Every call is a paid Claude completion |
+| `POST /fusions/invites`, `…/accept` | 10/min | Link minting and the row-locked accept |
+
 ---
 
 ## Authentication & Two Surfaces
@@ -189,11 +214,14 @@ The backend serves two auth surfaces from one identity system, because a browser
 
 **Why stateless JWT.** The token is an HS256-signed claim carrying `user_id`. Validation is a signature check — no database or Redis lookup on the hot path — so any instance serves any request and the service scales by replication. The tradeoff (you can't instantly revoke a token) is acceptable for a book-tracking app and is bounded by the token TTL.
 
-**Three auth postures**, chosen per route:
+**Four access postures**, chosen per route:
 
 - `Authenticate` — 401s without a valid Bearer token. Writes, personal data.
 - `OptionalAuthenticate` — parses the token if present, ignores it if missing/invalid, never 401s. Used where identity *changes* the response but isn't *required*: a book's diary entries surface the viewer's own private entries; recommendations personalize when logged in and fall back otherwise; list visibility depends on the requester.
-- `RequireInternalSecret` — guards `/analytics/*` with a shared `X-Internal-Secret` header, not a user token. These are operator endpoints, not user endpoints.
+- `RequireInternalSecret` — guards `/analytics/*` and `/admin/*` with a shared `X-Internal-Secret` header, not a user token. There is no admin role on users, so a Bearer JWT proves nothing about who may run destructive maintenance.
+- `RequireProfileAccess` — mounted on the whole `/users/{username}` subtree. On a private profile it refuses every GET unless the viewer is the owner or an approved follower; the bare profile GET is let through and redacts itself. Mounting it on the subtree means routes added later inherit it.
+
+**Sign in with Apple** (`POST /api/mobile/auth/apple`) mirrors Google: the identity token's `aud` must be in `APPLE_ALLOWED_AUDIENCES` (defaults to the iOS bundle ID), and the Apple `sub` is stored on `users.apple_user_id` so a relay email never splits one reader into two accounts.
 
 **Social sign-in audience enforcement.** Google's `tokeninfo` endpoint validates a token's signature, expiry, and issuer — but **not** that the token was minted for *us*. So both the Google and Apple flows additionally check the token's `aud` claim against an allowlist (`GOOGLE_OAUTH_ALLOWED_AUDIENCES`, `APPLE_ALLOWED_AUDIENCES`). Without this, a valid Google token issued for any other app would authenticate here. The allowlist defaults empty and **fail-closed** for Google — a misconfiguration blocks logins loudly rather than accepting foreign tokens silently.
 
@@ -220,6 +248,8 @@ go build ./...
 
 **pgvector NULL workaround.** `pgvector-go@v0.4.0`'s pgx scan plan panics on a NULL `vector` column (slice out-of-bounds inside `DecodeBinary`). Every new connection registers a local codec wrapper (`internal/util`, wired via `poolConfig.AfterConnect`) that short-circuits a NULL source to a zero-value vector. This is why books without embeddings scan cleanly instead of crashing the recommendation query.
 
+**Every connection is pinned to UTC.** The same `AfterConnect` hook runs `SET TIME ZONE 'UTC'`. Go and most SQL compute dates in UTC explicitly, but the streak SQL compares against bare `CURRENT_DATE`, which follows the session time zone — pinning it keeps the day a streak is written on and the day it is read on from ever disagreeing.
+
 ---
 
 ## Caching & Graceful Degradation
@@ -234,39 +264,121 @@ Concretely:
 - Every request-path cache site checks for `cache.ErrMiss` / connection errors and **falls back to Postgres**.
 - `/health` reports `503-degraded` when Redis is down, so monitoring sees the degradation even though users don't.
 
-Redis-backed caches include: the recommendation candidate pool (per user), signal profiles, activity-feed checks, leaderboards, author info, and the scan community-research results (24h TTL). Each is a speed optimization whose absence costs latency, never correctness.
+Redis-backed caches include: the recommendation candidate pool (per user), signal profiles, activity-feed checks, leaderboards, author info, the public community snapshot (5 min), book social proof, the scan community-research results (24h TTL), and search/Jazy conversation sessions (30 min). Each is a speed optimization whose absence costs latency, never correctness.
 
 ---
 
-## Recommendation Engine
+## Discovery Engine
 
-`internal/service/recommendation_service.go` — the most involved part of the backend. `GET /api/v1/recommendations/home` returns up to 20 personalized books via a **two-path parallel funnel**:
+`internal/service/` — the most involved part of the backend, rebuilt in seven releases (R0–R7, September 2026). The full build log, with every gap pass, lives in the web repo at `docs/DISCOVERY_ENGINE.md`. `GET /api/v1/recommendations/home` returns up to 20 personalized books, each with a reason sentence and a confidence tier:
 
 ```
-                    ┌──────────────── Path A: Vector ────────────────┐
-                    │  user taste vector  →  pgvector cosine search  │
-   user  ──►        │  over book embeddings (Cohere)  → top 200      │
-                    └────────────────────────┬───────────────────────┘
-                                             │           run in parallel
-                    ┌──────────────── Path B: Social ────────────────┐
-                    │  books read/liked by followed users            │
-                    │  +1 per friend who read, +2 per friend liked   │
-                    └────────────────────────┬───────────────────────┘
-                                             ▼
-                    merge & dedupe pool (≤300, books in both keep both scores)
-                                             ▼
-                    rank (scoreV1 | scoreV2, feature-flagged)
-                                             ▼
-                    suppress seen  →  dedupe editions  →  MMR diversity
-                                             ▼
-                    exploration blend  →  top 20
+   ┌─ Path A: Vector ──────────┐ ┌─ Path B: Social ─────────┐ ┌─ Path C: Candidates ───────────────┐
+   │ taste vector → pgvector   │ │ books followed readers   │ │ author · TBR neighbours · trending │
+   │ cosine over Cohere        │ │ read / loved             │ │ · taste twins                      │
+   │ embeddings                │ │                          │ │                                    │
+   └─────────────┬─────────────┘ └────────────┬─────────────┘ └──────────────────┬─────────────────┘
+                 └────────────────────────────┼──────────────────────────────────┘
+                                              │
+                   run in parallel (+ hidden-gem retrieval), then merged —
+                a book found by several sources keeps every source's evidence
+                                              ▼
+                     suppress seen & dismissed  →  dedupe editions  →  hydrate community stats
+                                              ▼
+              scoreV2: embedding · genre · author · velocity · diary · popularity · quality
+                       + trait fit − trait clash + recent taste + twins     (each term flag-gated)
+                                              ▼
+                  diversify: caps on genre, author, length, popularity, familiar authors
+                                              ▼
+                  exploration interleaved at 20%  →  reason + confidence  →  top 20
 ```
 
-**Why two paths.** Vector similarity captures "books like what you love"; the social graph captures "books your friends are into." Neither alone is enough — a new user has no taste vector, a loner has no social signal — so they run concurrently (goroutines + channels) and merge. If both come back empty, a `fallback` path returns popular books. The response is labeled with its source (`vector`, `social`, `vector+social`, `fallback`) for observability.
+### Book traits (R1)
 
-**Ranking** is behind a `ranking_v2` feature flag. `scoreV1` is the original four-signal formula; `scoreV2` adds temporal signals (reading velocity, diary activity, abandoned-book penalty) computed from the user's signal profile. **MMR (Maximal Marginal Relevance)** then trades a little relevance for diversity so the list isn't ten near-identical editions of one subgenre.
+Genres are too coarse to explain taste — two "literary fiction" books can be a quiet character study and a propulsive thriller. `cmd/backfill-traits` asks Claude Haiku to score every book on **nine interpretable axes** — character-driven, emotional intensity, plot intensity, pacing, prose density, narrative complexity, darkness, romance centrality, worldbuilding — into `book_traits`, confidence-aware and index-aligned in batches. `trait_service.go` folds a reader's ratings into `trait_prefs` / `trait_dislikes`, weighted so evidence ranks: a rating always outweighs a finished-unrated book (0.3) or a TBR save (0.2) — ten saved doorstops cannot outvote three loved novellas. A 90-day `trait_recent` profile catches drift ("you've been drawn to darker books lately").
 
-**Signal profiles** are cached per user (fresh < 24h) and recomputed lazily or by the nightly cron. **Embeddings** are produced by Cohere; `cmd/backfill-embeddings` embeds the whole catalog, and the recommendation cache is invalidated whenever a user's bookshelf changes.
+### Negative taste (R2)
+
+`POST /recommendations/feedback` takes one of **5 verdicts** (`loved`, `maybe`, `not_for_me`, `not_now`, `already_read`) and optional **reason codes** from `GET /feedback/options`. Rules that keep it honest:
+
+- A reason code moves **only its own axis** — "too slow" teaches pace, not genre.
+- `not_now` dismisses for 90 days; `not_for_me` forever.
+- `already_read` never trains dislike.
+- Abandoning a book before 25% counts as an implicit rejection.
+- A `loved` / `not_for_me` verdict recomputes the reader's negative signals asynchronously, so the next request already reflects it — not the next nightly run.
+
+### Ranking 2.0 (R3)
+
+- **Confidence** is evidence-based and capped on a trait clash, then mapped to one of four human tiers. The client never sees a number.
+- **`diversify` replaced MMR.** The old MMR measured `1 − |scoreA − scoreB|` — a statement about two numbers that never diversified content. The replacement enforces per-page caps on genre, author, length bucket (≤10 per short/mid/long), popularity (≤8 books with ≥10 shelves) and familiar authors (≤8 already on the reader's shelf).
+- **Hidden gems** need a rating floor *and* `ratings_count ≤ 200` globally — Paperboxd's own shelf counts can't tell a gem from a bestseller at this community size.
+- **Exploration** is interleaved, not appended, and names what it is stretching away from: *"You don't usually read Historical Fiction, but you love quiet, character-driven stories."*
+
+### Reasons
+
+`reason_engine.go` picks one sentence per book, in priority order: vibe → social → twins → recent → trait → anchor → velocity → diary → author → genre → trending → popular → picked. Each line is gated on its own evidence — "maya loved this" only when every named friend actually rated it 4★+, "because you loved *X*" only when the book is within `anchorMinSim = 0.72` cosine of a shelf anchor. The same engine answers `GET /books/{id}/fit` ("Why you'll like this" on a book page) by ranking a pool of one; it returns **204** when nothing personal applies rather than inventing a line.
+
+---
+
+## Search & Jazy
+
+### Search 2.0
+
+`POST /api/v1/search` is retrieve → hard filters → taste rank → explain.
+
+- **`search_intent.go`** is a deterministic parser, not a model call: 7 intents, page limits ("under 300 pages"), `SimilarTo` anchoring ("like Murakami"), exclusions ("no romance"), axis adjectives and context words. It reads **adjectives only, never topic nouns**, so the embedder still owns meaning.
+- **`search_session.go`** keeps a Redis session (30 min TTL, ownership-checked) so one-word follow-ups refine instead of restarting: *"shorter"*, *"less weird"*, *"darker"*. The response carries `understood` / `refined` so clients can quote the accumulated ask back.
+- Page bounds are pushed **into** the ANN query (`max_pages` / `min_pages`), not applied after it — otherwise "under 250 pages" over 120 long-book neighbours leaves a handful.
+
+`POST /search/vibe` is the original semantic search; `GET /search/contexts` + `POST /search/context` offer six situation presets (*long flight*, *reading slump*, *just finished something devastating*, *book club*, *stretch*, *comfort*) through the same pipeline.
+
+### Jazy
+
+`POST /api/v1/jazy` — the concierge — is **search with a voice**, not a second engine:
+
+1. **Maybe ask one question.** If the request is too open to answer well, return `jazy#question` with tappable options (comfort-vs-stretch for known readers, pace for strangers). Never a second question — that's an interrogation.
+2. **Retrieve and rank** through the search pipeline with the session it already advanced, so constraints and negative taste apply. (It used to advance the session twice per turn, applying "shorter" twice.)
+3. **Voice.** Claude writes the intro and per-book reasons from a `ReaderContext` that knows what the reader has read, rated, loved, disliked, abandoned, saved, what their follows loved, their favourite authors, pace, recent drift, previous asks, and the last three **non-private** diary lines. Private diary entries never leave the app.
+
+The answers do real work: `comfort` doubles the taste terms, `surprise` zeroes them and rewards leaving the reader's genres. The voice call is best-effort — on any failure the deck ships with the engine's own reasons. *"A librarian who is briefly hoarse still hands you the books."*
+
+---
+
+## Feed, Taste Twins & Intelligence
+
+### Feed
+
+`GET /recommendations/feed?tz=<IANA zone>` returns a greeting and up to twelve **server-titled modules**, each omitted when empty: *Pick up where you left off* · *Your next read* · *Because you loved X* · *Picked for you* · *Your people are reading* · *Readers with your taste loved these* · taste twin · *You might be ready for* · *Trending among readers like you* · *From your to-read pile* · *You probably haven't discovered this* · *Not your usual thing*. **Your next read** fires only within five days of a finish with nothing in progress. The greeting uses the client's zone — on Railway, server time would say "Good morning" at 17:30 IST.
+
+### Taste twins
+
+`taste_overlap.go` materialises reader pairs nightly — shelf Jaccard + containment, rating agreement, and trait distance, weighted by evidence. `GET /recommendations/twins` returns them with the overlap %, shared authors, and up to three titles you both loved. The pairwise pass is O(n²); the code carries a `ponytail:` note to block by genre cluster past ~5k readers.
+
+### Intelligence
+
+| Endpoint | What |
+|---|---|
+| `GET /recommendations/surprise` | One book, five modes — `safe`, `unexpected`, `gem`, `obsession`, `wild` — weighted random when no mode is given, always with a because-line |
+| `GET /users/me/taste` | Taste dashboard — trait bars, recent shifts, mood, dislikes, and six insights each gated on enough evidence |
+| `GET /books/{id}/fit` | "Why you'll like this" for a single book (see [Reasons](#reasons)) |
+
+---
+
+## Feature Flags & Rollout
+
+Flags are rows in `feature_flags`, read through a 60 s in-memory cache (`service/feature_flags.go`), so a flip propagates without a deploy. **Every discovery flag defaults off.**
+
+| Flag | Gates |
+|---|---|
+| `ranking_v2` | `scoreV2` instead of the original four-signal formula |
+| `trait_ranking` | Trait fit / clash terms |
+| `negative_taste` | The clash penalty — in home ranking *and* search, so the kill switch means one thing everywhere. Verdict collection runs regardless |
+| `recent_taste` | The 90-day drift term |
+| `taste_twins` | Twin candidates, twin reasons, twin feed modules |
+
+**Rollout order:** migrations auto-apply on boot → `go run ./cmd/backfill-traits --limit 24 --sample 8` (eyeball known titles before spending on the corpus) → `go run ./cmd/backfill-traits --profiles` → flip flags in the table order above → watch `/analytics/discovery` love-rate by `reason_type` for a week before touching weights.
+
+> Until the trait backfill runs, `book_traits` is empty: trait reasons never fire and the taste dashboard's bars stay blank. That's expected, not a bug.
 
 ---
 
@@ -277,9 +389,66 @@ Redis-backed caches include: the recommendation candidate pool (per user), signa
 1. **Community research** — in parallel, gather how the world feels about this book: Hardcover community stats (readers/ratings counts), with Open Library as the fallback when `HARDCOVER_API_TOKEN` is unset, plus Brave sentiment queries. Results cache for 24h. *(A cached row with 0 readers **and** 0 ratings is treated as a miss and refetched — that pattern means the source was unreachable when cached, and we won't serve a poisoned zero for a full day.)*
 2. **User reading profile** — build `UserReadingProfile` from the reader's shelf: genre distribution, favorite books, repeat authors, average rating, reading pace, whether followed users have read this book.
 3. **Claude scoring** — send the book, the community summary, and the reading profile to the Anthropic API, which returns five per-dimension scores (genre fit, writing style, length/complexity, community love, personal fit), a verdict, and for/against reasons. The call retries once on a JSON parse failure.
-4. **Quota** — the free-scan quota is decremented **only after a successful score**, so a failed scan never costs the user a scan. `scans_exhausted` returns a dedicated 403.
+4. **Quota** — a scan is **reserved before** the paid call with an atomic `UPDATE … WHERE scan_uses_remaining > 0 RETURNING`, and every early return refunds it via `defer`. Two concurrent scans with one left can no longer both bill a Claude completion, and a failed scan still never costs the reader a scan. Losing the race returns `scans_exhausted` (a dedicated 403) without calling Claude. Accounts in `SCAN_UNLIMITED_EMAILS` skip the quota — matched exactly, case-insensitive, never as a substring.
+
+Outcomes are recorded server-side as `scan_succeeded` / `scan_failed` (`stage: lookup | scoring`), where the result is actually known; the apps emit `scan_started`.
 
 Two separate HTTP clients (30s for Claude, 10s for community lookups) isolate the slow scoring call from the faster research calls.
+
+---
+
+## Wrapped
+
+`GET /api/v1/users/me/wrapped?month=YYYY-MM&tz=<zone>` builds a monthly reading story from shelf, progress log and diary: books finished, pages, an **estimated** reading time (logged pages at 40 pages/hour — the app records no session durations, and the JSON field names say "estimated"), authors, genres, reading rhythm, streak, the top-rated book, the book that stalled (untouched for 7+ days before month end), a community rank, a reader archetype, and a dare for next month. `has_data: false` means nothing was logged, and every client shows an empty state instead of a story about nothing. Queries live in `queries/wrapped.sql`.
+
+---
+
+## Fusion
+
+Two readers' shelves side by side, made from a one-time link — the Spotify Blend shape. **The link is the consent:** nothing is computed and nobody's ratings are shown to anyone until the invitee taps Fuse. Build log in the web repo at `docs/FUSION.md`; contract in [`MOBILE_API.md`](MOBILE_API.md) §3.12.
+
+```
+POST /fusions/invites              mint (or return) your live link — 12 chars, 7-day expiry, works once
+GET  /fusions/invites/{token}      preview: valid · expired · used · own · joined · unavailable  (optional auth)
+POST /fusions/invites/{token}/accept   the Fuse tap — row-locked, first to tap wins
+GET  /fusions · /fusions/{id}      your Fusions · the ten-page story from your side
+DELETE /fusions/{id}               removes it for both readers
+```
+
+- **Schema** (migration 000048): `fusion_invites` keyed by token, with `consumed_at` as the spent marker — `consumed_by` goes NULL if that reader deletes their account, but the link stays spent. `fusions` stores one row per pair (`user_a < user_b`, like `taste_overlap`) with a `snapshot` jsonb holding the story from *each* side, because the sentences are perspective-dependent.
+- **Story assembly** (`fusion_view.go`) is pure and testable. The score is `ComputeOverlap` from taste twins. *Agree* and *Split* pages use trait axes when both profiles have signal, else fall back to shared genres, median page count and genre share. Picks come from both readers' home recommendations filtered to books neither has shelved; a book on both lists is the "Strong Fusion pick". The same rule as recommendation reasons applies — every sentence is gated on the evidence that makes it true, and a page with no honest content ships as an empty array for the client to skip. `low_data` flags a shelf under 3 books.
+- **Freshness:** `GET /fusions/{id}` rebuilds the snapshot when either `bookshelf.updated_at` is newer or after 24 h, so the first open after a shelf change may take a few seconds.
+- **Blocked pairs** read as `unavailable`. Accepting writes a `fusion_joined` activity addressed to the inviter only — `queries/activities.sql` keeps it out of profile and follower feeds.
+
+Tests in `fusion_test.go`: story from both sides, picks unread by both, wildcard genre gate, splits without traits, low data, token validity.
+
+---
+
+## Privacy, Moderation & Push
+
+| Feature | Endpoints | Notes |
+|---|---|---|
+| **Private profiles** | `PATCH /users/me/visibility` | Enforced by `RequireProfileAccess` on the whole `/users/{username}` subtree |
+| **Follow requests** | `GET /users/me/follow-requests`, `POST\|DELETE …/{username}` | Following a private profile creates a request instead of a follow |
+| **Blocking** | `POST\|DELETE /users/{username}/block` | Works both ways: neither reader sees the other's diary entries, reviews or social proof (those GETs are `OptionalAuthenticate` so the filter sees the viewer) |
+| **Reports** | `POST /reports` | App Store 1.2 / Play UGC compliance — content type, content id, reason |
+| **Push tokens** | `POST\|DELETE /api/mobile/users/me/device-token` | Stores APNs / FCM tokens (`device_tokens`, migration 000036). **Nothing sends yet** — `PUSH_ENABLED` and the APNs/FCM config are read, but no sender ships and neither app registers a token |
+
+Privacy migrations worth knowing: **000039** cleared ratings nobody earned (rating now needs 20 pages read or a finish — the apps used to shelve a book at 0 pages on a star tap), **000040** nulls embeddings on private diary entries (private text never feeds recommendations), **000041** stores deletion-audit emails hashed. The full review is in [`docs/PRIVACY_AUDIT.md`](docs/PRIVACY_AUDIT.md).
+
+---
+
+## Analytics
+
+`POST /api/v1/events` is `OptionalAuthenticate`: acquisition events (`landing_viewed`, `signup_started`) fire before an account exists, so an unauthenticated caller may send an `anon_id` — but only for event types `service.AllowsAnonymous` permits. Names are canonical `snake_case` (`service/event_types.go`); `NormalizeEventType` maps every alias a shipped client still sends.
+
+Operator reads, all behind `X-Internal-Secret`, power the separate `analytics-paperboxd` dashboard:
+
+| Endpoint | Shows |
+|---|---|
+| `/analytics/overview`, `/users`, `/features` | Totals, growth, feature usage |
+| `/analytics/retention` | D1/7/14/30 cohorts, activation, stickiness |
+| `/analytics/discovery` | Funnel per `reason_type`: impression → open → save → start → finish → 4★ → 5★ → diary → share. North star is `love_rate` — recommended books that end at 4★+ |
 
 ---
 
@@ -293,8 +462,8 @@ Each third-party client lives in `internal/external` and is constructed once in 
 | **Google Books** | Secondary search, cover/metadata fill | Local Postgres results only |
 | **Hardcover** | Scan community reader/rating counts | Open Library counts |
 | **Brave Search** | Scan sentiment research | Skipped |
-| **Cohere** | Book embeddings for recommendations | `NoopEmbedder` — recs disabled |
-| **Anthropic (Claude)** | Scan dimension scoring | Scan disabled |
+| **Cohere** | Book, diary and query embeddings — recommendations, vibe search, Jazy | `NoopEmbedder` — vector paths off, recs fall back to social / popular |
+| **Anthropic (Claude)** | Scan scoring and Jazy's voice (Sonnet 4.6), vibe match reasons, book-trait extraction (Haiku 4.5) | Scan disabled; Jazy and vibe search return decks with the engine's own reasons; traits not extracted |
 | **Cloudinary** | Avatar / banner upload (server-signed) | Upload endpoints 503 |
 | **Resend** | Transactional email (OTP) | `NoopMailer` — endpoints 200, no mail |
 
@@ -304,9 +473,12 @@ Book search is **local-first**: Postgres is queried before any external provider
 
 ## Background Jobs
 
-`internal/cron/nightly.go` starts a goroutine that runs once at boot and every 24h thereafter (non-blocking — no external scheduler needed). Two jobs:
+`internal/cron/nightly.go` starts a goroutine that runs once at boot and every 24h thereafter (non-blocking — no external scheduler needed). Five jobs, in order:
 
-- **`recomputeStaleProfiles`** — refreshes recommendation signal profiles that are missing or older than 24h, up to 100 users per run, so recommendations stay warm without recomputing on the request path.
+- **`recomputeStaleProfiles`** — refreshes recommendation signal profiles (genre, author, velocity) that are missing or older than 24h, up to 100 users per run, so recommendations stay warm without recomputing on the request path.
+- **`recomputeStaleDiaryCentroids`** — rebuilds each diarist's diary embedding centroid. Enumerates from `diary_entries`, not `bookshelf`, so shelf-less diarists are included and a reader who made every entry private gets their centroid nulled.
+- **`recomputeStaleTraitProfiles`** — rebuilds trait preferences *and* negative signals. It calls the superset (`ComputeAndSaveNegativeSignals`) on purpose — the narrower trait-only call would overwrite verdicts and abandonments every night.
+- **`recomputeTasteOverlaps`** — rebuilds the reader-pair table. Runs after trait profiles so the trait-distance term sees tonight's numbers.
 - **`purgeSoftDeletedUsers`** — hard-deletes accounts whose `deleted_at` is older than the 30-day retention window. This backs the privacy-policy commitment to erase data within 30 days of a deletion request. Because every user-owned table is `FK ... ON DELETE CASCADE`, a single `DELETE FROM users` removes the shelf, diary, reviews, lists, events, and tokens with it; the `account_deletions` audit row is intentionally *not* FK-linked and is retained for retention analysis.
 
 ---
@@ -344,6 +516,8 @@ Codes and helpers live in `internal/types/errors.go` (`types.WriteError`). Repre
 | `make fmt` | `go fmt ./...` |
 | `make tidy` | `go mod tidy` |
 
+There's no `make test`; run `go test ./...` directly. The 24 test files — ranking, reasons, search intent, concierge, feedback, traits, taste overlap, fusion, wrapped, streak, handler contracts — need no database. One-shot tools run with `go run`: `./cmd/backfill-embeddings`, `./cmd/backfill-traits [--dry-run] [--limit N] [--sample N] [--profiles]`.
+
 ---
 
 ## Deployment
@@ -355,7 +529,7 @@ Codes and helpers live in `internal/types/errors.go` (`types.WriteError`). Repre
 - **Lifecycle:** the server traps `SIGINT`/`SIGTERM` and shuts down gracefully with a 30s drain, so in-flight requests finish across a deploy.
 - **Redis URL:** full `redis://user:pass@host:port` URLs are parsed automatically (Railway provides this form).
 
-Set a strong `JWT_SECRET`, restrict `CORS_ALLOWED_ORIGINS` to real web origins, and populate `GOOGLE_OAUTH_ALLOWED_AUDIENCES` before mobile sign-in will work.
+Set a strong `JWT_SECRET`, restrict `CORS_ALLOWED_ORIGINS` to real web origins, and populate `GOOGLE_OAUTH_ALLOWED_AUDIENCES` before mobile sign-in will work. Set `INTERNAL_SECRET` for the analytics dashboard and `/admin/*`; `APPLE_ALLOWED_AUDIENCES` defaults to the iOS bundle ID.
 
 ---
 
@@ -367,6 +541,8 @@ Set a strong `JWT_SECRET`, restrict `CORS_ALLOWED_ORIGINS` to real web origins, 
 - **Errors go through `types.WriteError`.** No ad-hoc `http.Error` with a bespoke body; the envelope is uniform.
 - **Comments explain *why*.** The codebase is dense with rationale comments on the non-obvious calls — the pgvector NULL codec, the CORS `AllowOriginFunc`, the fail-closed Google audience check, the scan quota decrement ordering, the soft-delete cascade. Keep them; they are why the next person doesn't re-break it.
 - **Fail-closed on security, fail-open on cosmetics.** Auth audiences reject by default; email and uploads no-op by default.
+- **New ranking behaviour ships behind a flag, default off.** Signal *collection* always runs; the flag only gates the ranking *effect*, so turning it on later has history to work with.
+- **Deliberate shortcuts say so.** A `ponytail:` comment names the ceiling and the upgrade path (the O(n²) taste overlap, the absolute gem/popularity thresholds sized for a ~100-reader community).
 
 ---
 
@@ -384,6 +560,15 @@ Set a strong `JWT_SECRET`, restrict `CORS_ALLOWED_ORIGINS` to real web origins, 
 | Scan returns 403 `scans_exhausted` | The free quota is used up. Expected. |
 | Panic on a NULL vector column | The pgvector NULL codec isn't registered — confirm `poolConfig.AfterConnect` wiring in `main.go`. |
 | Schema out of date after deploy | `AUTO_MIGRATE=false` was set, or migrations errored — check boot logs. |
+| Taste dashboard bars empty, no trait reasons | `cmd/backfill-traits` hasn't run — `book_traits` is empty. See [Rollout](#feature-flags--rollout). |
+| Verdicts collected but ranking unchanged | `negative_taste` (and the other discovery flags) default off. Flip the row in `feature_flags`; it takes effect within 60 s. |
+| Jazy / scan returns 429 | Per-route 10/min limit — each call is a paid Claude completion. |
+| Fusion accept returns 409 | The link is `used`, `expired`, `own`, or already `joined` — the body's `status` says which. |
+| Fusion Agree/Split pages show genres, not taste axes | Trait backfill hasn't run — the genre and page-count fallbacks are in use. |
+| `GET /books/{id}/fit` returns 204 | Nothing personal applies to that book for that reader. By design — no invented reason. |
+| Feed greeting says the wrong time of day | Client didn't send `?tz=`; unknown zones fall back to UTC. |
+| Private profile returns 403 for a follower | The follow is still a pending request — check `GET /users/me/follow-requests` on the owner. |
+| Device token registered, no push arrives | Expected — no push sender ships yet. |
 
 ---
 
@@ -394,14 +579,15 @@ Set a strong `JWT_SECRET`, restrict `CORS_ALLOWED_ORIGINS` to real web origins, 
 | `paperboxd` | Web frontend | Next.js 15, React 19, TypeScript 5 |
 | `paperboxd-ios` | Native iOS app | Swift 5, SwiftUI |
 | `paperboxd-android` | Native Android app | Kotlin, Jetpack Compose |
+| `analytics-paperboxd` | Internal analytics dashboard | Next.js, Tailwind |
 | `Paperboxd design elements` | Design system & UI specs | CSS tokens, HTML prototypes |
 
 ---
 
 ## Contact
 
-**Developer:** Hridyesh
-**Email:** paperboxd@gmail.com
+**Email:** contact@paperboxd.in  
+**Developer:** Hridyesh · hridyesh@paperboxd.in  
 **Website:** [paperboxd.in](https://paperboxd.in)
 
 ---

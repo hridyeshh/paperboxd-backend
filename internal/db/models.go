@@ -184,6 +184,26 @@ type FollowRequest struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type Fusion struct {
+	ID         uuid.UUID          `json:"id"`
+	UserA      uuid.UUID          `json:"user_a"`
+	UserB      uuid.UUID          `json:"user_b"`
+	InviterID  uuid.UUID          `json:"inviter_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	Snapshot   []byte             `json:"snapshot"`
+	ComputedAt pgtype.Timestamptz `json:"computed_at"`
+}
+
+type FusionInvite struct {
+	Token       string             `json:"token"`
+	InviterID   uuid.UUID          `json:"inviter_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	CancelledAt pgtype.Timestamptz `json:"cancelled_at"`
+	ConsumedAt  pgtype.Timestamptz `json:"consumed_at"`
+	ConsumedBy  pgtype.UUID        `json:"consumed_by"`
+}
+
 type LeaderboardStat struct {
 	UserID         uuid.UUID        `json:"user_id"`
 	Username       string           `json:"username"`

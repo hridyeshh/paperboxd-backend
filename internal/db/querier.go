@@ -60,7 +60,7 @@ type Querier interface {
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
 	// Unread badge for the notifications sheet. target_user_id is the "addressed to
 	// you" marker — every activity type that carries one (liked_diary_entry,
-	// shared_list, shared_book, granted_access) is notification-worthy, so no
+	// shared_list, shared_book, granted_access, fusion_joined) is notification-worthy, so no
 	// activity_type filter is needed here.
 	CountUnreadActivities(ctx context.Context, targetUserID pgtype.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)

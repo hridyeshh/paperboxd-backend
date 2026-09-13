@@ -349,6 +349,22 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 | `GET` | `/api/v1/authors/info?name=...` | Public | Author bio + photo |
 | `POST` | `/api/v1/newsletter/subscribe` | Public | Subscribe |
 
+### 3.12 Fusion
+
+A one-time link pairs two readers. Links open `https://paperboxd.in/fusion/{token}` (12 chars, `[a-km-np-z2-9]`), expire after 7 days, and work once.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `POST` | `/api/v1/fusions/invites` | Required | Returns the live link, or makes one: `{token, url, expires_at}` |
+| `DELETE` | `/api/v1/fusions/invites/{token}` | Required | Cancel an unused link. 204 |
+| `GET` | `/api/v1/fusions/invites/{token}` | Optional | `{status, inviter?, fusion_id?, expires_at?}`. `status` ∈ `valid`, `expired`, `used`, `own`, `joined` (you already accepted; `fusion_id` set), `unavailable` (no `inviter`) |
+| `POST` | `/api/v1/fusions/invites/{token}/accept` | Required | The Fuse tap. 200 `{fusion_id}`; 409 `{error, code, status}` with the same status words |
+| `GET` | `/api/v1/fusions` | Required | `{invite: {token,url,expires_at} \| null, fusions: [{id, them, score \| null, created_at}]}` |
+| `GET` | `/api/v1/fusions/{id}` | Required | The story from your side (see `FusionView` in `internal/service/fusion_view.go`). First open may take seconds while it builds. Empty sections are empty arrays / `null` — skip that page. `low_data: true` → show the low-data page. 404 → "no longer available" |
+| `DELETE` | `/api/v1/fusions/{id}` | Required | Remove for both readers. 204 |
+
+Accepting adds a `fusion_joined` activity addressed to the inviter (`target_user_id`, `metadata.fusion_id`); it appears only in their notifications, never on profiles or followers' feeds.
+
 ---
 
 ## 4. Things mobile MUST NOT call
