@@ -29,11 +29,28 @@ SELECT * FROM books WHERE slug = $1;
 SELECT * FROM books WHERE google_books_id = $1;
 
 -- name: SearchBooksInDB :many
+-- Substring hits first, then fuzzy: trigram word similarity (dropped/extra
+-- letters), double metaphone (sounds alike) and, for single-word queries,
+-- a per-word edit distance of 2 (swapped letters). Exact hits rank above
+-- fuzzy, fuzzy by closeness, ties by popularity.
+-- ponytail: seq scan, ~100ms per 30k books; past ~100k rows move the
+-- fuzzy branches to a trigram-indexed UNION and drop the unnest one.
 SELECT * FROM books
-WHERE title ILIKE '%' || $1 || '%'
-   OR $1 ILIKE ANY(authors)
-ORDER BY view_count DESC
-LIMIT $2 OFFSET $3;
+WHERE title ILIKE '%' || @q::text || '%'
+   OR @q::text ILIKE ANY(authors)
+   OR isbn_13 = replace(@q::text, '-', '')
+   OR word_similarity(@q::text, title) >= 0.4
+   OR word_similarity(@q::text, array_to_string(authors, ' ')) >= 0.4
+   OR (dmetaphone(@q::text) <> '' AND dmetaphone(title) = dmetaphone(@q::text))
+   OR (length(@q::text) >= 5 AND position(' ' IN @q::text) = 0 AND EXISTS (
+        SELECT 1 FROM unnest(string_to_array(lower(title), ' ')) AS w
+        WHERE levenshtein_less_equal(lower(@q::text), w, 2) <= 2
+           OR dmetaphone(w) = dmetaphone(@q::text)))
+ORDER BY
+    (title ILIKE '%' || @q::text || '%') DESC,
+    GREATEST(word_similarity(@q::text, title), word_similarity(@q::text, array_to_string(authors, ' '))) DESC,
+    view_count DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: IncrementBookViews :exec
 UPDATE books SET view_count = view_count + 1, last_accessed_at = NOW() WHERE id = $1;

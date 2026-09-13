@@ -99,9 +99,9 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 	limit := int32(pageSize)
 
 	dbBooks, err := h.Queries.SearchBooksInDB(ctx, db.SearchBooksInDBParams{
-		Column1: pgtype.Text{String: query, Valid: true},
-		Limit:   limit,
-		Offset:  offset,
+		Q:      query,
+		Limit:  limit,
+		Offset: offset,
 	})
 	if err != nil {
 		slog.Error("search books in db", "error", err)
@@ -129,11 +129,15 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		isbndbBooks, err := h.ISBNdb.Search(ctx, query, page, pageSize)
 		if err != nil {
 			slog.Warn("isbndb search failed", "error", err)
-		} else if len(isbndbBooks) > 0 {
-			items := make([]types.BookResponse, len(isbndbBooks))
-			for i, b := range isbndbBooks {
-				items[i] = isbndbBookToResponse(b)
+		}
+		items := make([]types.BookResponse, 0, len(isbndbBooks))
+		for _, b := range isbndbBooks {
+			// No ISBN means no id the client can open or shelve.
+			if item := isbndbBookToResponse(b); item.ID != "" {
+				items = append(items, item)
 			}
+		}
+		if len(items) > 0 {
 			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
 				Kind:       "books#volumes",
 				TotalItems: len(items),
@@ -266,11 +270,12 @@ func (h *BookHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetByID handles GET /api/v1/books/:id
+// Search results carry Google volume IDs / ISBNs until a book is cached, so
+// accept any identifier and cache on first open.
 func (h *BookHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	bookID, err := uuid.Parse(idStr)
+	bookID, err := h.resolveBookID(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "Invalid book ID")
+		types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found")
 		return
 	}
 
@@ -665,9 +670,9 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 	// 3. Parse title from frontend slug and search DB cache
 	title := titleFromSlug(slug)
 	dbBooks, err := h.Queries.SearchBooksInDB(ctx, db.SearchBooksInDBParams{
-		Column1: pgtype.Text{String: title, Valid: true},
-		Limit:   1,
-		Offset:  0,
+		Q:      title,
+		Limit:  1,
+		Offset: 0,
 	})
 	if err == nil && len(dbBooks) > 0 {
 		go func(id uuid.UUID) {

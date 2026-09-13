@@ -265,6 +265,12 @@ type Querier interface {
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 	// Saved Lists
 	SaveList(ctx context.Context, arg SaveListParams) (SavedList, error)
+	// Substring hits first, then fuzzy: trigram word similarity (dropped/extra
+	// letters), double metaphone (sounds alike) and, for single-word queries,
+	// a per-word edit distance of 2 (swapped letters). Exact hits rank above
+	// fuzzy, fuzzy by closeness, ties by popularity.
+	// ponytail: seq scan, ~100ms per 30k books; past ~100k rows move the
+	// fuzzy branches to a trigram-indexed UNION and drop the unnest one.
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
 	SetUserReferredBy(ctx context.Context, arg SetUserReferredByParams) error

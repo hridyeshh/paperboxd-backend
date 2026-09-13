@@ -984,20 +984,37 @@ func (q *Queries) IncrementBookViews(ctx context.Context, id uuid.UUID) error {
 
 const searchBooksInDB = `-- name: SearchBooksInDB :many
 SELECT id, title, slug, authors, isbn_13, google_books_id, metadata, view_count, like_count, created_at, updated_at, description, published_date, page_count, language, cover_url, categories, subtitle, publisher, isbndb_id, open_library_id, average_rating, ratings_count, preview_link, total_reads_count, total_tbr_count, embedding, embedding_text, description_source, last_accessed_at FROM books
-WHERE title ILIKE '%' || $1 || '%'
-   OR $1 ILIKE ANY(authors)
-ORDER BY view_count DESC
-LIMIT $2 OFFSET $3
+WHERE title ILIKE '%' || $1::text || '%'
+   OR $1::text ILIKE ANY(authors)
+   OR isbn_13 = replace($1::text, '-', '')
+   OR word_similarity($1::text, title) >= 0.4
+   OR word_similarity($1::text, array_to_string(authors, ' ')) >= 0.4
+   OR (dmetaphone($1::text) <> '' AND dmetaphone(title) = dmetaphone($1::text))
+   OR (length($1::text) >= 5 AND position(' ' IN $1::text) = 0 AND EXISTS (
+        SELECT 1 FROM unnest(string_to_array(lower(title), ' ')) AS w
+        WHERE levenshtein_less_equal(lower($1::text), w, 2) <= 2
+           OR dmetaphone(w) = dmetaphone($1::text)))
+ORDER BY
+    (title ILIKE '%' || $1::text || '%') DESC,
+    GREATEST(word_similarity($1::text, title), word_similarity($1::text, array_to_string(authors, ' '))) DESC,
+    view_count DESC
+LIMIT $3 OFFSET $2
 `
 
 type SearchBooksInDBParams struct {
-	Column1 pgtype.Text `json:"column_1"`
-	Limit   int32       `json:"limit"`
-	Offset  int32       `json:"offset"`
+	Q      string `json:"q"`
+	Offset int32  `json:"offset"`
+	Limit  int32  `json:"limit"`
 }
 
+// Substring hits first, then fuzzy: trigram word similarity (dropped/extra
+// letters), double metaphone (sounds alike) and, for single-word queries,
+// a per-word edit distance of 2 (swapped letters). Exact hits rank above
+// fuzzy, fuzzy by closeness, ties by popularity.
+// ponytail: seq scan, ~100ms per 30k books; past ~100k rows move the
+// fuzzy branches to a trigram-indexed UNION and drop the unnest one.
 func (q *Queries) SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error) {
-	rows, err := q.db.Query(ctx, searchBooksInDB, arg.Column1, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, searchBooksInDB, arg.Q, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

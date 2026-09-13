@@ -253,12 +253,12 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/v1/books/search?q=...&page=&page_size=` | Public | Paginated `BookListResponse` |
+| `GET` | `/api/v1/books/search?q=...&page=&page_size=` | Public | Paginated `BookListResponse`. Fuzzy on cached books: typos, swapped letters, sound-alikes |
 | `GET` | `/api/v1/books/by-slug/{slug}` | Public | Single book |
 | `GET` | `/api/v1/books/latest` | Public | Paginated |
 | `GET` | `/api/v1/books/public` | Public | New + popular carousels |
 | `GET` | `/api/v1/books/by-author?author=...` | Public | Paginated |
-| `GET` | `/api/v1/books/{id}` | Public | Single book |
+| `GET` | `/api/v1/books/{id}` | Public | Single book. `id` may be a UUID, Google volume id or ISBN (search results carry the latter two until cached) |
 | `GET` | `/api/v1/books/{id}/diary` | Public | Diary entries for a book |
 | `GET` | `/api/v1/books/{id}/reviews` | Public | Reviews |
 | `POST` | `/api/v1/books` | Required | Create a book record |

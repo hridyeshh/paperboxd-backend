@@ -102,19 +102,11 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case req.BookID != nil:
-		// Direct UUID lookup
-		id, err := uuid.Parse(*req.BookID)
+		// Clients send whatever id the search result carried: UUID, Google
+		// volume id, or ISBN. Resolve (and cache) rather than reject.
+		id, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, *req.BookID)
 		if err != nil {
-			types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid book_id")
-			return
-		}
-		if _, err := h.Queries.GetBookByID(r.Context(), id); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found")
-				return
-			}
-			slog.Error("get book by id", "error", err)
-			types.WriteInternalError(w)
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Book not found")
 			return
 		}
 		bookID = id
@@ -597,8 +589,7 @@ func (h *UserHandler) GetBookStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bookIDStr := chi.URLParam(r, "bookId")
-	bookID, err := uuid.Parse(bookIDStr)
+	bookID, err := resolveBookIDParam(r.Context(), h.Queries, h.GoogleBooks, h.ISBNdb, chi.URLParam(r, "bookId"))
 	if err != nil {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Invalid book_id")
 		return
