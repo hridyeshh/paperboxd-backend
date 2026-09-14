@@ -70,7 +70,7 @@ func searchQueryString(r *http.Request) string {
 }
 
 // Search handles GET /api/v1/books/search?query=...&page=...&page_size=...
-// Priority: DB cache → ISBNdb → Google Books
+// DB cache merged with ISBNdb (or Google Books) — see mergeSearchResults.
 func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := searchQueryString(r)
 	if query == "" {
@@ -94,7 +94,10 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. DB cache first
+	// 1. DB cache. Fuzzy matching means it nearly always returns *something*,
+	// so a hit no longer ends the search: unless the cache already fills the
+	// page with books that actually name the query, external sources are asked
+	// too and merged in (see mergeSearchResults).
 	offset := int32((page - 1) * pageSize)
 	limit := int32(pageSize)
 
@@ -108,23 +111,43 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 		types.WriteInternalError(w)
 		return
 	}
-	if len(dbBooks) > 0 {
-		items := make([]types.BookResponse, len(dbBooks))
-		for i, b := range dbBooks {
-			items[i] = bookToResponse(b)
-		}
-		types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-			Kind:       "books#volumes",
-			TotalItems: len(items),
-			Items:      items,
-			Page:       page,
-			PageSize:   pageSize,
-			Source:     "db",
-		}.WithPagination())
-		return
+	dbItems := make([]types.BookResponse, len(dbBooks))
+	for i, b := range dbBooks {
+		dbItems[i] = bookToResponse(b)
 	}
 
-	// 2. ISBNdb (primary external source)
+	words := queryWords(query)
+	source := "db"
+	var extItems []types.BookResponse
+	if strong, _ := splitByCoverage(words, dbItems); len(strong) < pageSize {
+		var extSource string
+		extItems, extSource = h.searchExternal(ctx, query, page, pageSize)
+		switch {
+		case len(extItems) == 0:
+		case len(dbItems) == 0:
+			source = extSource
+		default:
+			source = "db+" + extSource
+		}
+	}
+
+	items := mergeSearchResults(words, dbItems, extItems, pageSize)
+	if len(items) == 0 {
+		source = "none"
+	}
+	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
+		Kind:       "books#volumes",
+		TotalItems: len(items),
+		Items:      items,
+		Page:       page,
+		PageSize:   pageSize,
+		Source:     source,
+	}.WithPagination())
+}
+
+// searchExternal asks ISBNdb, then Google Books if ISBNdb has nothing.
+// Returns the results and which source they came from.
+func (h *BookHandler) searchExternal(ctx context.Context, query string, page, pageSize int) ([]types.BookResponse, string) {
 	if h.ISBNdb != nil {
 		isbndbBooks, err := h.ISBNdb.Search(ctx, query, page, pageSize)
 		if err != nil {
@@ -138,49 +161,24 @@ func (h *BookHandler) Search(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(items) > 0 {
-			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-				Kind:       "books#volumes",
-				TotalItems: len(items),
-				Items:      items,
-				Page:       page,
-				PageSize:   pageSize,
-				Source:     "isbndb",
-			}.WithPagination())
-			return
+			return items, "isbndb"
 		}
 	}
 
-	// 3. Google Books fallback
 	if h.GoogleBooks != nil {
 		googleBooks, err := h.GoogleBooks.Search(ctx, query, pageSize)
 		if err != nil {
 			slog.Warn("google books search failed", "error", err)
-		} else if len(googleBooks) > 0 {
-			items := make([]types.BookResponse, len(googleBooks))
-			for i, b := range googleBooks {
-				items[i] = googleBookToResponse(b)
-			}
-			types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-				Kind:       "books#volumes",
-				TotalItems: len(items),
-				Items:      items,
-				Page:       page,
-				PageSize:   pageSize,
-				Source:     "google",
-			}.WithPagination())
-			return
+		}
+		items := make([]types.BookResponse, len(googleBooks))
+		for i, b := range googleBooks {
+			items[i] = googleBookToResponse(b)
+		}
+		if len(items) > 0 {
+			return items, "google"
 		}
 	}
-
-	// No results from any source
-	types.WriteJSON(w, http.StatusOK, types.BookListResponse{
-		Kind:       "books#volumes",
-		TotalItems: 0,
-		Items:      []types.BookResponse{},
-		Page:       page,
-		PageSize:   pageSize,
-		Source:     "none",
-	}.WithPagination())
+	return nil, ""
 }
 
 // Create handles POST /api/v1/books
@@ -674,7 +672,8 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		Limit:  1,
 		Offset: 0,
 	})
-	if err == nil && len(dbBooks) > 0 {
+	// Fuzzy search always finds *something*; only take it if it names the title.
+	if err == nil && len(dbBooks) > 0 && coversQuery(queryWords(title), bookToResponse(dbBooks[0])) {
 		go func(id uuid.UUID) {
 			_ = h.Queries.BumpBookAccess(context.Background(), id)
 		}(dbBooks[0].ID)
