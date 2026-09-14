@@ -151,12 +151,12 @@ func TestClarifyingAnswersSteerTaste(t *testing.T) {
 }
 
 // Phase 7: the prompt must carry what the roadmap says Jazy knows — authors
-// they return to and their own diary words — and cut diary text at a word.
-func TestReaderContextCarriesAuthorsAndDiary(t *testing.T) {
+// they return to and their own thought words — and cut thought text at a word.
+func TestReaderContextCarriesAuthorsAndThought(t *testing.T) {
 	rc := ReaderContext{
-		ReaderTaste: ReaderTaste{TotalRead: 12, LovedBooks: []string{"Stoner (5★)"}},
-		TopAuthors:  []string{"Kazuo Ishiguro"},
-		DiaryLines:  []string{diaryLine("Never Let Me Go", "This one wrecked me quietly over three evenings and I still think about the last page")},
+		ReaderTaste:  ReaderTaste{TotalRead: 12, LovedBooks: []string{"Stoner (5★)"}},
+		TopAuthors:   []string{"Kazuo Ishiguro"},
+		ThoughtLines: []string{thoughtLine("Never Let Me Go", "This one wrecked me quietly over three evenings and I still think about the last page")},
 	}
 	got := rc.PromptSection()
 	for _, want := range []string{"keeps coming back to: Kazuo Ishiguro", "Never Let Me Go: This one wrecked me", "Stoner (5★)"} {
@@ -164,8 +164,8 @@ func TestReaderContextCarriesAuthorsAndDiary(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
 	}
-	long := diaryLine("T", "word "+strings.Repeat("x", 200))
-	if len(long) > len("T: ")+ctxDiaryChars+len("…") || !strings.HasSuffix(long, "…") {
-		t.Errorf("diary line not cut: %d chars %q", len(long), long)
+	long := thoughtLine("T", "word "+strings.Repeat("x", 200))
+	if len(long) > len("T: ")+ctxThoughtChars+len("…") || !strings.HasSuffix(long, "…") {
+		t.Errorf("thought line not cut: %d chars %q", len(long), long)
 	}
 }

@@ -280,11 +280,11 @@ func collapsePublicActivity(rows []db.GetPublicActivitiesRow, limit int) []types
 			break
 		}
 		objectKey := row.UserID.String() + "|"
-		// Entry before book: a diary note about Dune is different news from
-		// finishing Dune, and created_diary_entry rows carry both ids.
+		// Entry before book: a thought note about Dune is different news from
+		// finishing Dune, and created_thought rows carry both ids.
 		switch {
-		case row.EntryID.Valid:
-			objectKey += "e:" + uuid.UUID(row.EntryID.Bytes).String()
+		case row.ThoughtID.Valid:
+			objectKey += "e:" + uuid.UUID(row.ThoughtID.Bytes).String()
 		case row.ListID.Valid:
 			objectKey += "l:" + uuid.UUID(row.ListID.Bytes).String()
 		case row.BookID.Valid:
@@ -299,10 +299,10 @@ func collapsePublicActivity(rows []db.GetPublicActivitiesRow, limit int) []types
 		perUser[row.UserID.String()]++
 		out = append(out, activityRowToResponse(activityRowFields{
 			id: row.ID, userID: row.UserID, activityType: row.ActivityType,
-			bookID: row.BookID, listID: row.ListID, entryID: row.EntryID, targetUserID: row.TargetUserID,
+			bookID: row.BookID, listID: row.ListID, thoughtID: row.ThoughtID, targetUserID: row.TargetUserID,
 			createdAt: row.CreatedAt, username: row.Username, name: row.Name, avatarUrl: row.AvatarUrl,
 			bookTitle: row.BookTitle, bookSlug: row.BookSlug,
-			listTitle: row.ListTitle, entryTitle: row.EntryTitle, targetUsername: row.TargetUsername,
+			listTitle: row.ListTitle, entryTitle: row.ThoughtTitle, targetUsername: row.TargetUsername,
 			metadata: row.Metadata, bookCover: row.BookCover,
 		}))
 	}

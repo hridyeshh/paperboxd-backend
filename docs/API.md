@@ -13,7 +13,7 @@
 
 - All API routes below are rooted at **`/api/v1`** unless noted (e.g. `GET /health`).
 - JSON request and response bodies use **`application/json`**.
-- UUIDs in path segments (books, lists, diary entries) must be valid UUID strings.
+- UUIDs in path segments (books, lists, thoughts) must be valid UUID strings.
 - **Pagination:** `page` (default `1`) and `page_size` (default `20`, max `100`) as query parameters where supported.
 - **Rate limiting:** `100` requests per minute per IP (see `cmd/api/main.go`).
 
@@ -28,7 +28,7 @@
 5. [Bookshelf](#bookshelf)
 6. [Favorites](#favorites)
 7. [Reading Lists](#reading-lists)
-8. [Diary Entries](#diary-entries)
+8. [Thought Entries](#thought-entries)
 9. [Social Features](#social-features)
 10. [Activities](#activities)
 11. [Admin](#admin)
@@ -205,7 +205,7 @@ Common fields returned for users:
   "following_count": 0,
   "favorites_count": 0,
   "lists_count": 0,
-  "diary_entries_count": 0,
+  "thoughts_count": 0,
   "created_at": "RFC3339 string"
 }
 ```
@@ -755,55 +755,55 @@ Optional **Bearer** token on read routes: when present, responses include viewer
 
 ---
 
-## Diary Entries
+## Thought Entries
 
-### Get user diary entries
+### Get user thoughts
 
-**Endpoint:** `GET /api/v1/users/{username}/diary?page=&page_size=`
+**Endpoint:** `GET /api/v1/users/{username}/thoughts?page=&page_size=`
 
 **Authentication:** Optional. Private entries are filtered unless the viewer is the owner.
 
-**Response:** `200 OK` — `DiaryEntriesResponse` (`entries`, `total_count`, `page`, `page_size`).
+**Response:** `200 OK` — `ThoughtsResponse` (`entries`, `total_count`, `page`, `page_size`).
 
-**Note:** List construction in the handler does not populate per-entry `likes_count` / `is_liked`; those fields use **zero values** in the list. Use **Get diary entry** for accurate like state when needed.
+**Note:** List construction in the handler does not populate per-entry `likes_count` / `is_liked`; those fields use **zero values** in the list. Use **Get thought** for accurate like state when needed.
 
 ---
 
-### Create diary entry
+### Create thought
 
-**Endpoint:** `POST /api/v1/users/{username}/diary`
+**Endpoint:** `POST /api/v1/users/{username}/thoughts`
 
 **Authentication:** Required; owner.
 
 **Request body:** optional book via `book_id` / `isbn` / `google_books_id`; `content` **required**; optional `title` (max 100), `is_private`, `rating` (1–5).
 
-**Response:** `201 Created` — `DiaryEntryResponse`.
+**Response:** `201 Created` — `ThoughtResponse`.
 
 ---
 
-### Get diary entry
+### Get thought
 
-**Endpoint:** `GET /api/v1/users/{username}/diary/{entryId}`
+**Endpoint:** `GET /api/v1/users/{username}/thoughts/{thoughtId}`
 
 **Authentication:** Optional. Private entries return `404` for non-owners.
 
-**Response:** `200 OK` — `DiaryEntryResponse` (includes `likes_count`, `is_liked` for eligible viewers).
+**Response:** `200 OK` — `ThoughtResponse` (includes `likes_count`, `is_liked` for eligible viewers).
 
 ---
 
-### Update diary entry
+### Update thought
 
-**Endpoint:** `PUT /api/v1/users/{username}/diary/{entryId}`
+**Endpoint:** `PUT /api/v1/users/{username}/thoughts/{thoughtId}`
 
 **Authentication:** Required; owner.
 
-**Response:** `200 OK` — `DiaryEntryResponse`.
+**Response:** `200 OK` — `ThoughtResponse`.
 
 ---
 
-### Delete diary entry
+### Delete thought
 
-**Endpoint:** `DELETE /api/v1/users/{username}/diary/{entryId}`
+**Endpoint:** `DELETE /api/v1/users/{username}/thoughts/{thoughtId}`
 
 **Authentication:** Required; owner.
 
@@ -815,10 +815,10 @@ Optional **Bearer** token on read routes: when present, responses include viewer
 
 ---
 
-### Like / unlike diary entry
+### Like / unlike thought
 
-- **POST** `.../diary/{entryId}/like` — `201 Created` — `{ "message": "Entry liked", "likes_count": 0 }`  
-- **DELETE** `.../diary/{entryId}/like` — `200 OK` — `{ "message": "Entry unliked", "likes_count": 0 }`  
+- **POST** `.../thoughts/{thoughtId}/like` — `201 Created` — `{ "message": "Entry liked", "likes_count": 0 }`  
+- **DELETE** `.../thoughts/{thoughtId}/like` — `200 OK` — `{ "message": "Entry unliked", "likes_count": 0 }`  
 
 **Authentication:** Required.
 
@@ -826,9 +826,9 @@ Optional **Bearer** token on read routes: when present, responses include viewer
 
 ---
 
-### Get book diary entries
+### Get book thoughts
 
-**Endpoint:** `GET /api/v1/books/{id}/diary?page=&page_size=`
+**Endpoint:** `GET /api/v1/books/{id}/thoughts?page=&page_size=`
 
 Path `id` = book **UUID**.
 
@@ -985,8 +985,8 @@ Types **written by handlers** today include:
 | `added_book` | Bookshelf add |
 | `created_list` | List created |
 | `shared_list` | List share granted to another user |
-| `created_diary_entry` | Public diary entry created |
-| `liked_diary_entry` | Someone likes a diary entry |
+| `created_thought` | Public thought created |
+| `liked_thought` | Someone likes a thought |
 
 The **following feed** query also considers `shared_book` and `granted_access` if those rows exist in the database (`queries/activities.sql`).
 

@@ -15,7 +15,7 @@ type ReasonResult struct {
 // query is non-empty only for vibe search results.
 //
 // Priority: vibe → social → twins → recent → trait → anchor (loved / 5★ / TBR)
-// → velocity → diary → author → genre → trending → popular → favorites.
+// → velocity → thought → author → genre → trending → popular → favorites.
 // Most specific real signal first; every sentence names evidence that
 // actually exists on the reader's shelf or graph. Never fabricate a reason.
 //
@@ -73,7 +73,7 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 
 	// Rule 3: Traits — the reader's own shape, matched by this book.
 	//
-	// Placed above velocity, diary and genre because it is the only reason that
+	// Placed above velocity, thought and genre because it is the only reason that
 	// says something specific about the *reader*. "Matches your taste for
 	// Fiction" is a category label; "you tend to love quiet, character-driven
 	// stories" is the recognition the whole roadmap is aimed at.
@@ -145,11 +145,11 @@ func (re *ReasonEngine) Build(c Candidate, profile *UserSignalProfile, query str
 		}
 	}
 
-	// Rule 5: Diary — emotional fingerprint match (only non-zero with ranking_v2)
-	if c.DiaryBoost > 0.04 {
+	// Rule 5: Thought — emotional fingerprint match (only non-zero with ranking_v2)
+	if c.ThoughtBoost > 0.04 {
 		return ReasonResult{
 			Text: "Matches how you write about books you love",
-			Type: "diary",
+			Type: "thoughts",
 		}
 	}
 

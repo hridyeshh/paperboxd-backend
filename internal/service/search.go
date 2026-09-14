@@ -142,7 +142,7 @@ func (s *RecommendationService) searchWithSession(ctx context.Context, queries *
 	if req.UserID != "" {
 		if p, err := s.GetOrComputeSignalProfile(ctx, req.UserID); err == nil {
 			profile = &p
-			personalised = len(p.GenreWeights) > 0 || p.Traits.HasSignal() || p.DiaryEmbedding != nil
+			personalised = len(p.GenreWeights) > 0 || p.Traits.HasSignal() || p.ThoughtEmbedding != nil
 		}
 		candidates = s.filterSuppressed(ctx, req.UserID, candidates)
 	}

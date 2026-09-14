@@ -18,7 +18,7 @@ INSERT INTO users (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type CreateUserParams struct {
@@ -64,7 +64,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -178,7 +178,7 @@ func (q *Queries) GetPopularReaders(ctx context.Context, limit int32) ([]GetPopu
 }
 
 const getUserByAppleUserID = `-- name: GetUserByAppleUserID :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE apple_user_id = $1 AND deleted_at IS NULL
 `
 
@@ -211,7 +211,7 @@ func (q *Queries) GetUserByAppleUserID(ctx context.Context, appleUserID pgtype.T
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -234,7 +234,7 @@ func (q *Queries) GetUserByAppleUserID(ctx context.Context, appleUserID pgtype.T
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE email = $1 AND deleted_at IS NULL
 `
 
@@ -267,7 +267,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -290,7 +290,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -323,7 +323,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -346,7 +346,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE username = $1 AND deleted_at IS NULL
 `
 
@@ -379,7 +379,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -478,7 +478,7 @@ func (q *Queries) RecordAccountDeletion(ctx context.Context, arg RecordAccountDe
 }
 
 const searchUsers = `-- name: SearchUsers :many
-SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
+SELECT id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id FROM users
 WHERE (username ILIKE '%' || $1 || '%'
    OR name ILIKE '%' || $1 || '%')
    AND deleted_at IS NULL
@@ -527,7 +527,7 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 			&i.TotalPagesRead,
 			&i.FavoritesCount,
 			&i.ListsCount,
-			&i.DiaryEntriesCount,
+			&i.ThoughtsCount,
 			&i.ReadingGoalYear,
 			&i.ReadingGoalTarget,
 			&i.ReadingGoalCurrent,
@@ -559,7 +559,7 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Use
 const setUserVisibility = `-- name: SetUserVisibility :one
 UPDATE users SET is_public = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type SetUserVisibilityParams struct {
@@ -596,7 +596,7 @@ func (q *Queries) SetUserVisibility(ctx context.Context, arg SetUserVisibilityPa
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -778,7 +778,7 @@ UPDATE users SET
     banner_url = COALESCE($9, banner_url),
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUserParams struct {
@@ -832,7 +832,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -857,7 +857,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 const updateUserGenres = `-- name: UpdateUserGenres :one
 UPDATE users SET favorite_genres = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUserGenresParams struct {
@@ -894,7 +894,7 @@ func (q *Queries) UpdateUserGenres(ctx context.Context, arg UpdateUserGenresPara
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,
@@ -930,7 +930,7 @@ func (q *Queries) UpdateUserLastActive(ctx context.Context, id uuid.UUID) error 
 const updateUsername = `-- name: UpdateUsername :one
 UPDATE users SET username = $2, onboarding_completed = true, updated_at = NOW()
 WHERE id = $1
-RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, diary_entries_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
+RETURNING id, username, email, password_hash, name, avatar_url, bio, pronouns, is_public, favorite_genres, settings, followers_count, following_count, books_read_count, created_at, updated_at, last_active, deleted_at, mongo_id, birthday, gender, links, total_pages_read, favorites_count, lists_count, thoughts_count, reading_goal_year, reading_goal_target, reading_goal_current, total_xp, level, current_streak, longest_streak, last_activity_date, show_on_leaderboard, referral_code, referred_by, referral_count, referral_rewards_claimed, onboarding_completed, banner_url, scan_uses_remaining, apple_user_id
 `
 
 type UpdateUsernameParams struct {
@@ -967,7 +967,7 @@ func (q *Queries) UpdateUsername(ctx context.Context, arg UpdateUsernameParams) 
 		&i.TotalPagesRead,
 		&i.FavoritesCount,
 		&i.ListsCount,
-		&i.DiaryEntriesCount,
+		&i.ThoughtsCount,
 		&i.ReadingGoalYear,
 		&i.ReadingGoalTarget,
 		&i.ReadingGoalCurrent,

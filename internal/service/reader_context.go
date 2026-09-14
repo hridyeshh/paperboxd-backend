@@ -42,9 +42,9 @@ type ReaderContext struct {
 	TopAuthors []string
 
 	// Their own words. "Title: first line of what they wrote" for recent
-	// non-private diary entries — the one source that lets Jazy say "you
+	// non-private thoughts — the one source that lets Jazy say "you
 	// wrote that X wrecked you" instead of guessing at it.
-	DiaryLines []string
+	ThoughtLines []string
 
 	// Interpretable taste, as sentences.
 	TasteLines []string // from DescribeTaste
@@ -72,8 +72,8 @@ const (
 	ctxTBR            = 5
 	ctxFriendsLoved   = 5
 	ctxPreviousAsks   = 4
-	ctxDiaryLines     = 3
-	ctxDiaryChars     = 140
+	ctxThoughtLines   = 3
+	ctxThoughtChars   = 140
 )
 
 // BuildReaderContext gathers the reader's full picture in a handful of
@@ -194,23 +194,23 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 		}
 	}
 
-	// Diary, in their own words. Private entries never leave the app
+	// Thought, in their own words. Private entries never leave the app
 	// (migration 000040 retracted them from embedding for the same reason).
 	rows, err = s.pool.Query(ctx, `
 		SELECT COALESCE(bk.title, d.title, ''), d.content
-		FROM diary_entries d
+		FROM thoughts d
 		LEFT JOIN books bk ON bk.id = d.book_id
 		WHERE d.user_id = $1 AND d.is_private = false AND LENGTH(d.content) >= 20
 		ORDER BY d.created_at DESC
 		LIMIT $2
-	`, userID, ctxDiaryLines)
+	`, userID, ctxThoughtLines)
 	if err == nil {
 		for rows.Next() {
 			var title, content string
 			if rows.Scan(&title, &content) != nil {
 				continue
 			}
-			rc.DiaryLines = append(rc.DiaryLines, diaryLine(title, content))
+			rc.ThoughtLines = append(rc.ThoughtLines, thoughtLine(title, content))
 		}
 		rows.Close()
 	}
@@ -309,13 +309,13 @@ func (s *RecommendationService) BuildReaderContext(ctx context.Context, userID s
 	return rc
 }
 
-// diaryLine is "Title: the first sentence or so", cut at a word boundary.
-func diaryLine(title, content string) string {
+// thoughtLine is "Title: the first sentence or so", cut at a word boundary.
+func thoughtLine(title, content string) string {
 	c := strings.Join(strings.Fields(content), " ")
-	if len(c) > ctxDiaryChars {
-		cut := strings.LastIndex(c[:ctxDiaryChars], " ")
-		if cut < ctxDiaryChars/2 {
-			cut = ctxDiaryChars
+	if len(c) > ctxThoughtChars {
+		cut := strings.LastIndex(c[:ctxThoughtChars], " ")
+		if cut < ctxThoughtChars/2 {
+			cut = ctxThoughtChars
 		}
 		c = c[:cut] + "…"
 	}
@@ -443,8 +443,8 @@ func (rc ReaderContext) PromptSection() string {
 	if len(rc.RecentlyFinished) > 0 {
 		fmt.Fprintf(&b, "- finished recently: %s\n", strings.Join(rc.RecentlyFinished, "; "))
 	}
-	for _, line := range rc.DiaryLines {
-		fmt.Fprintf(&b, "- wrote in their diary — %s\n", line)
+	for _, line := range rc.ThoughtLines {
+		fmt.Fprintf(&b, "- wrote in their thoughts — %s\n", line)
 	}
 	if len(rc.CurrentlyReading) > 0 {
 		fmt.Fprintf(&b, "- reading now: %s\n", strings.Join(rc.CurrentlyReading, "; "))

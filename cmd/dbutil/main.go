@@ -43,8 +43,8 @@ func main() {
 func cleanup(ctx context.Context, conn *pgx.Conn) {
 	stmts := []string{
 		"DELETE FROM activities",
-		"DELETE FROM diary_entry_likes",
-		"DELETE FROM diary_entries",
+		"DELETE FROM thought_likes",
+		"DELETE FROM thoughts",
 		"DELETE FROM list_books",
 		"DELETE FROM list_access",
 		"DELETE FROM saved_lists",
@@ -98,7 +98,7 @@ func listUsers(ctx context.Context, conn *pgx.Conn) {
 func verify(ctx context.Context, conn *pgx.Conn) {
 	tables := []string{
 		"users", "books", "bookshelf", "lists", "list_books",
-		"diary_entries", "diary_entry_likes", "activities",
+		"thoughts", "thought_likes", "activities",
 		"follows", "likes", "favorites", "newsletters", "account_deletions",
 	}
 	fmt.Printf("%-25s  %s\n", "table", "count")

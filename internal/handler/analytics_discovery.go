@@ -187,7 +187,7 @@ type discoveryFunnel struct {
 	Rated       int64   `json:"rated"`
 	Rated4Plus  int64   `json:"rated_4_plus"`
 	Rated5      int64   `json:"rated_5"`
-	Diaried     int64   `json:"diaried"`
+	Thoughts    int64   `json:"thoughts"`
 	Shared      int64   `json:"shared"`
 	OpenRate    float64 `json:"open_rate"`
 	SaveRate    float64 `json:"save_rate"`
@@ -251,7 +251,7 @@ func (h *AnalyticsHandler) Discovery(w http.ResponseWriter, r *http.Request) {
 		       COUNT(*) FILTER (WHERE b.rating IS NOT NULL)                AS rated,
 		       COUNT(*) FILTER (WHERE b.rating >= 4)                       AS rated_4_plus,
 		       COUNT(*) FILTER (WHERE b.rating = 5)                        AS rated_5,
-		       COUNT(*) FILTER (WHERE d.seen)                              AS diaried,
+		       COUNT(*) FILTER (WHERE d.seen)                              AS thoughts,
 		       COUNT(*) FILTER (WHERE sh.seen)                             AS shared
 		FROM impressions i
 		LEFT JOIN LATERAL (
@@ -265,7 +265,7 @@ func (h *AnalyticsHandler) Discovery(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN bookshelf b
 		       ON b.user_id = i.user_id AND b.book_id = i.book_id
 		LEFT JOIN LATERAL (
-		    SELECT true AS seen FROM diary_entries d
+		    SELECT true AS seen FROM thoughts d
 		    WHERE d.user_id = i.user_id AND d.book_id = i.book_id LIMIT 1
 		) d ON true
 		LEFT JOIN LATERAL (
@@ -286,7 +286,7 @@ func (h *AnalyticsHandler) Discovery(w http.ResponseWriter, r *http.Request) {
 		var f discoveryFunnel
 		if err := rows.Scan(
 			&f.ReasonType, &f.Impressions, &f.Opens, &f.Saved,
-			&f.Started, &f.Finished, &f.Rated, &f.Rated4Plus, &f.Rated5, &f.Diaried, &f.Shared,
+			&f.Started, &f.Finished, &f.Rated, &f.Rated4Plus, &f.Rated5, &f.Thoughts, &f.Shared,
 		); err != nil {
 			continue
 		}
@@ -301,7 +301,7 @@ func (h *AnalyticsHandler) Discovery(w http.ResponseWriter, r *http.Request) {
 		resp.Overall.Rated += f.Rated
 		resp.Overall.Rated4Plus += f.Rated4Plus
 		resp.Overall.Rated5 += f.Rated5
-		resp.Overall.Diaried += f.Diaried
+		resp.Overall.Thoughts += f.Thoughts
 		resp.Overall.Shared += f.Shared
 	}
 	if err := rows.Err(); err != nil {

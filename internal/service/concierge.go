@@ -315,7 +315,7 @@ Write, as JSON:
 - "intro": one sentence (under 120 characters) framing the deck for this reader. If you know their history, it should sound like it — reference a book they loved or a pattern in their reading, not a generic "here are some picks". No exclamation marks.
 - "books": one object per book, in the same order:
   - "match": integer 0-100, how well it answers THIS reader's request given everything above. Use the whole range; no two books the same number.
-  - "why": one sentence, under 110 characters, tying the book to something concrete — their request, a book they rated highly, a pattern you were told about. When a book they rated 4★+ genuinely resembles this one, name it with the rating ("you gave Never Let Me Go 5★, and this has the same slow build"); when they wrote about a book in their diary, you may quote the feeling back. The reader should recognise themselves in it. Never start with "This book".
+  - "why": one sentence, under 110 characters, tying the book to something concrete — their request, a book they rated highly, a pattern you were told about. When a book they rated 4★+ genuinely resembles this one, name it with the rating ("you gave Never Let Me Go 5★, and this has the same slow build"); when they wrote about a book in their thoughts, you may quote the feeling back. The reader should recognise themselves in it. Never start with "This book".
   - "caveat": one honest note under 110 characters on what might not land. Never empty, never a compliment in disguise. If they have dropped or disliked something similar, say so.
 
 Rules:

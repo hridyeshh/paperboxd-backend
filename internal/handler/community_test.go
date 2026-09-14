@@ -14,13 +14,13 @@ func TestCollapsePublicActivity(t *testing.T) {
 	note := uuid.New()
 	pg := func(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
 	row := func(user uuid.UUID, typ string, book, entry pgtype.UUID) db.GetPublicActivitiesRow {
-		return db.GetPublicActivitiesRow{ID: uuid.New(), UserID: user, ActivityType: typ, BookID: book, EntryID: entry, Username: "u"}
+		return db.GetPublicActivitiesRow{ID: uuid.New(), UserID: user, ActivityType: typ, BookID: book, ThoughtID: entry, Username: "u"}
 	}
 
 	rows := []db.GetPublicActivitiesRow{
 		row(alice, "finished_reading", pg(dune), pgtype.UUID{}),
 		row(alice, "started_reading", pg(dune), pgtype.UUID{}),     // same object → dropped
-		row(alice, "created_diary_entry", pg(dune), pg(note)),      // entry key → kept
+		row(alice, "created_thought", pg(dune), pg(note)),          // entry key → kept
 		row(alice, "wants_to_read", pg(emma), pgtype.UUID{}),       // third for alice → kept
 		row(alice, "wants_to_read", pg(uuid.New()), pgtype.UUID{}), // fourth → dropped
 		row(bob, "finished_reading", pg(dune), pgtype.UUID{}),
@@ -30,7 +30,7 @@ func TestCollapsePublicActivity(t *testing.T) {
 	if len(out) != 4 {
 		t.Fatalf("want 4 rows, got %d", len(out))
 	}
-	if out[0].ActivityType != "finished_reading" || out[1].ActivityType != "created_diary_entry" || out[3].Username != "u" {
+	if out[0].ActivityType != "finished_reading" || out[1].ActivityType != "created_thought" || out[3].Username != "u" {
 		t.Fatalf("unexpected order: %+v", out)
 	}
 	if got := collapsePublicActivity(rows, 2); len(got) != 2 {

@@ -259,7 +259,7 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 | `GET` | `/api/v1/books/public` | Public | New + popular carousels |
 | `GET` | `/api/v1/books/by-author?author=...` | Public | Paginated |
 | `GET` | `/api/v1/books/{id}` | Public | Single book. `id` may be a UUID, Google volume id or ISBN (search results carry the latter two until cached) |
-| `GET` | `/api/v1/books/{id}/diary` | Public | Diary entries for a book |
+| `GET` | `/api/v1/books/{id}/thoughts` | Public | Thoughts for a book |
 | `GET` | `/api/v1/books/{id}/reviews` | Public | Reviews |
 | `POST` | `/api/v1/books` | Required | Create a book record |
 | `POST` | `/api/v1/books/{id}/like` | Required | Like book |
@@ -278,17 +278,24 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 | `POST` | `/api/v1/users/{username}/bookshelf/{bookId}/start` | Required | Mark started |
 | `POST` | `/api/v1/users/{username}/bookshelf/{bookId}/finish` | Required | Mark finished |
 
-### 3.5 Diary
+### 3.5 Thoughts
+
+Formerly "diary" (renamed everywhere in migration 000050: routes, tables, JSON keys, activity/event/XP names).
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| `GET` | `/api/v1/users/{username}/diary?page=&page_size=` | Public | Paginated `DiaryEntriesResponse` |
-| `POST` | `/api/v1/users/{username}/diary` | Required | Create entry |
-| `GET` | `/api/v1/users/{username}/diary/{entryId}` | Public | Single entry |
-| `PUT` | `/api/v1/users/{username}/diary/{entryId}` | Required | Update entry |
-| `DELETE` | `/api/v1/users/{username}/diary/{entryId}` | Required | Delete |
-| `POST` | `/api/v1/users/{username}/diary/{entryId}/like` | Required | Like entry |
-| `DELETE` | `/api/v1/users/{username}/diary/{entryId}/like` | Required | Unlike |
+| `GET` | `/api/v1/users/{username}/thoughts?page=&page_size=` | Public | Profile Thoughts tab: `{thoughts, total_count, page, page_size, pagination}`. Thread-starting thoughts plus reposts, newest first. Reposted rows carry `reposted_by {username, name}` |
+| `POST` | `/api/v1/users/{username}/thoughts` | Required | Create. Optional `thread_parent_id` (any thought in your own thread) makes it a follow-up: book + privacy come from the thread, title/rating ignored, no XP/activity |
+| `GET` | `/api/v1/users/{username}/thoughts/{thoughtId}` | Public | Single thought |
+| `GET` | `/api/v1/users/{username}/thoughts/{thoughtId}/thread` | Public | `{thoughts: [first, ...follow-ups]}`; any id in the thread works. `{username}` must be the author (profile-privacy gate) |
+| `PUT` | `/api/v1/users/{username}/thoughts/{thoughtId}` | Required | Update. `is_private` on the first thought applies to the whole thread; ignored on follow-ups |
+| `DELETE` | `/api/v1/users/{username}/thoughts/{thoughtId}` | Required | Delete. Deleting the first thought deletes its follow-ups |
+| `POST` | `/api/v1/users/{username}/thoughts/{thoughtId}/like` | Required | `{likes_count}`; 409 if already liked |
+| `DELETE` | `/api/v1/users/{username}/thoughts/{thoughtId}/like` | Required | `{likes_count}` |
+| `POST` | `/api/v1/users/{username}/thoughts/{thoughtId}/repost` | Required | `{reposts_count}`. 400 own thought, 403 `PRIVATE_PROFILE` author is private, 404 private thought/blocked, 409 already reposted. Notifies the author (`reposted_thought` activity) |
+| `DELETE` | `/api/v1/users/{username}/thoughts/{thoughtId}/repost` | Required | `{reposts_count}`; also removes the notification |
+
+`ThoughtResponse` fields: `id, user_id, username, name, avatar_url, book_id, book?, title, content, is_private, rating, likes_count, is_liked, reposts_count, is_reposted, thread_root_id` (null on a first thought), `thread_count` (follow-ups, 0 on follow-ups), `reposted_by?`, `can_edit, created_at, updated_at`.
 
 ### 3.6 Lists
 
@@ -330,7 +337,7 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | `GET` | `/api/v1/leaderboard/global` | Public | Global ranking |
-| `GET` | `/api/v1/leaderboard/dimension/{dimension}` | Public | One of `books`, `pages`, `diary`, `genres`, `xp`, `streak` |
+| `GET` | `/api/v1/leaderboard/dimension/{dimension}` | Public | One of `books`, `pages`, `thoughts`, `genres`, `xp`, `streak` |
 | `GET` | `/api/v1/leaderboard/friends` | Required | Friends-only |
 
 ### 3.10 Recommendations + search

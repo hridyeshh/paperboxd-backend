@@ -109,7 +109,7 @@ type UserSignalProfile struct {
 	GenreWeights        map[string]float64
 	AuthorWeights       map[string]float64
 	VelocitySignal      *VelocitySignal
-	DiaryEmbedding      []float32 // mean of embedded diary entries; nil = cold-start
+	ThoughtEmbedding    []float32 // mean of embedded thoughts; nil = cold-start
 	FastFinishEmbedding []float32 // mean of fast-finish book embeddings; nil = cold-start
 	// Traits is the reader's position on the interpretable axes. Unlike the
 	// two centroids above it can be read back out as a sentence, which is what

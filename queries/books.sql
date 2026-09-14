@@ -104,7 +104,7 @@ LIMIT $2 OFFSET $3;
 -- Sliding window: deletes books whose last_accessed_at is older than 15 days
 -- and that no user-owned row points at. Every table below either CASCADEs
 -- (bookshelf, likes, favorites, list_books, reading_log) or SET NULLs
--- (diary_entries, activities) on book delete — so any book referenced here is
+-- (thoughts, activities) on book delete — so any book referenced here is
 -- user data and must survive. NOT EXISTS rather than NOT IN so a NULL book_id
 -- in the nullable tables can never make the predicate unknown.
 DELETE FROM books b
@@ -114,7 +114,7 @@ WHERE b.last_accessed_at < NOW() - INTERVAL '15 days'
   AND NOT EXISTS (SELECT 1 FROM favorites     x WHERE x.book_id = b.id)
   AND NOT EXISTS (SELECT 1 FROM list_books    x WHERE x.book_id = b.id)
   AND NOT EXISTS (SELECT 1 FROM reading_log   x WHERE x.book_id = b.id)
-  AND NOT EXISTS (SELECT 1 FROM diary_entries x WHERE x.book_id = b.id)
+  AND NOT EXISTS (SELECT 1 FROM thoughts x WHERE x.book_id = b.id)
   AND NOT EXISTS (SELECT 1 FROM activities    x WHERE x.book_id = b.id);
 
 -- name: VibeSearchBooks :many

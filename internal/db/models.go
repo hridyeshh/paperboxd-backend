@@ -24,7 +24,7 @@ type Activity struct {
 	ActivityType string             `json:"activity_type"`
 	BookID       pgtype.UUID        `json:"book_id"`
 	ListID       pgtype.UUID        `json:"list_id"`
-	EntryID      pgtype.UUID        `json:"entry_id"`
+	ThoughtID    pgtype.UUID        `json:"thought_id"`
 	TargetUserID pgtype.UUID        `json:"target_user_id"`
 	Metadata     []byte             `json:"metadata"`
 	CreatedAt    pgtype.Timestamp   `json:"created_at"`
@@ -119,27 +119,6 @@ type DeviceToken struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
-type DiaryEntry struct {
-	ID            uuid.UUID        `json:"id"`
-	UserID        uuid.UUID        `json:"user_id"`
-	BookID        pgtype.UUID      `json:"book_id"`
-	Title         pgtype.Text      `json:"title"`
-	Content       string           `json:"content"`
-	IsPrivate     bool             `json:"is_private"`
-	Rating        pgtype.Int4      `json:"rating"`
-	CreatedAt     pgtype.Timestamp `json:"created_at"`
-	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
-	Embedding     pgvector.Vector  `json:"embedding"`
-	EmbeddingText pgtype.Text      `json:"embedding_text"`
-}
-
-type DiaryEntryLike struct {
-	ID        uuid.UUID        `json:"id"`
-	UserID    uuid.UUID        `json:"user_id"`
-	EntryID   uuid.UUID        `json:"entry_id"`
-	CreatedAt pgtype.Timestamp `json:"created_at"`
-}
-
 type Event struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`
@@ -209,14 +188,14 @@ type LeaderboardStat struct {
 	Username       string           `json:"username"`
 	BooksRead      pgtype.Int4      `json:"books_read"`
 	PagesRead      pgtype.Int4      `json:"pages_read"`
-	DiaryEntries   pgtype.Int4      `json:"diary_entries"`
+	Thoughts       pgtype.Int4      `json:"thoughts"`
 	GenresExplored pgtype.Int4      `json:"genres_explored"`
 	TotalXp        pgtype.Int4      `json:"total_xp"`
 	Level          pgtype.Int4      `json:"level"`
 	CurrentStreak  pgtype.Int4      `json:"current_streak"`
 	BooksRank      pgtype.Int4      `json:"books_rank"`
 	PagesRank      pgtype.Int4      `json:"pages_rank"`
-	DiaryRank      pgtype.Int4      `json:"diary_rank"`
+	ThoughtsRank   pgtype.Int4      `json:"thoughts_rank"`
 	GenresRank     pgtype.Int4      `json:"genres_rank"`
 	XpRank         pgtype.Int4      `json:"xp_rank"`
 	StreakRank     pgtype.Int4      `json:"streak_rank"`
@@ -372,6 +351,34 @@ type TasteOverlap struct {
 	ComputedAt  pgtype.Timestamptz `json:"computed_at"`
 }
 
+type Thought struct {
+	ID            uuid.UUID        `json:"id"`
+	UserID        uuid.UUID        `json:"user_id"`
+	BookID        pgtype.UUID      `json:"book_id"`
+	Title         pgtype.Text      `json:"title"`
+	Content       string           `json:"content"`
+	IsPrivate     bool             `json:"is_private"`
+	Rating        pgtype.Int4      `json:"rating"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
+	Embedding     pgvector.Vector  `json:"embedding"`
+	EmbeddingText pgtype.Text      `json:"embedding_text"`
+	ThreadRootID  pgtype.UUID      `json:"thread_root_id"`
+}
+
+type ThoughtLike struct {
+	ID        uuid.UUID        `json:"id"`
+	UserID    uuid.UUID        `json:"user_id"`
+	ThoughtID uuid.UUID        `json:"thought_id"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
+type ThoughtRepost struct {
+	UserID    uuid.UUID        `json:"user_id"`
+	ThoughtID uuid.UUID        `json:"thought_id"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+}
+
 type User struct {
 	ID                     uuid.UUID          `json:"id"`
 	Username               string             `json:"username"`
@@ -398,7 +405,7 @@ type User struct {
 	TotalPagesRead         pgtype.Int4        `json:"total_pages_read"`
 	FavoritesCount         int32              `json:"favorites_count"`
 	ListsCount             int32              `json:"lists_count"`
-	DiaryEntriesCount      int32              `json:"diary_entries_count"`
+	ThoughtsCount          int32              `json:"thoughts_count"`
 	ReadingGoalYear        pgtype.Int4        `json:"reading_goal_year"`
 	ReadingGoalTarget      pgtype.Int4        `json:"reading_goal_target"`
 	ReadingGoalCurrent     pgtype.Int4        `json:"reading_goal_current"`
@@ -442,8 +449,8 @@ type UserSignalProfile struct {
 	ComputedAt            pgtype.Timestamptz `json:"computed_at"`
 	BookshelfHash         pgtype.Text        `json:"bookshelf_hash"`
 	VelocitySignal        []byte             `json:"velocity_signal"`
-	DiarySignal           []byte             `json:"diary_signal"`
-	DiaryEmbedding        pgvector.Vector    `json:"diary_embedding"`
+	ThoughtSignal         []byte             `json:"thought_signal"`
+	ThoughtEmbedding      pgvector.Vector    `json:"thought_embedding"`
 	SocialSignal          []byte             `json:"social_signal"`
 	SignalVersion         int32              `json:"signal_version"`
 	FastFinishEmbedding   pgvector.Vector    `json:"fast_finish_embedding"`

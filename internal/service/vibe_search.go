@@ -23,7 +23,7 @@ const (
 )
 
 // VibeSearch embeds the query, runs ANN, optionally personalises with the
-// user's diary centroid, caches the result, and returns a VibeSearchResponse.
+// user's thought centroid, caches the result, and returns a VibeSearchResponse.
 //
 // Test unauthenticated vibe search:
 //
@@ -66,7 +66,7 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		return types.VibeSearchResponse{}, fmt.Errorf("vibe ann: %w", err)
 	}
 
-	// 4. Optional personalised re-ranking via diary + fast-finish centroids.
+	// 4. Optional personalised re-ranking via thought + fast-finish centroids.
 	// tasteProfile keeps the same profile for the reason prompt, which wants the
 	// genre weights even when the centroids are too cold to re-rank with.
 	personalised := false
@@ -77,7 +77,7 @@ func (s *RecommendationService) VibeSearch(ctx context.Context, queries *db.Quer
 		p, err := s.GetOrComputeSignalProfile(ctx, userID)
 		if err == nil {
 			tasteProfile = &p
-			if p.DiaryEmbedding != nil || p.FastFinishEmbedding != nil {
+			if p.ThoughtEmbedding != nil || p.FastFinishEmbedding != nil {
 				vibeProfile = &p
 				personalised = true
 			}
@@ -309,21 +309,21 @@ func topWeighted(weights map[string]float64, n int) []string {
 	return keys
 }
 
-// vibeScore blends query similarity with diary and fast-finish centroids.
-// useV2=false: legacy 0.6/0.4 split (query + diary). useV2=true: 0.60/0.25/0.15.
+// vibeScore blends query similarity with thought and fast-finish centroids.
+// useV2=false: legacy 0.6/0.4 split (query + thought). useV2=true: 0.60/0.25/0.15.
 func vibeScore(querySim float64, bookEmb []float32, profile *UserSignalProfile, useV2 bool) float64 {
 	if profile == nil {
 		return querySim
 	}
 	if !useV2 {
-		if profile.DiaryEmbedding != nil && len(bookEmb) > 0 {
-			return 0.6*querySim + 0.4*util.CosineSimilarity(bookEmb, profile.DiaryEmbedding)
+		if profile.ThoughtEmbedding != nil && len(bookEmb) > 0 {
+			return 0.6*querySim + 0.4*util.CosineSimilarity(bookEmb, profile.ThoughtEmbedding)
 		}
 		return querySim
 	}
 	score := querySim * 0.60
-	if profile.DiaryEmbedding != nil && len(bookEmb) > 0 {
-		score += util.CosineSimilarity(bookEmb, profile.DiaryEmbedding) * 0.25
+	if profile.ThoughtEmbedding != nil && len(bookEmb) > 0 {
+		score += util.CosineSimilarity(bookEmb, profile.ThoughtEmbedding) * 0.25
 	}
 	if profile.FastFinishEmbedding != nil && len(bookEmb) > 0 {
 		score += util.CosineSimilarity(bookEmb, profile.FastFinishEmbedding) * 0.15

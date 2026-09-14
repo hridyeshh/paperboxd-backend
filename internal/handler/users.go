@@ -83,11 +83,11 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	if following, err := h.Queries.CountFollowing(r.Context(), user.ID); err == nil {
 		resp.FollowingCount = int32(following)
 	}
-	// Live diary count — the cached `users.diary_entries_count` column only gets
-	// incremented on the CreateDiaryEntry path, so it drifts from other diary
+	// Live thought count — the cached `users.thoughts_count` column only gets
+	// incremented on the CreateThought path, so it drifts from other thought
 	// mutation paths (imports, backfills) and shows a stale number on profile.
-	if diaryCount, err := h.Queries.CountUserDiaryEntries(r.Context(), user.ID); err == nil {
-		resp.DiaryEntriesCount = int32(diaryCount)
+	if thoughtCount, err := h.Queries.CountUserThoughts(r.Context(), user.ID); err == nil {
+		resp.ThoughtsCount = int32(thoughtCount)
 	}
 	// Live books-read + pages-read — the cached `users.books_read_count` and
 	// `total_pages_read` columns drift (imports/backfills don't touch them), so
@@ -145,25 +145,41 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 	// here, and the middleware blocks the routes that would serve it directly.
 	canView := user.IsPublic || isSelf || isFollowing
 	if !canView {
-		resp = types.UserResponse{
-			ID:             resp.ID,
-			MongoID:        resp.MongoID,
-			Username:       resp.Username,
-			Name:           resp.Name,
-			AvatarURL:      resp.AvatarURL,
-			Bio:            resp.Bio,
-			Pronouns:       resp.Pronouns,
-			IsPublic:       false,
-			FollowersCount: resp.FollowersCount,
-			FollowingCount: resp.FollowingCount,
-			CreatedAt:      resp.CreatedAt,
-			IsFollowing:    &isFollowing,
-			HasRequested:   &hasRequested,
-		}
+		resp = redactPrivateProfile(resp, isFollowing, hasRequested)
 	}
 	resp.CanView = &canView
 
 	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// redactPrivateProfile is the stub a private profile shows a stranger: who
+// this is and whether they have asked to follow, nothing they have read.
+//
+// Slices stay non-nil. The apps decode links, pronouns and favorite_genres as
+// non-optional arrays, so a JSON null failed the whole profile decode and a
+// private account could not be opened at all — not even to follow it.
+func redactPrivateProfile(resp types.UserResponse, isFollowing, hasRequested bool) types.UserResponse {
+	pronouns := resp.Pronouns
+	if pronouns == nil {
+		pronouns = []string{}
+	}
+	return types.UserResponse{
+		ID:             resp.ID,
+		MongoID:        resp.MongoID,
+		Username:       resp.Username,
+		Name:           resp.Name,
+		AvatarURL:      resp.AvatarURL,
+		Bio:            resp.Bio,
+		Pronouns:       pronouns,
+		Links:          []string{},
+		FavoriteGenres: []string{},
+		IsPublic:       false,
+		FollowersCount: resp.FollowersCount,
+		FollowingCount: resp.FollowingCount,
+		CreatedAt:      resp.CreatedAt,
+		IsFollowing:    &isFollowing,
+		HasRequested:   &hasRequested,
+	}
 }
 
 // Update handles PUT/PATCH /api/v1/users/:username (owner only)
@@ -843,22 +859,22 @@ func (h *UserHandler) UploadBanner(w http.ResponseWriter, r *http.Request) {
 
 func userToResponse(u db.User) types.UserResponse {
 	resp := types.UserResponse{
-		ID:                u.ID.String(),
-		MongoID:           u.ID.String(),
-		Username:          u.Username,
-		Email:             u.Email,
-		IsPublic:          u.IsPublic,
-		BooksReadCount:    u.BooksReadCount.Int32,
-		TotalPagesRead:    u.TotalPagesRead.Int32,
-		FavoritesCount:    u.FavoritesCount,
-		ListsCount:        u.ListsCount,
-		DiaryEntriesCount: u.DiaryEntriesCount,
-		FollowersCount:    u.FollowersCount.Int32,
-		FollowingCount:    u.FollowingCount.Int32,
-		FavoriteGenres:    u.FavoriteGenres,
-		CreatedAt:         u.CreatedAt.Time.Format(time.RFC3339),
-		Pronouns:          u.Pronouns,
-		Links:             u.Links,
+		ID:             u.ID.String(),
+		MongoID:        u.ID.String(),
+		Username:       u.Username,
+		Email:          u.Email,
+		IsPublic:       u.IsPublic,
+		BooksReadCount: u.BooksReadCount.Int32,
+		TotalPagesRead: u.TotalPagesRead.Int32,
+		FavoritesCount: u.FavoritesCount,
+		ListsCount:     u.ListsCount,
+		ThoughtsCount:  u.ThoughtsCount,
+		FollowersCount: u.FollowersCount.Int32,
+		FollowingCount: u.FollowingCount.Int32,
+		FavoriteGenres: u.FavoriteGenres,
+		CreatedAt:      u.CreatedAt.Time.Format(time.RFC3339),
+		Pronouns:       u.Pronouns,
+		Links:          u.Links,
 	}
 	if resp.Pronouns == nil {
 		resp.Pronouns = []string{}

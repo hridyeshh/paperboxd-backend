@@ -14,7 +14,7 @@ import (
 )
 
 func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) error {
-	stats := &migrationStats{collection: "diary_entries"}
+	stats := &migrationStats{collection: "thoughts"}
 	defer stats.log()
 
 	col := conn.Mongo.Collection("users")
@@ -32,7 +32,7 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 
 	for cur.Next(ctx) {
 		userDocs++
-		logMigrationProgress("diary_entries", userDocs, diaryProgressEvery, stepStart)
+		logMigrationProgress("thoughts", userDocs, diaryProgressEvery, stepStart)
 
 		var u struct {
 			ID           bson.ObjectID     `bson:"_id"`
@@ -84,7 +84,7 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 
 			if !dryRun {
 				_, err := conn.PG.Exec(ctx, `
-					INSERT INTO diary_entries (
+					INSERT INTO thoughts (
 						id, user_id, book_id, title, content, is_private,
 						created_at, updated_at
 					) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
@@ -99,7 +99,7 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 					updatedAt.UTC(),
 				)
 				if err != nil {
-					logErr("diary_entries", "insert", err, de.ID.Hex())
+					logErr("thoughts", "insert", err, de.ID.Hex())
 					stats.errors++
 					continue
 				}
@@ -112,12 +112,12 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 				likerUUID := idmap.FromObjectID(likerOID)
 				if !dryRun {
 					_, err := conn.PG.Exec(ctx, `
-						INSERT INTO diary_entry_likes (user_id, entry_id, created_at)
+						INSERT INTO thought_likes (user_id, thought_id, created_at)
 						VALUES ($1, $2, NOW())
 						ON CONFLICT DO NOTHING
 					`, pgUUID(likerUUID), pgUUID(entryUUID))
 					if err != nil {
-						logErr("diary_entry_likes", "insert", err,
+						logErr("thought_likes", "insert", err,
 							fmt.Sprintf("entry=%s liker=%s", de.ID.Hex(), likerOID.Hex()))
 						stats.errors++
 					}
@@ -125,11 +125,11 @@ func migrateDiaryEntries(ctx context.Context, conn *Connections, dryRun bool) er
 			}
 		}
 
-		// Update diary_entries_count
+		// Update thoughts_count
 		if !dryRun && entryCount > 0 {
 			_, _ = conn.PG.Exec(ctx, `
-				UPDATE users SET diary_entries_count = (
-					SELECT COUNT(*) FROM diary_entries WHERE user_id = $1
+				UPDATE users SET thoughts_count = (
+					SELECT COUNT(*) FROM thoughts WHERE user_id = $1
 				) WHERE id = $1
 			`, pgUUID(userUUID))
 		}

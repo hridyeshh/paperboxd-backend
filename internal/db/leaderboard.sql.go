@@ -52,7 +52,7 @@ func (q *Queries) AddXP(ctx context.Context, arg AddXPParams) error {
 
 const getFriendsLeaderboard = `-- name: GetFriendsLeaderboard :many
 
-SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.diary_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
+SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.thoughts, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.thoughts_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
 FROM leaderboard_stats ls
 INNER JOIN users u ON ls.user_id = u.id
 WHERE u.deleted_at IS NULL
@@ -60,7 +60,7 @@ WHERE u.deleted_at IS NULL
     ls.user_id = $1
     OR ls.user_id IN (SELECT f.following_id FROM follows f WHERE f.follower_id = $1)
   )
-  AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.diary_entries > 0)
+  AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.thoughts > 0)
 ORDER BY ls.total_xp DESC, ls.books_read DESC
 LIMIT $2
 `
@@ -88,14 +88,14 @@ func (q *Queries) GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeade
 			&i.Username,
 			&i.BooksRead,
 			&i.PagesRead,
-			&i.DiaryEntries,
+			&i.Thoughts,
 			&i.GenresExplored,
 			&i.TotalXp,
 			&i.Level,
 			&i.CurrentStreak,
 			&i.BooksRank,
 			&i.PagesRank,
-			&i.DiaryRank,
+			&i.ThoughtsRank,
 			&i.GenresRank,
 			&i.XpRank,
 			&i.StreakRank,
@@ -112,7 +112,7 @@ func (q *Queries) GetFriendsLeaderboard(ctx context.Context, arg GetFriendsLeade
 }
 
 const getGlobalLeaderboard = `-- name: GetGlobalLeaderboard :many
-SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.diary_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
+SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.thoughts, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.thoughts_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
 FROM leaderboard_stats ls
 INNER JOIN users u ON ls.user_id = u.id
 WHERE u.show_on_leaderboard = true
@@ -136,14 +136,14 @@ func (q *Queries) GetGlobalLeaderboard(ctx context.Context, limit int32) ([]Lead
 			&i.Username,
 			&i.BooksRead,
 			&i.PagesRead,
-			&i.DiaryEntries,
+			&i.Thoughts,
 			&i.GenresExplored,
 			&i.TotalXp,
 			&i.Level,
 			&i.CurrentStreak,
 			&i.BooksRank,
 			&i.PagesRank,
-			&i.DiaryRank,
+			&i.ThoughtsRank,
 			&i.GenresRank,
 			&i.XpRank,
 			&i.StreakRank,
@@ -160,7 +160,7 @@ func (q *Queries) GetGlobalLeaderboard(ctx context.Context, limit int32) ([]Lead
 }
 
 const getLeaderboardByDimension = `-- name: GetLeaderboardByDimension :many
-SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.diary_entries, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.diary_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
+SELECT ls.user_id, ls.username, ls.books_read, ls.pages_read, ls.thoughts, ls.genres_explored, ls.total_xp, ls.level, ls.current_streak, ls.books_rank, ls.pages_rank, ls.thoughts_rank, ls.genres_rank, ls.xp_rank, ls.streak_rank, ls.updated_at
 FROM leaderboard_stats ls
 INNER JOIN users u ON ls.user_id = u.id
 WHERE u.show_on_leaderboard = true
@@ -169,7 +169,7 @@ ORDER BY
   CASE $1::text
     WHEN 'books' THEN ls.books_read
     WHEN 'pages' THEN ls.pages_read
-    WHEN 'diary' THEN ls.diary_entries
+    WHEN 'thoughts' THEN ls.thoughts
     WHEN 'genres' THEN ls.genres_explored
     WHEN 'streak' THEN ls.current_streak
     ELSE ls.total_xp
@@ -197,14 +197,14 @@ func (q *Queries) GetLeaderboardByDimension(ctx context.Context, arg GetLeaderbo
 			&i.Username,
 			&i.BooksRead,
 			&i.PagesRead,
-			&i.DiaryEntries,
+			&i.Thoughts,
 			&i.GenresExplored,
 			&i.TotalXp,
 			&i.Level,
 			&i.CurrentStreak,
 			&i.BooksRank,
 			&i.PagesRank,
-			&i.DiaryRank,
+			&i.ThoughtsRank,
 			&i.GenresRank,
 			&i.XpRank,
 			&i.StreakRank,
@@ -222,7 +222,7 @@ func (q *Queries) GetLeaderboardByDimension(ctx context.Context, arg GetLeaderbo
 
 const getUserLeaderboardStats = `-- name: GetUserLeaderboardStats :one
 
-SELECT user_id, username, books_read, pages_read, diary_entries, genres_explored, total_xp, level, current_streak, books_rank, pages_rank, diary_rank, genres_rank, xp_rank, streak_rank, updated_at FROM leaderboard_stats WHERE user_id = $1
+SELECT user_id, username, books_read, pages_read, thoughts, genres_explored, total_xp, level, current_streak, books_rank, pages_rank, thoughts_rank, genres_rank, xp_rank, streak_rank, updated_at FROM leaderboard_stats WHERE user_id = $1
 `
 
 // ============================================================================
@@ -236,14 +236,14 @@ func (q *Queries) GetUserLeaderboardStats(ctx context.Context, userID uuid.UUID)
 		&i.Username,
 		&i.BooksRead,
 		&i.PagesRead,
-		&i.DiaryEntries,
+		&i.Thoughts,
 		&i.GenresExplored,
 		&i.TotalXp,
 		&i.Level,
 		&i.CurrentStreak,
 		&i.BooksRank,
 		&i.PagesRank,
-		&i.DiaryRank,
+		&i.ThoughtsRank,
 		&i.GenresRank,
 		&i.XpRank,
 		&i.StreakRank,
@@ -382,7 +382,7 @@ INSERT INTO leaderboard_stats (
   username,
   books_read,
   pages_read,
-  diary_entries,
+  thoughts,
   genres_explored,
   total_xp,
   level,
@@ -396,7 +396,7 @@ SELECT
     FROM bookshelf bs
     JOIN books b ON bs.book_id = b.id
     WHERE bs.user_id = u.id AND bs.status = 'read' AND b.page_count IS NOT NULL), 0)::INTEGER,
-  COALESCE((SELECT COUNT(*) FROM diary_entries WHERE user_id = u.id), 0)::INTEGER,
+  COALESCE((SELECT COUNT(*) FROM thoughts WHERE user_id = u.id AND thread_root_id IS NULL), 0)::INTEGER,
   COALESCE(array_length(u.favorite_genres, 1), 0),
   u.total_xp,
   u.level,
@@ -407,7 +407,7 @@ DO UPDATE SET
   username = EXCLUDED.username,
   books_read = EXCLUDED.books_read,
   pages_read = EXCLUDED.pages_read,
-  diary_entries = EXCLUDED.diary_entries,
+  thoughts = EXCLUDED.thoughts,
   genres_explored = EXCLUDED.genres_explored,
   total_xp = EXCLUDED.total_xp,
   level = EXCLUDED.level,
@@ -426,7 +426,7 @@ INSERT INTO leaderboard_stats (
   username,
   books_read,
   pages_read,
-  diary_entries,
+  thoughts,
   genres_explored,
   total_xp,
   level,
@@ -440,7 +440,7 @@ SELECT
     FROM bookshelf bs
     JOIN books b ON bs.book_id = b.id
     WHERE bs.user_id = u.id AND bs.status = 'read' AND b.page_count IS NOT NULL), 0)::INTEGER as pages_read,
-  COALESCE((SELECT COUNT(*) FROM diary_entries WHERE user_id = u.id), 0)::INTEGER as diary_entries,
+  COALESCE((SELECT COUNT(*) FROM thoughts WHERE user_id = u.id AND thread_root_id IS NULL), 0)::INTEGER as thoughts,
   COALESCE(array_length(u.favorite_genres, 1), 0) as genres_explored,
   u.total_xp,
   u.level,
@@ -452,13 +452,13 @@ DO UPDATE SET
   username = EXCLUDED.username,
   books_read = EXCLUDED.books_read,
   pages_read = EXCLUDED.pages_read,
-  diary_entries = EXCLUDED.diary_entries,
+  thoughts = EXCLUDED.thoughts,
   genres_explored = EXCLUDED.genres_explored,
   total_xp = EXCLUDED.total_xp,
   level = EXCLUDED.level,
   current_streak = EXCLUDED.current_streak,
   updated_at = NOW()
-RETURNING user_id, username, books_read, pages_read, diary_entries, genres_explored, total_xp, level, current_streak, books_rank, pages_rank, diary_rank, genres_rank, xp_rank, streak_rank, updated_at
+RETURNING user_id, username, books_read, pages_read, thoughts, genres_explored, total_xp, level, current_streak, books_rank, pages_rank, thoughts_rank, genres_rank, xp_rank, streak_rank, updated_at
 `
 
 func (q *Queries) RebuildUserLeaderboardStats(ctx context.Context, id uuid.UUID) (LeaderboardStat, error) {
@@ -469,14 +469,14 @@ func (q *Queries) RebuildUserLeaderboardStats(ctx context.Context, id uuid.UUID)
 		&i.Username,
 		&i.BooksRead,
 		&i.PagesRead,
-		&i.DiaryEntries,
+		&i.Thoughts,
 		&i.GenresExplored,
 		&i.TotalXp,
 		&i.Level,
 		&i.CurrentStreak,
 		&i.BooksRank,
 		&i.PagesRank,
-		&i.DiaryRank,
+		&i.ThoughtsRank,
 		&i.GenresRank,
 		&i.XpRank,
 		&i.StreakRank,
@@ -491,7 +491,7 @@ WITH ranked AS (
     user_id,
     ROW_NUMBER() OVER (ORDER BY books_read DESC, total_xp DESC) as books_rank,
     ROW_NUMBER() OVER (ORDER BY pages_read DESC, total_xp DESC) as pages_rank,
-    ROW_NUMBER() OVER (ORDER BY diary_entries DESC, total_xp DESC) as diary_rank,
+    ROW_NUMBER() OVER (ORDER BY thoughts DESC, total_xp DESC) as thoughts_rank,
     ROW_NUMBER() OVER (ORDER BY genres_explored DESC, total_xp DESC) as genres_rank,
     ROW_NUMBER() OVER (ORDER BY total_xp DESC, books_read DESC) as xp_rank,
     ROW_NUMBER() OVER (ORDER BY current_streak DESC, total_xp DESC) as streak_rank
@@ -501,7 +501,7 @@ UPDATE leaderboard_stats ls
 SET
   books_rank = r.books_rank::INTEGER,
   pages_rank = r.pages_rank::INTEGER,
-  diary_rank = r.diary_rank::INTEGER,
+  thoughts_rank = r.thoughts_rank::INTEGER,
   genres_rank = r.genres_rank::INTEGER,
   xp_rank = r.xp_rank::INTEGER,
   streak_rank = r.streak_rank::INTEGER

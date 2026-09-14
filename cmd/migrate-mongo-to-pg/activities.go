@@ -119,7 +119,7 @@ func migrateActivities(ctx context.Context, conn *Connections, dryRun bool) erro
 
 			_, err := conn.PG.Exec(ctx, `
 				INSERT INTO activities (
-					user_id, activity_type, book_id, list_id, entry_id,
+					user_id, activity_type, book_id, list_id, thought_id,
 					target_user_id, created_at
 				) VALUES ($1, $2, $3, $4, $5, $6, $7)
 			`,

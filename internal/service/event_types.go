@@ -62,12 +62,13 @@ const (
 	EventUserFollowed   = "user_followed"
 	EventUserUnfollowed = "user_unfollowed"
 
-	// Diary and lists.
-	EventDiaryEntryCreated = "diary_entry_created"
-	EventDiaryEntryLiked   = "diary_entry_liked"
-	EventListCreated       = "list_created"
-	EventListBookAdded     = "list_book_added"
-	EventListShared        = "list_shared"
+	// Thoughts and lists.
+	EventThoughtCreated  = "thought_created"
+	EventThoughtLiked    = "thought_liked"
+	EventThoughtReposted = "thought_reposted"
+	EventListCreated     = "list_created"
+	EventListBookAdded   = "list_book_added"
+	EventListShared      = "list_shared"
 )
 
 // validEventTypes is the set ValidEventType checks against.
@@ -91,7 +92,7 @@ var validEventTypes = map[string]struct{}{
 
 	EventUserFollowed: {}, EventUserUnfollowed: {},
 
-	EventDiaryEntryCreated: {}, EventDiaryEntryLiked: {},
+	EventThoughtCreated: {}, EventThoughtLiked: {}, EventThoughtReposted: {},
 	EventListCreated: {}, EventListBookAdded: {}, EventListShared: {},
 }
 
@@ -124,8 +125,10 @@ var legacyEventNames = map[string]string{
 	"book.liked":               EventBookLiked,
 	"book.unliked":             EventBookUnliked,
 	"book.searched":            EventBookSearched,
-	"diary.entry_created":      EventDiaryEntryCreated,
-	"diary.entry_liked":        EventDiaryEntryLiked,
+	"diary.entry_created":      EventThoughtCreated,
+	"diary_entry_created":      EventThoughtCreated,
+	"diary.entry_liked":        EventThoughtLiked,
+	"diary_entry_liked":        EventThoughtLiked,
 	"list.created":             EventListCreated,
 	"list.book_added":          EventListBookAdded,
 	"list.shared":              EventListShared,

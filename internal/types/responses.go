@@ -23,29 +23,29 @@ type TokenResponse struct {
 
 // UserResponse with all frontend-expected fields.
 type UserResponse struct {
-	ID                string   `json:"id"`
-	MongoID           string   `json:"_id"`
-	Username          string   `json:"username"`
-	Email             string   `json:"email,omitempty"`
-	Name              string   `json:"name"`
-	AvatarURL         *string  `json:"avatar_url,omitempty"`
-	BannerURL         *string  `json:"banner_url,omitempty"`
-	Bio               *string  `json:"bio,omitempty"`
-	Pronouns          []string `json:"pronouns"`
-	Birthday          *string  `json:"birthday,omitempty"`
-	Gender            *string  `json:"gender,omitempty"`
-	Links             []string `json:"links"`
-	IsPublic          bool     `json:"is_public"`
-	BooksReadCount    int32    `json:"books_read_count"`
-	TotalPagesRead    int32    `json:"total_pages_read"`
-	FavoritesCount    int32    `json:"favorites_count"`
-	ListsCount        int32    `json:"lists_count"`
-	DiaryEntriesCount int32    `json:"diary_entries_count"`
-	FollowersCount    int32    `json:"followers_count"`
-	FollowingCount    int32    `json:"following_count"`
-	FavoriteGenres    []string `json:"favorite_genres"`
-	CreatedAt         string   `json:"created_at"`
-	IsFollowing       *bool    `json:"is_following,omitempty"`
+	ID             string   `json:"id"`
+	MongoID        string   `json:"_id"`
+	Username       string   `json:"username"`
+	Email          string   `json:"email,omitempty"`
+	Name           string   `json:"name"`
+	AvatarURL      *string  `json:"avatar_url,omitempty"`
+	BannerURL      *string  `json:"banner_url,omitempty"`
+	Bio            *string  `json:"bio,omitempty"`
+	Pronouns       []string `json:"pronouns"`
+	Birthday       *string  `json:"birthday,omitempty"`
+	Gender         *string  `json:"gender,omitempty"`
+	Links          []string `json:"links"`
+	IsPublic       bool     `json:"is_public"`
+	BooksReadCount int32    `json:"books_read_count"`
+	TotalPagesRead int32    `json:"total_pages_read"`
+	FavoritesCount int32    `json:"favorites_count"`
+	ListsCount     int32    `json:"lists_count"`
+	ThoughtsCount  int32    `json:"thoughts_count"`
+	FollowersCount int32    `json:"followers_count"`
+	FollowingCount int32    `json:"following_count"`
+	FavoriteGenres []string `json:"favorite_genres"`
+	CreatedAt      string   `json:"created_at"`
+	IsFollowing    *bool    `json:"is_following,omitempty"`
 	// HasRequested is set on a private profile a viewer cannot see yet: true once
 	// they have a follow request pending with the owner.
 	HasRequested *bool `json:"has_requested,omitempty"`
@@ -318,36 +318,57 @@ type ListAccessResponse struct {
 	GrantedAt time.Time `json:"granted_at"`
 }
 
-// DiaryEntryResponse is returned from diary entry endpoints.
-type DiaryEntryResponse struct {
-	ID         string        `json:"id"`
-	UserID     string        `json:"user_id"`
-	Username   string        `json:"username"`
-	Name       string        `json:"name"`
-	AvatarURL  *string       `json:"avatar_url"`
-	BookID     *string       `json:"book_id"`
-	Book       *BookResponse `json:"book,omitempty"`
-	Title      *string       `json:"title"`
-	Content    string        `json:"content"`
-	IsPrivate  bool          `json:"is_private"`
-	Rating     *int          `json:"rating"`
-	LikesCount int64         `json:"likes_count"`
-	IsLiked    bool          `json:"is_liked"`
-	CanEdit    bool          `json:"can_edit"`
-	CreatedAt  time.Time     `json:"created_at"`
-	UpdatedAt  time.Time     `json:"updated_at"`
+// ThoughtResponse is returned from thought endpoints.
+type ThoughtResponse struct {
+	ID           string        `json:"id"`
+	UserID       string        `json:"user_id"`
+	Username     string        `json:"username"`
+	Name         string        `json:"name"`
+	AvatarURL    *string       `json:"avatar_url"`
+	BookID       *string       `json:"book_id"`
+	Book         *BookResponse `json:"book,omitempty"`
+	Title        *string       `json:"title"`
+	Content      string        `json:"content"`
+	IsPrivate    bool          `json:"is_private"`
+	Rating       *int          `json:"rating"`
+	LikesCount   int64         `json:"likes_count"`
+	IsLiked      bool          `json:"is_liked"`
+	RepostsCount int64         `json:"reposts_count"`
+	IsReposted   bool          `json:"is_reposted"`
+	// ThreadRootID is set on a follow-up: the thought that started its thread.
+	ThreadRootID *string `json:"thread_root_id"`
+	// ThreadCount is how many follow-ups a thread-starting thought has.
+	ThreadCount int64 `json:"thread_count"`
+	// RepostedBy is set when the row is on a profile because that reader
+	// reposted it, not because they wrote it.
+	RepostedBy *ThoughtReposter `json:"reposted_by,omitempty"`
+	CanEdit    bool             `json:"can_edit"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
 }
 
-// DiaryEntriesResponse is the paginated list from GET /api/v1/users/:username/diary.
-type DiaryEntriesResponse struct {
-	Entries    []DiaryEntryResponse `json:"entries"`
-	TotalCount int64                `json:"total_count"`
-	Page       int                  `json:"page"`
-	PageSize   int                  `json:"page_size"`
-	Pagination *PaginationMeta      `json:"pagination,omitempty"`
+// ThoughtReposter names the reader whose repost put a thought on a profile.
+type ThoughtReposter struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
 }
 
-func (r DiaryEntriesResponse) WithPagination() DiaryEntriesResponse {
+// ThoughtsResponse is the paginated list from GET /api/v1/users/:username/thoughts.
+type ThoughtsResponse struct {
+	Thoughts   []ThoughtResponse `json:"thoughts"`
+	TotalCount int64             `json:"total_count"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"page_size"`
+	Pagination *PaginationMeta   `json:"pagination,omitempty"`
+}
+
+// ThoughtThreadResponse is GET /api/v1/users/:username/thoughts/:thoughtId/thread:
+// the first thought followed by its follow-ups in writing order.
+type ThoughtThreadResponse struct {
+	Thoughts []ThoughtResponse `json:"thoughts"`
+}
+
+func (r ThoughtsResponse) WithPagination() ThoughtsResponse {
 	r.Pagination = NewPagination(r.Page, r.PageSize, r.TotalCount)
 	return r
 }
@@ -365,8 +386,8 @@ type ActivityResponse struct {
 	BookSlug       *string   `json:"book_slug"`
 	ListID         *string   `json:"list_id"`
 	ListTitle      *string   `json:"list_title"`
-	EntryID        *string   `json:"entry_id"`
-	EntryTitle     *string   `json:"entry_title"`
+	ThoughtID      *string   `json:"thought_id"`
+	ThoughtTitle   *string   `json:"thought_title"`
 	TargetUserID   *string   `json:"target_user_id"`
 	TargetUsername *string   `json:"target_username"`
 	CreatedAt      time.Time `json:"created_at"`

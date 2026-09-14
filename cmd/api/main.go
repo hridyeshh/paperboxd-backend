@@ -211,7 +211,7 @@ func main() {
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc)
 
-	diaryHandler := handler.NewDiaryHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
+	thoughtHandler := handler.NewThoughtHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
 	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient, hardcoverClient)
 	scanHandler.EventSvc = eventSvc
 
@@ -384,7 +384,7 @@ func main() {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", bookHandler.GetByID)
 				// OptionalAuthenticate so the block filter sees the viewer.
-				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/diary", diaryHandler.GetBookDiaryEntries)
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/thoughts", thoughtHandler.GetBookThoughts)
 				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/reviews", bookHandler.GetBookReviews)
 				// Social proof: Paperboxd reader stats, friends, lists. Friends
 				// only when the viewer is signed in.
@@ -544,23 +544,26 @@ func main() {
 					r.Delete("/block", userHandler.Unblock)
 				})
 
-				// Diary routes. GETs use OptionalAuthenticate so the SQL viewer-id
-				// clause sees the requester and surfaces their own private entries
+				// Thought routes. GETs use OptionalAuthenticate so the SQL viewer-id
+				// clause sees the requester and surfaces their own private thoughts
 				// (and 404s strangers correctly via the IsPrivate check in the
-				// single-entry handler).
-				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/diary", diaryHandler.GetUserDiaryEntries)
+				// single-thought handler).
+				r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/thoughts", thoughtHandler.GetUserThoughts)
 				r.Group(func(r chi.Router) {
 					r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
-					r.Post("/diary", diaryHandler.CreateDiaryEntry)
+					r.Post("/thoughts", thoughtHandler.CreateThought)
 				})
-				r.Route("/diary/{entryId}", func(r chi.Router) {
-					r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/", diaryHandler.GetDiaryEntry)
+				r.Route("/thoughts/{thoughtId}", func(r chi.Router) {
+					r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/", thoughtHandler.GetThought)
+					r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Get("/thread", thoughtHandler.GetThoughtThread)
 					r.Group(func(r chi.Router) {
 						r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
-						r.Put("/", diaryHandler.UpdateDiaryEntry)
-						r.Delete("/", diaryHandler.DeleteDiaryEntry)
-						r.Post("/like", diaryHandler.LikeDiaryEntry)
-						r.Delete("/like", diaryHandler.UnlikeDiaryEntry)
+						r.Put("/", thoughtHandler.UpdateThought)
+						r.Delete("/", thoughtHandler.DeleteThought)
+						r.Post("/like", thoughtHandler.LikeThought)
+						r.Delete("/like", thoughtHandler.UnlikeThought)
+						r.Post("/repost", thoughtHandler.RepostThought)
+						r.Delete("/repost", thoughtHandler.UnrepostThought)
 					})
 				})
 

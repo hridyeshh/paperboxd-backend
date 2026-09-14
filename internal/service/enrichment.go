@@ -45,7 +45,7 @@ func NewEnricher(isbndbAPIKey, googleBooksAPIKey string) *Enricher {
 
 var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
 
-// StripHTML removes HTML tags and trims whitespace. Used for Tiptap diary content.
+// StripHTML removes HTML tags and trims whitespace. Used for Tiptap thought content.
 func StripHTML(s string) string {
 	return strings.TrimSpace(htmlTagRe.ReplaceAllString(s, ""))
 }

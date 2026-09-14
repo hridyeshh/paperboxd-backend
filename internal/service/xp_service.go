@@ -18,14 +18,14 @@ const (
 	XPBookRead       = 25
 	XPAddToTBR       = 2
 	XPReadProgress   = 5
-	XPDiaryEntry     = 15
-	XPBookDiary      = 20
+	XPThought        = 15
+	XPBookThought    = 20
 	XPCreateList     = 15
 	XPCreateListMore = 5
 	XPAddToList      = 1
 
 	XPFollowGained = 5 // awarded to the person being followed
-	XPDiaryLiked   = 5 // awarded to the diary entry author
+	XPThoughtLiked = 5 // awarded to the thought author
 
 	XPStreak7   = 50
 	XPStreak30  = 200
@@ -120,11 +120,11 @@ func (s *XPService) GetXPForAction(actionType string, metadata map[string]any) i
 		return XPAddToTBR
 	case "read_progress":
 		return XPReadProgress
-	case "diary_entry":
+	case "thought":
 		if metadata != nil && metadata["book_specific"] == true {
-			return XPBookDiary
+			return XPBookThought
 		}
-		return XPDiaryEntry
+		return XPThought
 	case "create_list":
 		if metadata != nil && metadata["is_first_list"] == true {
 			return XPCreateList
@@ -148,8 +148,8 @@ func (s *XPService) GetXPForAction(actionType string, metadata map[string]any) i
 		return XPReferral30Day
 	case "follow_gained":
 		return XPFollowGained
-	case "diary_liked":
-		return XPDiaryLiked
+	case "thought_liked":
+		return XPThoughtLiked
 	case "new_genre":
 		return XPNewGenre
 	case "genre_diversity":

@@ -83,7 +83,7 @@ type Candidate struct {
 	ReasonType      string  // set by ReasonEngine, read by candidateToBookCandidate
 	// scoreV2 outputs — set by rankCandidates, read by reason engine (Phase 5)
 	VelocityBoost float32
-	DiaryBoost    float32
+	ThoughtBoost  float32
 	IsAbandoned   bool
 
 	// Trait axes for this book, loaded by fetchCandidateTraits. Nil when the
@@ -660,7 +660,7 @@ const (
 	wGenre      = 0.08
 	wAuthor     = 0.07
 	wVelocity   = 0.06
-	wDiary      = 0.06
+	wThought    = 0.06
 	wQuality    = 0.05 // external average rating, discounted by ratings count
 	wPopularity = 0.04 // Paperboxd shelf count, counted live
 
@@ -675,7 +675,7 @@ type scoreOptions struct {
 	recentTaste   bool
 }
 
-// scoreV2 is the multi-signal ranking formula. Sets VelocityBoost, DiaryBoost,
+// scoreV2 is the multi-signal ranking formula. Sets VelocityBoost, ThoughtBoost,
 // TraitFitScore, TraitClashScore and IsAbandoned on c as side effects, so the
 // reason engine can explain the book using the same numbers that ranked it.
 //
@@ -739,10 +739,10 @@ func (s *RecommendationService) scoreV2(c *Candidate, profile *UserSignalProfile
 		add(sim, wVelocity)
 	}
 
-	if profile.DiaryEmbedding != nil && c.Embedding != nil {
-		sim := util.CosineSimilarity(c.Embedding, profile.DiaryEmbedding)
-		c.DiaryBoost = float32(sim * wDiary)
-		add(sim, wDiary)
+	if profile.ThoughtEmbedding != nil && c.Embedding != nil {
+		sim := util.CosineSimilarity(c.Embedding, profile.ThoughtEmbedding)
+		c.ThoughtBoost = float32(sim * wThought)
+		add(sim, wThought)
 	}
 
 	// Trait fit is scaled by the extractor's own confidence in the book: a
@@ -931,12 +931,12 @@ func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, user
 	var genreJSON, authorJSON, velocityJSON []byte
 	var traitPrefsJSON, traitDislikesJSON, traitConfJSON []byte
 	var recentPrefsJSON, recentConfJSON []byte
-	var diaryVecLit, fastFinishVecLit *string
+	var thoughtVecLit, fastFinishVecLit *string
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT user_id::text, genre_weights, author_weights, computed_at,
 		       velocity_signal,
-		       CASE WHEN diary_embedding IS NOT NULL THEN diary_embedding::text END,
+		       CASE WHEN thought_embedding IS NOT NULL THEN thought_embedding::text END,
 		       CASE WHEN fast_finish_embedding IS NOT NULL THEN fast_finish_embedding::text END,
 		       trait_prefs, trait_dislikes, trait_confidence,
 		       trait_recent, trait_recent_confidence
@@ -944,7 +944,7 @@ func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, user
 		WHERE user_id = $1
 	`, userID).Scan(
 		&profile.UserID, &genreJSON, &authorJSON, &profile.ComputedAt,
-		&velocityJSON, &diaryVecLit, &fastFinishVecLit,
+		&velocityJSON, &thoughtVecLit, &fastFinishVecLit,
 		&traitPrefsJSON, &traitDislikesJSON, &traitConfJSON,
 		&recentPrefsJSON, &recentConfJSON,
 	)
@@ -960,9 +960,9 @@ func (s *RecommendationService) getSignalProfileFromDB(ctx context.Context, user
 			profile.VelocitySignal = &vel
 		}
 	}
-	if diaryVecLit != nil {
-		if vec, err := parsePGVectorLiteral(*diaryVecLit); err == nil {
-			profile.DiaryEmbedding = vec
+	if thoughtVecLit != nil {
+		if vec, err := parsePGVectorLiteral(*thoughtVecLit); err == nil {
+			profile.ThoughtEmbedding = vec
 		}
 	}
 	if fastFinishVecLit != nil {
@@ -1819,10 +1819,10 @@ func parsePGVectorLiteral(s string) ([]float32, error) {
 	return vec, nil
 }
 
-// ── Diary embedding ───────────────────────────────────────────────────────────
+// ── Thought embedding ───────────────────────────────────────────────────────────
 
-// DiaryEmbedText builds the composite text for a diary entry embedding.
-func DiaryEmbedText(bookTitle string, bookAuthors []string, content string) string {
+// ThoughtEmbedText builds the composite text for a thought embedding.
+func ThoughtEmbedText(bookTitle string, bookAuthors []string, content string) string {
 	clean := StripHTML(content)
 	var parts []string
 	if bookTitle != "" {
@@ -1837,66 +1837,66 @@ func DiaryEmbedText(bookTitle string, bookAuthors []string, content string) stri
 	return strings.Join(parts, "\n")
 }
 
-// ClearDiaryEmbedding drops the stored vector and the cleartext embedding_text
+// ClearThoughtEmbedding drops the stored vector and the cleartext embedding_text
 // for one entry. Used when an entry becomes private: the centroid query filters
 // on `embedding IS NOT NULL`, so clearing the vector also removes the entry from
-// the next diary_embedding recompute without touching the aggregate directly.
-func (s *RecommendationService) ClearDiaryEmbedding(ctx context.Context, entryID string) error {
+// the next thought_embedding recompute without touching the aggregate directly.
+func (s *RecommendationService) ClearThoughtEmbedding(ctx context.Context, thoughtID string) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE diary_entries SET embedding = NULL, embedding_text = NULL WHERE id = $1`,
-		entryID,
+		`UPDATE thoughts SET embedding = NULL, embedding_text = NULL WHERE id = $1`,
+		thoughtID,
 	)
 	return err
 }
 
-// EmbedDiaryEntryAsync embeds a diary entry and persists the vector.
+// EmbedThoughtAsync embeds a thought and persists the vector.
 // Designed to run as a fire-and-forget goroutine.
-func (s *RecommendationService) EmbedDiaryEntryAsync(entryID, bookTitle string, bookAuthors []string, content string) {
+func (s *RecommendationService) EmbedThoughtAsync(thoughtID, bookTitle string, bookAuthors []string, content string) {
 	ctx := context.Background()
-	embedText := DiaryEmbedText(bookTitle, bookAuthors, content)
+	embedText := ThoughtEmbedText(bookTitle, bookAuthors, content)
 	if embedText == "" {
 		return
 	}
 
 	vecs, err := s.embedder.EmbedTexts([]string{embedText}, "search_document")
 	if err != nil || len(vecs) == 0 {
-		slog.Warn("embed diary entry failed", "entry_id", entryID, "error", err)
+		slog.Warn("embed thought failed", "thought_id", thoughtID, "error", err)
 		return
 	}
 
 	vec := float32SliceToLiteral(vecs[0])
 	_, err = s.pool.Exec(ctx,
-		`UPDATE diary_entries SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
-		vec, embedText, entryID,
+		`UPDATE thoughts SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
+		vec, embedText, thoughtID,
 	)
 	if err != nil {
-		slog.Warn("save diary embedding failed", "entry_id", entryID, "error", err)
+		slog.Warn("save thought embedding failed", "thought_id", thoughtID, "error", err)
 		return
 	}
-	slog.Debug("embedded diary entry", "entry_id", entryID)
+	slog.Debug("embedded thought", "thought_id", thoughtID)
 }
 
-// ── Diary centroid ────────────────────────────────────────────────────────────
+// ── Thought centroid ────────────────────────────────────────────────────────────
 
-// DiarySignal holds stats about a user's diary embedding state.
-type DiarySignal struct {
+// ThoughtSignal holds stats about a user's thought embedding state.
+type ThoughtSignal struct {
 	EntryCount         int    `json:"entry_count"`
 	EmbeddedEntryCount int    `json:"embedded_entry_count"`
 	LastEntryDate      string `json:"last_entry_date,omitempty"`
 	HasCentroid        bool   `json:"has_centroid"`
 }
 
-// computeDiaryCentroid computes the element-wise mean of a set of embeddings.
-func computeDiaryCentroid(embeddings [][]float32) []float32 {
+// computeThoughtCentroid computes the element-wise mean of a set of embeddings.
+func computeThoughtCentroid(embeddings [][]float32) []float32 {
 	return util.ComputeCentroid(embeddings)
 }
 
-// ComputeAndSaveDiaryCentroid fetches diary embeddings for a user, computes the
-// centroid, and persists it + diary_signal into user_signal_profiles.
-func (s *RecommendationService) ComputeAndSaveDiaryCentroid(ctx context.Context, userID string) error {
+// ComputeAndSaveThoughtCentroid fetches thought embeddings for a user, computes the
+// centroid, and persists it + thought_signal into user_signal_profiles.
+func (s *RecommendationService) ComputeAndSaveThoughtCentroid(ctx context.Context, userID string) error {
 	rows, err := s.pool.Query(ctx, `
 		SELECT embedding_text, embedding::text
-		FROM diary_entries
+		FROM thoughts
 		WHERE user_id = $1 AND embedding IS NOT NULL
 		ORDER BY created_at DESC
 		LIMIT 50
@@ -1926,10 +1926,10 @@ func (s *RecommendationService) ComputeAndSaveDiaryCentroid(ctx context.Context,
 
 	// Count all entries for the signal metadata
 	var totalEntries int
-	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM diary_entries WHERE user_id = $1`, userID).Scan(&totalEntries)
-	_ = s.pool.QueryRow(ctx, `SELECT TO_CHAR(MAX(created_at), 'YYYY-MM-DD') FROM diary_entries WHERE user_id = $1`, userID).Scan(&lastDate)
+	_ = s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM thoughts WHERE user_id = $1`, userID).Scan(&totalEntries)
+	_ = s.pool.QueryRow(ctx, `SELECT TO_CHAR(MAX(created_at), 'YYYY-MM-DD') FROM thoughts WHERE user_id = $1`, userID).Scan(&lastDate)
 
-	signal := DiarySignal{
+	signal := ThoughtSignal{
 		EntryCount:         totalEntries,
 		EmbeddedEntryCount: len(embeddings),
 		LastEntryDate:      lastDate,
@@ -1938,30 +1938,30 @@ func (s *RecommendationService) ComputeAndSaveDiaryCentroid(ctx context.Context,
 	signalJSON, _ := json.Marshal(signal)
 
 	if len(embeddings) == 0 {
-		// diary_embedding must be nulled, not merely left unset: a reader whose
+		// thought_embedding must be nulled, not merely left unset: a reader whose
 		// only embedded entries have since been made private would otherwise keep
 		// a centroid still derived from that private text.
 		_, err = s.pool.Exec(ctx, `
-			INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, diary_signal, signal_version)
+			INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, thought_signal, signal_version)
 			VALUES ($1, '{}', '{}', $2, 1)
 			ON CONFLICT (user_id) DO UPDATE SET
-			    diary_embedding = NULL,
-			    diary_signal    = EXCLUDED.diary_signal,
+			    thought_embedding = NULL,
+			    thought_signal    = EXCLUDED.thought_signal,
 			    signal_version  = user_signal_profiles.signal_version + 1,
 			    computed_at     = NOW()
 		`, userID, signalJSON)
 		return err
 	}
 
-	centroid := computeDiaryCentroid(embeddings)
+	centroid := computeThoughtCentroid(embeddings)
 	vecLiteral := float32SliceToLiteral(centroid)
 
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, diary_embedding, diary_signal, signal_version)
+		INSERT INTO user_signal_profiles (user_id, genre_weights, author_weights, thought_embedding, thought_signal, signal_version)
 		VALUES ($1, '{}', '{}', $2::vector, $3, 1)
 		ON CONFLICT (user_id) DO UPDATE SET
-		    diary_embedding = EXCLUDED.diary_embedding,
-		    diary_signal    = EXCLUDED.diary_signal,
+		    thought_embedding = EXCLUDED.thought_embedding,
+		    thought_signal    = EXCLUDED.thought_signal,
 		    signal_version  = user_signal_profiles.signal_version + 1,
 		    computed_at     = NOW()
 	`, userID, vecLiteral, signalJSON)

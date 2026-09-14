@@ -223,7 +223,7 @@ func TestConfidenceRisesWithEvidenceNotJustScore(t *testing.T) {
 	rich := &UserSignalProfile{
 		GenreWeights:        map[string]float64{"Fiction": 1},
 		AuthorWeights:       map[string]float64{"X": 1},
-		DiaryEmbedding:      []float32{1},
+		ThoughtEmbedding:    []float32{1},
 		FastFinishEmbedding: []float32{1},
 		Traits: &TraitProfile{
 			Prefs:      map[string]float64{"pacing": 0.8},
@@ -242,7 +242,7 @@ func TestConfidenceCappedByKnownClash(t *testing.T) {
 	rich := &UserSignalProfile{
 		GenreWeights:        map[string]float64{"Fiction": 1},
 		AuthorWeights:       map[string]float64{"X": 1},
-		DiaryEmbedding:      []float32{1},
+		ThoughtEmbedding:    []float32{1},
 		FastFinishEmbedding: []float32{1},
 		Traits: &TraitProfile{
 			Prefs:      map[string]float64{"pacing": 0.8},

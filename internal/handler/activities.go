@@ -54,10 +54,10 @@ func (h *ActivitiesHandler) GetUserActivities(w http.ResponseWriter, r *http.Req
 	for i, row := range rows {
 		activities[i] = activityRowToResponse(activityRowFields{
 			id: row.ID, userID: row.UserID, activityType: row.ActivityType,
-			bookID: row.BookID, listID: row.ListID, entryID: row.EntryID, targetUserID: row.TargetUserID,
+			bookID: row.BookID, listID: row.ListID, thoughtID: row.ThoughtID, targetUserID: row.TargetUserID,
 			createdAt: row.CreatedAt, username: row.Username, name: row.Name, avatarUrl: row.AvatarUrl,
 			bookTitle: row.BookTitle, bookSlug: row.BookSlug,
-			listTitle: row.ListTitle, entryTitle: row.EntryTitle, targetUsername: row.TargetUsername,
+			listTitle: row.ListTitle, entryTitle: row.ThoughtTitle, targetUsername: row.TargetUsername,
 			metadata: row.Metadata,
 		})
 	}
@@ -95,10 +95,10 @@ func (h *ActivitiesHandler) GetFollowingActivities(w http.ResponseWriter, r *htt
 	for i, row := range rows {
 		activities[i] = activityRowToResponse(activityRowFields{
 			id: row.ID, userID: row.UserID, activityType: row.ActivityType,
-			bookID: row.BookID, listID: row.ListID, entryID: row.EntryID, targetUserID: row.TargetUserID,
+			bookID: row.BookID, listID: row.ListID, thoughtID: row.ThoughtID, targetUserID: row.TargetUserID,
 			createdAt: row.CreatedAt, username: row.Username, name: row.Name, avatarUrl: row.AvatarUrl,
 			bookTitle: row.BookTitle, bookSlug: row.BookSlug,
-			listTitle: row.ListTitle, entryTitle: row.EntryTitle, targetUsername: row.TargetUsername,
+			listTitle: row.ListTitle, entryTitle: row.ThoughtTitle, targetUsername: row.TargetUsername,
 			metadata: row.Metadata,
 		})
 	}
@@ -168,7 +168,7 @@ type activityRowFields struct {
 	activityType   string
 	bookID         pgtype.UUID
 	listID         pgtype.UUID
-	entryID        pgtype.UUID
+	thoughtID      pgtype.UUID
 	targetUserID   pgtype.UUID
 	createdAt      pgtype.Timestamp
 	username       string
@@ -214,12 +214,12 @@ func activityRowToResponse(f activityRowFields) types.ActivityResponse {
 	if f.listTitle.Valid {
 		resp.ListTitle = &f.listTitle.String
 	}
-	if f.entryID.Valid {
-		idStr := uuid.UUID(f.entryID.Bytes).String()
-		resp.EntryID = &idStr
+	if f.thoughtID.Valid {
+		idStr := uuid.UUID(f.thoughtID.Bytes).String()
+		resp.ThoughtID = &idStr
 	}
 	if f.entryTitle.Valid {
-		resp.EntryTitle = &f.entryTitle.String
+		resp.ThoughtTitle = &f.entryTitle.String
 	}
 	if f.targetUserID.Valid {
 		idStr := uuid.UUID(f.targetUserID.Bytes).String()

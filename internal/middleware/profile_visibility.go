@@ -74,7 +74,7 @@ func RequireProfileAccess(q *db.Queries) func(http.Handler) http.Handler {
 }
 
 // isProfileRoot reports whether the path addresses the profile itself
-// (/api/v1/users/alice) rather than something under it (/…/alice/diary).
+// (/api/v1/users/alice) rather than something under it (/…/alice/thoughts).
 //
 // It anchors on the "users" segment and requires the username to be the LAST
 // segment of the path. Matching the trailing segment alone would open the gate

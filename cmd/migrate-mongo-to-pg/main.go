@@ -65,7 +65,7 @@ func main() {
 		{"bookshelf", migrateBookshelf},
 		{"favorites", migrateFavorites},
 		{"lists", migrateLists},
-		{"diary_entries", migrateDiaryEntries},
+		{"thoughts", migrateDiaryEntries},
 		{"activities", migrateActivities},
 		{"newsletters", migrateNewsletters},
 		{"account_deletions", migrateAccountDeletions},
@@ -106,8 +106,8 @@ func recountUserStats(ctx context.Context, conn *Connections) {
 		`UPDATE users u SET lists_count = (
 			SELECT COUNT(*) FROM lists WHERE user_id = u.id
 		)`,
-		`UPDATE users u SET diary_entries_count = (
-			SELECT COUNT(*) FROM diary_entries WHERE user_id = u.id
+		`UPDATE users u SET thoughts_count = (
+			SELECT COUNT(*) FROM thoughts WHERE user_id = u.id
 		)`,
 		`UPDATE users u SET followers_count = (
 			SELECT COUNT(*) FROM follows WHERE following_id = u.id

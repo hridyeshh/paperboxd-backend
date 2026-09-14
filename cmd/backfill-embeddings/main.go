@@ -1,4 +1,4 @@
-// backfill-embeddings generates and stores Cohere embeddings for books and diary entries.
+// backfill-embeddings generates and stores Cohere embeddings for books and thoughts.
 //
 // Default mode: embed books where embedding IS NULL.
 //
@@ -6,14 +6,14 @@
 // or missing embeddings. Fetches descriptions from Open Library, ISBNdb, and Google Books
 // before embedding. Requires ISBNDB_API_KEY and optionally GOOGLE_BOOKS_API_KEY.
 //
-// Diary mode (--diary): embed diary_entries where embedding IS NULL.
-// Add --recompute-profiles to also recompute diary centroids for all affected users.
+// Thought mode (--thoughts): embed thoughts where embedding IS NULL.
+// Add --recompute-profiles to also recompute thought centroids for all affected users.
 //
 // Flags:
 //
 //	--enrich              Enrich thin descriptions from external sources before embedding
-//	--diary               Embed diary entries instead of books
-//	--recompute-profiles  After --diary, recompute diary centroid for each affected user
+//	--thoughts               Embed thoughts instead of books
+//	--recompute-profiles  After --thoughts, recompute thought centroid for each affected user
 //	--dry-run             Log what would be processed without writing to DB
 //	--limit N             Process at most N records (0 = no limit)
 //
@@ -39,15 +39,15 @@
 //	  COUNT(CASE WHEN description_source = 'title_only' THEN 1 END) AS title_only
 //	FROM books;
 //
-//	-- Diary entries
+//	-- Thoughts
 //	SELECT
 //	  COUNT(*) AS total_entries,
 //	  COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) AS has_embedding,
 //	  COUNT(CASE WHEN embedding IS NULL THEN 1 END) AS missing_embedding
-//	FROM diary_entries;
+//	FROM thoughts;
 //
-//	-- Signal profiles with diary centroid
-//	SELECT COUNT(*) AS with_centroid FROM user_signal_profiles WHERE diary_embedding IS NOT NULL;
+//	-- Signal profiles with thought centroid
+//	SELECT COUNT(*) AS with_centroid FROM user_signal_profiles WHERE thought_embedding IS NOT NULL;
 package main
 
 import (
@@ -69,13 +69,13 @@ import (
 )
 
 func main() {
-	enrich            := flag.Bool("enrich", false, "enrich thin descriptions from Open Library/ISBNdb/Google Books before embedding")
-	diary             := flag.Bool("diary", false, "embed diary entries instead of books")
-	recomputeProfiles := flag.Bool("recompute-profiles", false, "after --diary, recompute diary centroid for each affected user")
-	fastFinish        := flag.Bool("fast-finish", false, "compute and store fast_finish_embedding for all users with velocity signals")
-	bustCache         := flag.Bool("bust-cache", false, "delete all rec:pool:* keys from Redis (run after Phase 5 deploy for clean reasonType data)")
-	dryRun            := flag.Bool("dry-run", false, "log what would be processed without writing to the database")
-	limit             := flag.Int("limit", 0, "process at most N records (0 = no limit)")
+	enrich := flag.Bool("enrich", false, "enrich thin descriptions from Open Library/ISBNdb/Google Books before embedding")
+	thought := flag.Bool("thoughts", false, "embed thoughts instead of books")
+	recomputeProfiles := flag.Bool("recompute-profiles", false, "after --thoughts, recompute thought centroid for each affected user")
+	fastFinish := flag.Bool("fast-finish", false, "compute and store fast_finish_embedding for all users with velocity signals")
+	bustCache := flag.Bool("bust-cache", false, "delete all rec:pool:* keys from Redis (run after Phase 5 deploy for clean reasonType data)")
+	dryRun := flag.Bool("dry-run", false, "log what would be processed without writing to the database")
+	limit := flag.Int("limit", 0, "process at most N records (0 = no limit)")
 	flag.Parse()
 
 	_ = godotenv.Load()
@@ -132,8 +132,8 @@ func main() {
 		return
 	case *fastFinish:
 		runFastFinishMode(ctx, pool, svc, *dryRun)
-	case *diary:
-		runDiaryMode(ctx, pool, svc, *limit, *dryRun, *recomputeProfiles)
+	case *thought:
+		runThoughtMode(ctx, pool, svc, *limit, *dryRun, *recomputeProfiles)
 	case *enrich:
 		runEnrichMode(ctx, pool, svc, enricher, *limit, *dryRun)
 	default:
@@ -366,7 +366,7 @@ func runBustCacheMode(ctx context.Context, client *redis.Client, dryRun bool) {
 //	SELECT
 //	  COUNT(*) AS total_profiles,
 //	  COUNT(velocity_signal) AS has_velocity,
-//	  COUNT(diary_embedding) AS has_diary_centroid,
+//	  COUNT(thought_embedding) AS has_thought_centroid,
 //	  COUNT(fast_finish_embedding) AS has_fast_finish,
 //	  COUNT(CASE WHEN velocity_signal->>'velocity_bucket' = 'fast' THEN 1 END) AS fast_readers,
 //	  COUNT(CASE WHEN velocity_signal->>'velocity_bucket' = 'slow' THEN 1 END) AS slow_readers
@@ -413,7 +413,7 @@ func runFastFinishMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Rec
 	total := len(users)
 	slog.Info("users with velocity signals", "count", total, "dry_run", dryRun)
 	if total == 0 {
-		slog.Info("no velocity signals found — run --diary --recompute-profiles first")
+		slog.Info("no velocity signals found — run --thoughts --recompute-profiles first")
 		return
 	}
 
@@ -464,10 +464,10 @@ func runFastFinishMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Rec
 		"succeeded", succeeded, "skipped", skipped, "failed", failed)
 }
 
-// runDiaryMode embeds diary entries that have embedding IS NULL.
-// If recomputeProfiles is true, recomputes the diary centroid for every user
+// runThoughtMode embeds thoughts that have embedding IS NULL.
+// If recomputeProfiles is true, recomputes the thought centroid for every user
 // that had at least one entry newly embedded.
-func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.RecommendationService, limit int, dryRun bool, recomputeProfiles bool) {
+func runThoughtMode(ctx context.Context, pool *pgxpool.Pool, svc *service.RecommendationService, limit int, dryRun bool, recomputeProfiles bool) {
 	rows, err := pool.Query(ctx, `
 		SELECT
 		    de.id::text,
@@ -475,35 +475,35 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 		    de.content,
 		    COALESCE(b.title, '')   AS book_title,
 		    COALESCE(b.authors, '{}') AS book_authors
-		FROM diary_entries de
+		FROM thoughts de
 		LEFT JOIN books b ON de.book_id = b.id
 		WHERE de.embedding IS NULL
 		ORDER BY de.created_at DESC
 	`)
 	if err != nil {
-		slog.Error("fetch diary entries without embeddings", "error", err)
+		slog.Error("fetch thoughts without embeddings", "error", err)
 		os.Exit(1)
 	}
 
-	type diaryRow struct {
+	type thoughtRow struct {
 		ID          string
 		UserID      string
 		Content     string
 		BookTitle   string
 		BookAuthors []string
 	}
-	var entries []diaryRow
+	var entries []thoughtRow
 	for rows.Next() {
-		var r diaryRow
+		var r thoughtRow
 		if err := rows.Scan(&r.ID, &r.UserID, &r.Content, &r.BookTitle, &r.BookAuthors); err != nil {
-			slog.Warn("scan diary row", "error", err)
+			slog.Warn("scan thought row", "error", err)
 			continue
 		}
 		entries = append(entries, r)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		slog.Error("read diary rows", "error", err)
+		slog.Error("read thought rows", "error", err)
 		os.Exit(1)
 	}
 
@@ -511,9 +511,9 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 		entries = entries[:limit]
 	}
 	total := len(entries)
-	slog.Info("diary entries to embed", "count", total, "dry_run", dryRun)
+	slog.Info("thoughts to embed", "count", total, "dry_run", dryRun)
 	if total == 0 {
-		slog.Info("all diary entries already have embeddings — nothing to do")
+		slog.Info("all thoughts already have embeddings — nothing to do")
 		return
 	}
 
@@ -522,7 +522,7 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 
 	for i, e := range entries {
 		if dryRun {
-			slog.Info("dry-run: would embed diary entry",
+			slog.Info("dry-run: would embed thought",
 				"id", e.ID, "user_id", e.UserID,
 				"book_title", e.BookTitle, "content_len", len(e.Content),
 			)
@@ -530,16 +530,16 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 			continue
 		}
 
-		embedText := service.DiaryEmbedText(e.BookTitle, e.BookAuthors, e.Content)
+		embedText := service.ThoughtEmbedText(e.BookTitle, e.BookAuthors, e.Content)
 		if embedText == "" {
-			slog.Warn("empty embed text, skipping", "entry_id", e.ID)
+			slog.Warn("empty embed text, skipping", "thought_id", e.ID)
 			failed++
 			continue
 		}
 
 		vecs, embedErr := svc.Embedder().EmbedTexts([]string{embedText}, "search_document")
 		if embedErr != nil || len(vecs) == 0 {
-			slog.Warn("embed failed", "entry_id", e.ID, "error", embedErr)
+			slog.Warn("embed failed", "thought_id", e.ID, "error", embedErr)
 			failed++
 			time.Sleep(50 * time.Millisecond)
 			continue
@@ -547,11 +547,11 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 
 		vec := service.ExportFloat32Literal(vecs[0])
 		_, dbErr := pool.Exec(ctx,
-			`UPDATE diary_entries SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
+			`UPDATE thoughts SET embedding = $1::vector, embedding_text = $2 WHERE id = $3`,
 			vec, embedText, e.ID,
 		)
 		if dbErr != nil {
-			slog.Warn("save diary embedding", "entry_id", e.ID, "error", dbErr)
+			slog.Warn("save thought embedding", "thought_id", e.ID, "error", dbErr)
 			failed++
 			time.Sleep(50 * time.Millisecond)
 			continue
@@ -566,15 +566,15 @@ func runDiaryMode(ctx context.Context, pool *pgxpool.Pool, svc *service.Recommen
 		}
 	}
 
-	slog.Info("diary backfill complete", "succeeded", succeeded, "failed", failed)
+	slog.Info("thought backfill complete", "succeeded", succeeded, "failed", failed)
 
 	if recomputeProfiles && !dryRun && len(affectedUsers) > 0 {
-		slog.Info("recomputing diary centroids", "user_count", len(affectedUsers))
+		slog.Info("recomputing thought centroids", "user_count", len(affectedUsers))
 		for userID := range affectedUsers {
-			if err := svc.ComputeAndSaveDiaryCentroid(ctx, userID); err != nil {
-				slog.Warn("recompute diary centroid", "user_id", userID, "error", err)
+			if err := svc.ComputeAndSaveThoughtCentroid(ctx, userID); err != nil {
+				slog.Warn("recompute thought centroid", "user_id", userID, "error", err)
 			}
 		}
-		slog.Info("diary centroid recompute complete")
+		slog.Info("thought centroid recompute complete")
 	}
 }

@@ -173,7 +173,7 @@ type StreakResponse struct {
 //
 // The streak is the activity streak kept on `users`: any UTC day the reader
 // does something that earns XP — opening either app, opening the web, logging
-// pages, rating, a diary entry — advances it (see UpdateUserStreak).
+// pages, rating, a thought — advances it (see UpdateUserStreak).
 //
 // This was computed from reading_log alone (UTC days with >=1 page logged),
 // which gave the product two different numbers both called "streak": profiles

@@ -90,7 +90,7 @@ INSERT INTO leaderboard_stats (
   username,
   books_read,
   pages_read,
-  diary_entries,
+  thoughts,
   genres_explored,
   total_xp,
   level,
@@ -104,7 +104,7 @@ SELECT
     FROM bookshelf bs
     JOIN books b ON bs.book_id = b.id
     WHERE bs.user_id = u.id AND bs.status = 'read' AND b.page_count IS NOT NULL), 0)::INTEGER as pages_read,
-  COALESCE((SELECT COUNT(*) FROM diary_entries WHERE user_id = u.id), 0)::INTEGER as diary_entries,
+  COALESCE((SELECT COUNT(*) FROM thoughts WHERE user_id = u.id AND thread_root_id IS NULL), 0)::INTEGER as thoughts,
   COALESCE(array_length(u.favorite_genres, 1), 0) as genres_explored,
   u.total_xp,
   u.level,
@@ -116,7 +116,7 @@ DO UPDATE SET
   username = EXCLUDED.username,
   books_read = EXCLUDED.books_read,
   pages_read = EXCLUDED.pages_read,
-  diary_entries = EXCLUDED.diary_entries,
+  thoughts = EXCLUDED.thoughts,
   genres_explored = EXCLUDED.genres_explored,
   total_xp = EXCLUDED.total_xp,
   level = EXCLUDED.level,
@@ -130,7 +130,7 @@ INSERT INTO leaderboard_stats (
   username,
   books_read,
   pages_read,
-  diary_entries,
+  thoughts,
   genres_explored,
   total_xp,
   level,
@@ -144,7 +144,7 @@ SELECT
     FROM bookshelf bs
     JOIN books b ON bs.book_id = b.id
     WHERE bs.user_id = u.id AND bs.status = 'read' AND b.page_count IS NOT NULL), 0)::INTEGER,
-  COALESCE((SELECT COUNT(*) FROM diary_entries WHERE user_id = u.id), 0)::INTEGER,
+  COALESCE((SELECT COUNT(*) FROM thoughts WHERE user_id = u.id AND thread_root_id IS NULL), 0)::INTEGER,
   COALESCE(array_length(u.favorite_genres, 1), 0),
   u.total_xp,
   u.level,
@@ -155,7 +155,7 @@ DO UPDATE SET
   username = EXCLUDED.username,
   books_read = EXCLUDED.books_read,
   pages_read = EXCLUDED.pages_read,
-  diary_entries = EXCLUDED.diary_entries,
+  thoughts = EXCLUDED.thoughts,
   genres_explored = EXCLUDED.genres_explored,
   total_xp = EXCLUDED.total_xp,
   level = EXCLUDED.level,
@@ -168,7 +168,7 @@ WITH ranked AS (
     user_id,
     ROW_NUMBER() OVER (ORDER BY books_read DESC, total_xp DESC) as books_rank,
     ROW_NUMBER() OVER (ORDER BY pages_read DESC, total_xp DESC) as pages_rank,
-    ROW_NUMBER() OVER (ORDER BY diary_entries DESC, total_xp DESC) as diary_rank,
+    ROW_NUMBER() OVER (ORDER BY thoughts DESC, total_xp DESC) as thoughts_rank,
     ROW_NUMBER() OVER (ORDER BY genres_explored DESC, total_xp DESC) as genres_rank,
     ROW_NUMBER() OVER (ORDER BY total_xp DESC, books_read DESC) as xp_rank,
     ROW_NUMBER() OVER (ORDER BY current_streak DESC, total_xp DESC) as streak_rank
@@ -178,7 +178,7 @@ UPDATE leaderboard_stats ls
 SET
   books_rank = r.books_rank::INTEGER,
   pages_rank = r.pages_rank::INTEGER,
-  diary_rank = r.diary_rank::INTEGER,
+  thoughts_rank = r.thoughts_rank::INTEGER,
   genres_rank = r.genres_rank::INTEGER,
   xp_rank = r.xp_rank::INTEGER,
   streak_rank = r.streak_rank::INTEGER
@@ -199,7 +199,7 @@ WHERE u.deleted_at IS NULL
     ls.user_id = $1
     OR ls.user_id IN (SELECT f.following_id FROM follows f WHERE f.follower_id = $1)
   )
-  AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.diary_entries > 0)
+  AND (ls.total_xp > 0 OR ls.books_read > 0 OR ls.thoughts > 0)
 ORDER BY ls.total_xp DESC, ls.books_read DESC
 LIMIT $2;
 
@@ -223,7 +223,7 @@ ORDER BY
   CASE $1::text
     WHEN 'books' THEN ls.books_read
     WHEN 'pages' THEN ls.pages_read
-    WHEN 'diary' THEN ls.diary_entries
+    WHEN 'thoughts' THEN ls.thoughts
     WHEN 'genres' THEN ls.genres_explored
     WHEN 'streak' THEN ls.current_streak
     ELSE ls.total_xp

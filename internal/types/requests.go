@@ -72,7 +72,7 @@ type UpdateUserRequest struct {
 // Provide either google_books_id (Google volume id) or isbn (ISBN-10/13) to get-or-create a cached row.
 type CreateBookRequest struct {
 	GoogleBooksID string `json:"google_books_id,omitempty"`
-	ISBN            string `json:"isbn,omitempty"`
+	ISBN          string `json:"isbn,omitempty"`
 }
 
 // UpdateTBRRequest is the payload for PUT /api/v1/users/:username/bookshelf/:bookId/tbr.
@@ -137,20 +137,23 @@ type ShareListRequest struct {
 	Usernames []string `json:"usernames"`
 }
 
-// CreateDiaryEntryRequest is the payload for POST /api/v1/users/:username/diary.
+// CreateThoughtRequest is the payload for POST /api/v1/users/:username/thoughts.
 // One of BookID, ISBN, or GoogleBooksID may optionally be provided to link a book.
-type CreateDiaryEntryRequest struct {
+type CreateThoughtRequest struct {
 	BookID        *string `json:"book_id"`
 	ISBN          *string `json:"isbn"`
 	GoogleBooksID *string `json:"google_books_id"`
-	Title         *string `json:"title"`     // Max 100 chars
-	Content       string  `json:"content"`   // Required; rich text HTML
+	Title         *string `json:"title"`   // Max 100 chars
+	Content       string  `json:"content"` // Required; rich text HTML
 	IsPrivate     bool    `json:"is_private"`
-	Rating        *int    `json:"rating"`    // 1–5
+	Rating        *int    `json:"rating"` // 1–5
+	// ThreadParentID continues a thread: any thought in the author's own
+	// thread. The new thought takes the thread's book and privacy.
+	ThreadParentID *string `json:"thread_parent_id"`
 }
 
-// UpdateDiaryEntryRequest is the payload for PUT /api/v1/users/:username/diary/:entryId.
-type UpdateDiaryEntryRequest struct {
+// UpdateThoughtRequest is the payload for PUT /api/v1/users/:username/thoughts/:thoughtId.
+type UpdateThoughtRequest struct {
 	Title     *string `json:"title"`
 	Content   *string `json:"content"`
 	IsPrivate *bool   `json:"is_private"`

@@ -33,12 +33,12 @@ func NewLeaderboardHandler(queries *db.Queries, cache *cache.Client) *Leaderboar
 
 // validLeaderboardDimensions lists the accepted dimension strings.
 var validLeaderboardDimensions = map[string]bool{
-	"books":  true,
-	"pages":  true,
-	"diary":  true,
-	"genres": true,
-	"xp":     true,
-	"streak": true,
+	"books":    true,
+	"pages":    true,
+	"thoughts": true,
+	"genres":   true,
+	"xp":       true,
+	"streak":   true,
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -56,14 +56,14 @@ func statToMap(stat db.LeaderboardStat, levelName, levelBadge string) map[string
 		"username":        stat.Username,
 		"books_read":      stat.BooksRead.Int32,
 		"pages_read":      stat.PagesRead.Int32,
-		"diary_entries":   stat.DiaryEntries.Int32,
+		"thoughts":        stat.Thoughts.Int32,
 		"genres_explored": stat.GenresExplored.Int32,
 		"total_xp":        stat.TotalXp.Int32,
 		"level":           stat.Level.Int32,
 		"current_streak":  stat.CurrentStreak.Int32,
 		"books_rank":      int4ToPtr(stat.BooksRank),
 		"pages_rank":      int4ToPtr(stat.PagesRank),
-		"diary_rank":      int4ToPtr(stat.DiaryRank),
+		"thoughts_rank":   int4ToPtr(stat.ThoughtsRank),
 		"genres_rank":     int4ToPtr(stat.GenresRank),
 		"xp_rank":         int4ToPtr(stat.XpRank),
 		"streak_rank":     int4ToPtr(stat.StreakRank),
@@ -105,7 +105,7 @@ func (h *LeaderboardHandler) RebuildLeaderboard(w http.ResponseWriter, r *http.R
 		keys := []string{
 			"leaderboard:global:100",
 			"leaderboard:dim:books:100", "leaderboard:dim:pages:100",
-			"leaderboard:dim:diary:100", "leaderboard:dim:genres:100",
+			"leaderboard:dim:thoughts:100", "leaderboard:dim:genres:100",
 			"leaderboard:dim:xp:100", "leaderboard:dim:streak:100",
 		}
 		if err := h.Cache.Del(r.Context(), keys...); err != nil {
@@ -247,7 +247,7 @@ func (h *LeaderboardHandler) GetGlobalLeaderboard(w http.ResponseWriter, r *http
 func (h *LeaderboardHandler) GetLeaderboardByDimension(w http.ResponseWriter, r *http.Request) {
 	dimension := chi.URLParam(r, "dimension")
 	if !validLeaderboardDimensions[dimension] {
-		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "invalid dimension; valid values: books, pages, diary, genres, xp, streak")
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeInvalidRequest, "invalid dimension; valid values: books, pages, thoughts, genres, xp, streak")
 		return
 	}
 

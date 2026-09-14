@@ -65,7 +65,7 @@ func TestAnonymousEventsAreASubsetAndPreSignupOnly(t *testing.T) {
 	forbidden := map[string]bool{
 		EventBookFinished: true, EventBookRated: true, EventBookAddedToShelf: true,
 		EventRecLoved: true, EventRecNotForMe: true, EventUserFollowed: true,
-		EventDiaryEntryCreated: true, EventOnboardingCompleted: true,
+		EventThoughtCreated: true, EventOnboardingCompleted: true,
 	}
 	for name := range anonymousEventTypes {
 		if !ValidEventType(name) {

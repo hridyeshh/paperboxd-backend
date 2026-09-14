@@ -27,7 +27,7 @@ func StartNightlyCron(pool *pgxpool.Pool, recSvc *service.RecommendationService)
 func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
 	slog.Info("nightly jobs: starting")
 	recomputeStaleProfiles(pool, recSvc)
-	recomputeStaleDiaryCentroids(pool, recSvc)
+	recomputeStaleThoughtCentroids(pool, recSvc)
 	recomputeStaleTraitProfiles(pool, recSvc)
 	recomputeTasteOverlaps(recSvc)
 	purgeSoftDeletedUsers(pool)
@@ -46,7 +46,7 @@ func recomputeTasteOverlaps(recSvc *service.RecommendationService) {
 
 // recomputeStaleTraitProfiles refreshes the interpretable trait axes.
 //
-// Kept separate from recomputeStaleProfiles for the same reason the diary job
+// Kept separate from recomputeStaleProfiles for the same reason the thought job
 // is: that one rebuilds genre, author and velocity signals from `bookshelf` and
 // never touches trait_prefs. Trait preferences also move for a second reason
 // the shelf cannot show — the nightly trait backfill gives previously
@@ -96,34 +96,34 @@ func recomputeStaleTraitProfiles(pool *pgxpool.Pool, recSvc *service.Recommendat
 	}
 }
 
-// recomputeStaleDiaryCentroids refreshes user_signal_profiles.diary_embedding.
+// recomputeStaleThoughtCentroids refreshes user_signal_profiles.thought_embedding.
 //
 // recomputeStaleProfiles cannot cover this: it enumerates from `bookshelf` and
 // calls GetOrComputeSignalProfile, which rebuilds bookshelf and fast-finish
-// signals but never touches the diary centroid. Before this job existed the
-// only caller of ComputeAndSaveDiaryCentroid was cmd/backfill-embeddings, a
+// signals but never touches the thought centroid. Before this job existed the
+// only caller of ComputeAndSaveThoughtCentroid was cmd/backfill-embeddings, a
 // manual one-off — so a reader's centroid was whatever the last backfill left,
-// and a reader who kept a diary but no shelf was never enumerated at all.
+// and a reader who kept a thought but no shelf was never enumerated at all.
 //
-// Enumerating from diary_entries fixes both: shelf-less diarists are included,
+// Enumerating from thoughts fixes both: shelf-less diarists are included,
 // and readers whose entries have all been made private (no rows with a
-// non-NULL embedding) still get picked up, so ComputeAndSaveDiaryCentroid's
+// non-NULL embedding) still get picked up, so ComputeAndSaveThoughtCentroid's
 // zero-embeddings branch can null out a centroid derived from since-retracted
 // text.
-func recomputeStaleDiaryCentroids(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
+func recomputeStaleThoughtCentroids(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	rows, err := pool.Query(ctx, `
 		SELECT DISTINCT de.user_id::text
-		FROM diary_entries de
+		FROM thoughts de
 		LEFT JOIN user_signal_profiles usp ON usp.user_id = de.user_id
 		WHERE usp.user_id IS NULL
 		   OR usp.computed_at < NOW() - INTERVAL '24 hours'
 		LIMIT 100
 	`)
 	if err != nil {
-		slog.Error("nightly: query stale diary centroids", "error", err)
+		slog.Error("nightly: query stale thought centroids", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -136,14 +136,14 @@ func recomputeStaleDiaryCentroids(pool *pgxpool.Pool, recSvc *service.Recommenda
 		}
 	}
 	if err := rows.Err(); err != nil {
-		slog.Error("nightly: iterate stale diary centroids", "error", err)
+		slog.Error("nightly: iterate stale thought centroids", "error", err)
 		return
 	}
 
-	slog.Info("nightly: recomputing diary centroids", "count", len(userIDs))
+	slog.Info("nightly: recomputing thought centroids", "count", len(userIDs))
 	for _, uid := range userIDs {
-		if err := recSvc.ComputeAndSaveDiaryCentroid(ctx, uid); err != nil {
-			slog.Warn("nightly: recompute diary centroid", "user_id", uid, "error", err)
+		if err := recSvc.ComputeAndSaveThoughtCentroid(ctx, uid); err != nil {
+			slog.Warn("nightly: recompute thought centroid", "user_id", uid, "error", err)
 		}
 	}
 }
@@ -155,7 +155,7 @@ const softDeleteRetention = 30 * 24 * time.Hour
 
 // purgeSoftDeletedUsers hard-deletes users whose deleted_at is older than the
 // retention window. Every user-owned table FKs users(id) ON DELETE CASCADE, so
-// this one DELETE removes bookshelf, diary, reviews, lists, events, tokens, and
+// this one DELETE removes bookshelf, thought, reviews, lists, events, tokens, and
 // signal profiles along with the row; the few referring columns (referred_by,
 // activity target_user_id) are ON DELETE SET NULL. The account_deletions audit
 // row is not FK-linked and is intentionally retained for retention analysis.

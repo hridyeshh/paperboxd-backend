@@ -377,11 +377,11 @@ func (h *UserHandler) Unblock(w http.ResponseWriter, r *http.Request) {
 }
 
 var validReportContentTypes = map[string]bool{
-	"review":      true,
-	"diary_entry": true,
-	"list":        true,
-	"user":        true,
-	"book":        true,
+	"review":  true,
+	"thought": true,
+	"list":    true,
+	"user":    true,
+	"book":    true,
 }
 
 // CreateReport handles POST /api/v1/reports

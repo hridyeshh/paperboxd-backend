@@ -146,7 +146,7 @@ func mapActivityType(mongoType string) string {
 	case "read", "rated", "started_reading":
 		return "added_book"
 	case "reviewed":
-		return "created_diary_entry"
+		return "created_thought"
 	case "shared_list":
 		return "shared_list"
 	case "shared_book":
@@ -154,7 +154,7 @@ func mapActivityType(mongoType string) string {
 	case "granted_access":
 		return "granted_access"
 	case "liked_diary_entry":
-		return "liked_diary_entry"
+		return "liked_thought"
 	case "liked", "added_to_list", "collaboration_request":
 		return "" // skip
 	default:

@@ -32,8 +32,6 @@ type Querier interface {
 	CheckBlockedEither(ctx context.Context, arg CheckBlockedEitherParams) (bool, error)
 	CheckBookInList(ctx context.Context, arg CheckBookInListParams) (bool, error)
 	CheckCanAccessList(ctx context.Context, arg CheckCanAccessListParams) (bool, error)
-	CheckEntryLiked(ctx context.Context, arg CheckEntryLikedParams) (bool, error)
-	CheckEntryOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	CheckFavoriteExists(ctx context.Context, arg CheckFavoriteExistsParams) (bool, error)
 	CheckFollowRequest(ctx context.Context, arg CheckFollowRequestParams) (bool, error)
 	CheckFollowing(ctx context.Context, arg CheckFollowingParams) (bool, error)
@@ -42,15 +40,17 @@ type Querier interface {
 	CheckListOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	CheckListSaved(ctx context.Context, arg CheckListSavedParams) (bool, error)
 	CheckNewActivities(ctx context.Context, arg CheckNewActivitiesParams) (bool, error)
+	CheckThoughtLiked(ctx context.Context, arg CheckThoughtLikedParams) (bool, error)
+	CheckThoughtOwnership(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	CheckThoughtReposted(ctx context.Context, arg CheckThoughtRepostedParams) (bool, error)
 	CheckUserLikedBook(ctx context.Context, arg CheckUserLikedBookParams) (bool, error)
 	// Sliding window: deletes books whose last_accessed_at is older than 15 days
 	// and that no user-owned row points at. Every table below either CASCADEs
 	// (bookshelf, likes, favorites, list_books, reading_log) or SET NULLs
-	// (diary_entries, activities) on book delete — so any book referenced here is
+	// (thoughts, activities) on book delete — so any book referenced here is
 	// user data and must survive. NOT EXISTS rather than NOT IN so a NULL book_id
 	// in the nullable tables can never make the predicate unknown.
 	CleanupStaleBooks(ctx context.Context) (int64, error)
-	CountEntryLikes(ctx context.Context, entryID uuid.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
 	// Counts friends actively reading this book right now.
@@ -58,19 +58,25 @@ type Querier interface {
 	CountIncomingFollowRequests(ctx context.Context, targetID uuid.UUID) (int64, error)
 	CountListBooks(ctx context.Context, listID uuid.UUID) (int64, error)
 	CountListSaves(ctx context.Context, listID uuid.UUID) (int64, error)
+	CountThoughtLikes(ctx context.Context, thoughtID uuid.UUID) (int64, error)
+	CountThoughtReposts(ctx context.Context, thoughtID uuid.UUID) (int64, error)
+	CountThreadFollowUps(ctx context.Context, threadRootID pgtype.UUID) (int64, error)
 	// Unread badge for the notifications sheet. target_user_id is the "addressed to
-	// you" marker — every activity type that carries one (liked_diary_entry,
+	// you" marker — every activity type that carries one (liked_thought, reposted_thought,
 	// shared_list, shared_book, granted_access, fusion_joined) is notification-worthy, so no
 	// activity_type filter is needed here.
 	CountUnreadActivities(ctx context.Context, targetUserID pgtype.UUID) (int64, error)
 	CountUserBooks(ctx context.Context, arg CountUserBooksParams) (int64, error)
-	CountUserDiaryEntries(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUserLists(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Thoughts that start a thread or stand alone; follow-ups are part of those.
+	CountUserThoughts(ctx context.Context, userID uuid.UUID) (int64, error)
+	// ponytail: counts reposts before the read-time visibility filter, so a page
+	// count can run one short page long; filter here too if that ever shows.
+	CountUserThoughtsFeed(ctx context.Context, arg CountUserThoughtsFeedParams) (int32, error)
 	CreateActivity(ctx context.Context, arg CreateActivityParams) (Activity, error)
 	CreateBook(ctx context.Context, arg CreateBookParams) (Book, error)
 	CreateBookFromISBNdb(ctx context.Context, arg CreateBookFromISBNdbParams) (Book, error)
-	CreateDiaryEntry(ctx context.Context, arg CreateDiaryEntryParams) (DiaryEntry, error)
 	// ── Follow requests (private profiles) ───────────────────────────────────────
 	CreateFollowRequest(ctx context.Context, arg CreateFollowRequestParams) (FollowRequest, error)
 	CreateList(ctx context.Context, arg CreateListParams) (List, error)
@@ -79,20 +85,23 @@ type Querier interface {
 	CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordResetToken, error)
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (RefreshToken, error)
 	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
+	CreateThought(ctx context.Context, arg CreateThoughtParams) (Thought, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
-	DecrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	DecrementUserListsCount(ctx context.Context, id uuid.UUID) error
+	DecrementUserThoughtCount(ctx context.Context, id uuid.UUID) error
 	// Logout path. Scoped to the caller so one user cannot deregister another's device.
 	DeleteDeviceToken(ctx context.Context, arg DeleteDeviceTokenParams) error
 	// Provider-rejection path (FCM UNREGISTERED, APNs 410 Unregistered). The token
 	// is dead regardless of who owns it, so this is intentionally unscoped.
 	DeleteDeviceTokenByToken(ctx context.Context, token string) error
-	DeleteDiaryEntry(ctx context.Context, id uuid.UUID) error
 	DeleteFollowRequest(ctx context.Context, arg DeleteFollowRequestParams) error
 	DeleteList(ctx context.Context, id uuid.UUID) error
 	DeleteOTPByEmail(ctx context.Context, email string) error
+	// Undoing a repost takes back the "reposted your thought" notification too.
+	DeleteRepostActivity(ctx context.Context, arg DeleteRepostActivityParams) error
 	DeleteStaleDeviceTokens(ctx context.Context, updatedAt pgtype.Timestamptz) error
+	DeleteThought(ctx context.Context, id uuid.UUID) error
 	DeleteUserActivities(ctx context.Context, arg DeleteUserActivitiesParams) error
 	FollowUser(ctx context.Context, arg FollowUserParams) (Follow, error)
 	FollowingIDs(ctx context.Context, followerID uuid.UUID) ([]uuid.UUID, error)
@@ -101,7 +110,6 @@ type Querier interface {
 	GetBookByID(ctx context.Context, id uuid.UUID) (Book, error)
 	GetBookByISBN(ctx context.Context, isbn13 pgtype.Text) (Book, error)
 	GetBookBySlug(ctx context.Context, slug string) (Book, error)
-	GetBookDiaryEntries(ctx context.Context, arg GetBookDiaryEntriesParams) ([]GetBookDiaryEntriesRow, error)
 	GetBookEmbeddingsByIDs(ctx context.Context, dollar_1 []string) ([]GetBookEmbeddingsByIDsRow, error)
 	// What Paperboxd readers actually did with this book. Live from the shelf —
 	// books.total_reads_count / total_tbr_count have been 0 since migration 000003
@@ -113,6 +121,8 @@ type Querier interface {
 	// Reviews on a book authored by users the current viewer follows.
 	// $1 = book_id, $2 = viewer's user_id (follower).
 	GetBookReviewsByFriends(ctx context.Context, arg GetBookReviewsByFriendsParams) ([]GetBookReviewsByFriendsRow, error)
+	// Follow-ups are left out: they belong to their thread, not to the book page.
+	GetBookThoughts(ctx context.Context, arg GetBookThoughtsParams) ([]GetBookThoughtsRow, error)
 	GetBooksByAuthor(ctx context.Context, arg GetBooksByAuthorParams) ([]Book, error)
 	GetBookshelfEntry(ctx context.Context, arg GetBookshelfEntryParams) (Bookshelf, error)
 	// A streak day is a UTC day whose NET pages read is positive. Correcting a page
@@ -120,10 +130,6 @@ type Querier interface {
 	// it neither starts nor extends a streak.
 	GetCurrentStreak(ctx context.Context, userID uuid.UUID) (int32, error)
 	GetCurrentlyReading(ctx context.Context, userID uuid.UUID) ([]GetCurrentlyReadingRow, error)
-	GetDiaryEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetDiaryEmbeddingsForUserRow, error)
-	GetDiaryEntriesWithoutEmbedding(ctx context.Context) ([]GetDiaryEntriesWithoutEmbeddingRow, error)
-	GetDiaryEntryByID(ctx context.Context, id uuid.UUID) (DiaryEntry, error)
-	GetEntryLikes(ctx context.Context, entryID uuid.UUID) ([]GetEntryLikesRow, error)
 	GetFavoriteByUserAndBook(ctx context.Context, arg GetFavoriteByUserAndBookParams) (Favorite, error)
 	GetFollowers(ctx context.Context, arg GetFollowersParams) ([]User, error)
 	GetFollowing(ctx context.Context, arg GetFollowingParams) ([]User, error)
@@ -168,7 +174,7 @@ type Querier interface {
 	GetPopularReaders(ctx context.Context, limit int32) ([]GetPopularReadersRow, error)
 	// Community feed for logged-out visitors and thin follow graphs. Only public,
 	// live accounts; only broadcast rows (anything addressed to a target user is a
-	// notification, not news); private lists and diary entries stay hidden.
+	// notification, not news); private lists and thoughts stay hidden.
 	// Over-fetch and collapse per user in Go so one import does not own the feed.
 	GetPublicActivities(ctx context.Context, limit int32) ([]GetPublicActivitiesRow, error)
 	// Lists worth browsing without an account: public owner, public list, at least
@@ -186,6 +192,12 @@ type Querier interface {
 	// Books being shelved faster this week than last. Momentum, not volume: a
 	// steady bestseller does not qualify, a book three people just discovered does.
 	GetRisingBooks(ctx context.Context, limit int32) ([]GetRisingBooksRow, error)
+	GetThoughtByID(ctx context.Context, id uuid.UUID) (Thought, error)
+	GetThoughtEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetThoughtEmbeddingsForUserRow, error)
+	GetThoughtLikes(ctx context.Context, thoughtID uuid.UUID) ([]GetThoughtLikesRow, error)
+	// The first thought and every follow-up, in writing order.
+	GetThoughtThread(ctx context.Context, arg GetThoughtThreadParams) ([]GetThoughtThreadRow, error)
+	GetThoughtsWithoutEmbedding(ctx context.Context) ([]GetThoughtsWithoutEmbeddingRow, error)
 	GetTodayReadingStats(ctx context.Context, userID uuid.UUID) (GetTodayReadingStatsRow, error)
 	// Books most shelved in the last 7 days by live accounts. bookshelf.created_at
 	// is untouched by the upsert, so re-saves do not count twice.
@@ -201,7 +213,6 @@ type Querier interface {
 	GetUserByReferralCode(ctx context.Context, referralCode pgtype.Text) (GetUserByReferralCodeRow, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserDNF(ctx context.Context, userID uuid.UUID) ([]GetUserDNFRow, error)
-	GetUserDiaryEntries(ctx context.Context, arg GetUserDiaryEntriesParams) ([]GetUserDiaryEntriesRow, error)
 	GetUserFavorites(ctx context.Context, userID uuid.UUID) ([]GetUserFavoritesRow, error)
 	// ============================================================================
 	// LEADERBOARD STATS QUERIES
@@ -217,6 +228,12 @@ type Querier interface {
 	GetUserSavedLists(ctx context.Context, arg GetUserSavedListsParams) ([]GetUserSavedListsRow, error)
 	// Most-recently-touched first so a book just marked to-read lands on top.
 	GetUserTBR(ctx context.Context, userID uuid.UUID) ([]GetUserTBRRow, error)
+	// The profile's Thoughts tab: the owner's thoughts that start a thread (or
+	// stand alone) interleaved with thoughts they reposted, newest activity first.
+	// A repost is re-checked against the original author on every read, so a
+	// thought that went private, an author who went private, or a block made after
+	// the repost all hide it without touching thought_reposts.
+	GetUserThoughtsFeed(ctx context.Context, arg GetUserThoughtsFeedParams) ([]GetUserThoughtsFeedRow, error)
 	GetUserXP(ctx context.Context, id uuid.UUID) (GetUserXPRow, error)
 	GetUserXPHistory(ctx context.Context, arg GetUserXPHistoryParams) ([]GetUserXPHistoryRow, error)
 	GetUserXPToday(ctx context.Context, userID uuid.UUID) (int32, error)
@@ -227,12 +244,12 @@ type Querier interface {
 	IncrementBookViews(ctx context.Context, id uuid.UUID) error
 	IncrementOTPAttempts(ctx context.Context, id uuid.UUID) error
 	IncrementReferralCount(ctx context.Context, id uuid.UUID) error
-	IncrementUserDiaryCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserFavoritesCount(ctx context.Context, id uuid.UUID) error
 	IncrementUserListsCount(ctx context.Context, id uuid.UUID) error
+	IncrementUserThoughtCount(ctx context.Context, id uuid.UUID) error
 	LikeBook(ctx context.Context, arg LikeBookParams) (Like, error)
 	// Likes
-	LikeDiaryEntry(ctx context.Context, arg LikeDiaryEntryParams) (DiaryEntryLike, error)
+	LikeThought(ctx context.Context, arg LikeThoughtParams) (ThoughtLike, error)
 	LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error
 	ListDeviceTokensByUser(ctx context.Context, userID uuid.UUID) ([]DeviceToken, error)
 	ListIncomingFollowRequests(ctx context.Context, arg ListIncomingFollowRequestsParams) ([]ListIncomingFollowRequestsRow, error)
@@ -260,6 +277,8 @@ type Querier interface {
 	RemoveFromBookshelf(ctx context.Context, arg RemoveFromBookshelfParams) error
 	RemoveFromFavorites(ctx context.Context, arg RemoveFromFavoritesParams) error
 	ReorderFavorites(ctx context.Context, arg ReorderFavoritesParams) error
+	// Reposts
+	RepostThought(ctx context.Context, arg RepostThoughtParams) (int64, error)
 	RevokeAllUserTokens(ctx context.Context, userID uuid.UUID) error
 	RevokeListAccess(ctx context.Context, arg RevokeListAccessParams) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
@@ -273,6 +292,9 @@ type Querier interface {
 	// fuzzy branches to a trigram-indexed UNION and drop the unnest one.
 	SearchBooksInDB(ctx context.Context, arg SearchBooksInDBParams) ([]Book, error)
 	SearchUsers(ctx context.Context, arg SearchUsersParams) ([]User, error)
+	// A thread is private or public as a whole. Going private also retracts the
+	// follow-ups' embeddings, for the same reason the single-thought path does.
+	SetThreadPrivacy(ctx context.Context, arg SetThreadPrivacyParams) error
 	SetUserReferredBy(ctx context.Context, arg SetUserReferredByParams) error
 	SetUserVisibility(ctx context.Context, arg SetUserVisibilityParams) (User, error)
 	// How many of those books each candidate has also finished, plus one title to
@@ -297,18 +319,20 @@ type Querier interface {
 	UnblockUser(ctx context.Context, arg UnblockUserParams) error
 	UnfollowUser(ctx context.Context, arg UnfollowUserParams) error
 	UnlikeBook(ctx context.Context, arg UnlikeBookParams) error
-	UnlikeDiaryEntry(ctx context.Context, arg UnlikeDiaryEntryParams) error
+	UnlikeThought(ctx context.Context, arg UnlikeThoughtParams) error
+	UnrepostThought(ctx context.Context, arg UnrepostThoughtParams) (int64, error)
 	UnsaveList(ctx context.Context, arg UnsaveListParams) error
 	UpdateBookshelfRating(ctx context.Context, arg UpdateBookshelfRatingParams) (Bookshelf, error)
 	UpdateBookshelfStatus(ctx context.Context, arg UpdateBookshelfStatusParams) (Bookshelf, error)
-	UpdateDiaryEntry(ctx context.Context, arg UpdateDiaryEntryParams) (DiaryEntry, error)
-	UpdateDiaryEntryEmbedding(ctx context.Context, arg UpdateDiaryEntryEmbeddingParams) error
 	UpdateFavoriteNote(ctx context.Context, arg UpdateFavoriteNoteParams) (Favorite, error)
 	UpdateLeaderboardRankings(ctx context.Context) error
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)
+	UpdateThought(ctx context.Context, arg UpdateThoughtParams) (Thought, error)
+	// Embeddings
+	UpdateThoughtEmbedding(ctx context.Context, arg UpdateThoughtEmbeddingParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserGenres(ctx context.Context, arg UpdateUserGenresParams) (User, error)
 	UpdateUserLastActive(ctx context.Context, id uuid.UUID) error

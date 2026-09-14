@@ -53,7 +53,7 @@ func RecConfidence(c Candidate, profile *UserSignalProfile) float64 {
 	for _, has := range []bool{
 		len(profile.GenreWeights) > 0,
 		len(profile.AuthorWeights) > 0,
-		profile.DiaryEmbedding != nil,
+		profile.ThoughtEmbedding != nil,
 		profile.FastFinishEmbedding != nil,
 		profile.Traits.HasSignal(),
 	} {

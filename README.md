@@ -150,7 +150,7 @@ internal/
 ├── auth/                    # Register/login/refresh/OTP/Google/Apple, web + mobile handlers
 ├── cache/                   # Typed Redis wrapper (Get/Set/GetJSON, ErrMiss)
 ├── config/                  # Env → Config, with Validate()
-├── cron/                    # Nightly jobs (signal, diary & trait profiles, taste overlaps, soft-delete purge)
+├── cron/                    # Nightly jobs (signal, thought & trait profiles, taste overlaps, soft-delete purge)
 ├── db/                      # sqlc-GENERATED queries + models — do not hand-edit
 ├── external/                # ISBNdb, Google Books, Hardcover, Cloudinary clients
 ├── handler/                 # HTTP handlers, one file per domain (incl. wrapped, community, device tokens)
@@ -217,7 +217,7 @@ The backend serves two auth surfaces from one identity system, because a browser
 **Four access postures**, chosen per route:
 
 - `Authenticate` — 401s without a valid Bearer token. Writes, personal data.
-- `OptionalAuthenticate` — parses the token if present, ignores it if missing/invalid, never 401s. Used where identity *changes* the response but isn't *required*: a book's diary entries surface the viewer's own private entries; recommendations personalize when logged in and fall back otherwise; list visibility depends on the requester.
+- `OptionalAuthenticate` — parses the token if present, ignores it if missing/invalid, never 401s. Used where identity *changes* the response but isn't *required*: a book's thoughts surface the viewer's own private entries; recommendations personalize when logged in and fall back otherwise; list visibility depends on the requester.
 - `RequireInternalSecret` — guards `/analytics/*` and `/admin/*` with a shared `X-Internal-Secret` header, not a user token. There is no admin role on users, so a Bearer JWT proves nothing about who may run destructive maintenance.
 - `RequireProfileAccess` — mounted on the whole `/users/{username}` subtree. On a private profile it refuses every GET unless the viewer is the owner or an approved follower; the bare profile GET is let through and redacts itself. Mounting it on the subtree means routes added later inherit it.
 
@@ -285,7 +285,7 @@ Redis-backed caches include: the recommendation candidate pool (per user), signa
                                               ▼
                      suppress seen & dismissed  →  dedupe editions  →  hydrate community stats
                                               ▼
-              scoreV2: embedding · genre · author · velocity · diary · popularity · quality
+              scoreV2: embedding · genre · author · velocity · thought · popularity · quality
                        + trait fit − trait clash + recent taste + twins     (each term flag-gated)
                                               ▼
                   diversify: caps on genre, author, length, popularity, familiar authors
@@ -316,7 +316,7 @@ Genres are too coarse to explain taste — two "literary fiction" books can be a
 
 ### Reasons
 
-`reason_engine.go` picks one sentence per book, in priority order: vibe → social → twins → recent → trait → anchor → velocity → diary → author → genre → trending → popular → picked. Each line is gated on its own evidence — "maya loved this" only when every named friend actually rated it 4★+, "because you loved *X*" only when the book is within `anchorMinSim = 0.72` cosine of a shelf anchor. The same engine answers `GET /books/{id}/fit` ("Why you'll like this" on a book page) by ranking a pool of one; it returns **204** when nothing personal applies rather than inventing a line.
+`reason_engine.go` picks one sentence per book, in priority order: vibe → social → twins → recent → trait → anchor → velocity → thought → author → genre → trending → popular → picked. Each line is gated on its own evidence — "maya loved this" only when every named friend actually rated it 4★+, "because you loved *X*" only when the book is within `anchorMinSim = 0.72` cosine of a shelf anchor. The same engine answers `GET /books/{id}/fit` ("Why you'll like this" on a book page) by ranking a pool of one; it returns **204** when nothing personal applies rather than inventing a line.
 
 ---
 
@@ -338,7 +338,7 @@ Genres are too coarse to explain taste — two "literary fiction" books can be a
 
 1. **Maybe ask one question.** If the request is too open to answer well, return `jazy#question` with tappable options (comfort-vs-stretch for known readers, pace for strangers). Never a second question — that's an interrogation.
 2. **Retrieve and rank** through the search pipeline with the session it already advanced, so constraints and negative taste apply. (It used to advance the session twice per turn, applying "shorter" twice.)
-3. **Voice.** Claude writes the intro and per-book reasons from a `ReaderContext` that knows what the reader has read, rated, loved, disliked, abandoned, saved, what their follows loved, their favourite authors, pace, recent drift, previous asks, and the last three **non-private** diary lines. Private diary entries never leave the app.
+3. **Voice.** Claude writes the intro and per-book reasons from a `ReaderContext` that knows what the reader has read, rated, loved, disliked, abandoned, saved, what their follows loved, their favourite authors, pace, recent drift, previous asks, and the last three **non-private** thought lines. Private thoughts never leave the app.
 
 The answers do real work: `comfort` doubles the taste terms, `surprise` zeroes them and rewards leaving the reader's genres. The voice call is best-effort — on any failure the deck ships with the engine's own reasons. *"A librarian who is briefly hoarse still hands you the books."*
 
@@ -399,7 +399,7 @@ Two separate HTTP clients (30s for Claude, 10s for community lookups) isolate th
 
 ## Wrapped
 
-`GET /api/v1/users/me/wrapped?month=YYYY-MM&tz=<zone>` builds a monthly reading story from shelf, progress log and diary: books finished, pages, an **estimated** reading time (logged pages at 40 pages/hour — the app records no session durations, and the JSON field names say "estimated"), authors, genres, reading rhythm, streak, the top-rated book, the book that stalled (untouched for 7+ days before month end), a community rank, a reader archetype, and a dare for next month. `has_data: false` means nothing was logged, and every client shows an empty state instead of a story about nothing. Queries live in `queries/wrapped.sql`.
+`GET /api/v1/users/me/wrapped?month=YYYY-MM&tz=<zone>` builds a monthly reading story from shelf, progress log and thought: books finished, pages, an **estimated** reading time (logged pages at 40 pages/hour — the app records no session durations, and the JSON field names say "estimated"), authors, genres, reading rhythm, streak, the top-rated book, the book that stalled (untouched for 7+ days before month end), a community rank, a reader archetype, and a dare for next month. `has_data: false` means nothing was logged, and every client shows an empty state instead of a story about nothing. Queries live in `queries/wrapped.sql`.
 
 ---
 
@@ -430,11 +430,11 @@ Tests in `fusion_test.go`: story from both sides, picks unread by both, wildcard
 |---|---|---|
 | **Private profiles** | `PATCH /users/me/visibility` | Enforced by `RequireProfileAccess` on the whole `/users/{username}` subtree |
 | **Follow requests** | `GET /users/me/follow-requests`, `POST\|DELETE …/{username}` | Following a private profile creates a request instead of a follow |
-| **Blocking** | `POST\|DELETE /users/{username}/block` | Works both ways: neither reader sees the other's diary entries, reviews or social proof (those GETs are `OptionalAuthenticate` so the filter sees the viewer) |
+| **Blocking** | `POST\|DELETE /users/{username}/block` | Works both ways: neither reader sees the other's thoughts, reviews or social proof (those GETs are `OptionalAuthenticate` so the filter sees the viewer) |
 | **Reports** | `POST /reports` | App Store 1.2 / Play UGC compliance — content type, content id, reason |
 | **Push tokens** | `POST\|DELETE /api/mobile/users/me/device-token` | Stores APNs / FCM tokens (`device_tokens`, migration 000036). **Nothing sends yet** — `PUSH_ENABLED` and the APNs/FCM config are read, but no sender ships and neither app registers a token |
 
-Privacy migrations worth knowing: **000039** cleared ratings nobody earned (rating now needs 20 pages read or a finish — the apps used to shelve a book at 0 pages on a star tap), **000040** nulls embeddings on private diary entries (private text never feeds recommendations), **000041** stores deletion-audit emails hashed. The full review is in [`docs/PRIVACY_AUDIT.md`](docs/PRIVACY_AUDIT.md).
+Privacy migrations worth knowing: **000039** cleared ratings nobody earned (rating now needs 20 pages read or a finish — the apps used to shelve a book at 0 pages on a star tap), **000040** nulls embeddings on private thoughts (private text never feeds recommendations), **000041** stores deletion-audit emails hashed. The full review is in [`docs/PRIVACY_AUDIT.md`](docs/PRIVACY_AUDIT.md).
 
 ---
 
@@ -448,7 +448,7 @@ Operator reads, all behind `X-Internal-Secret`, power the separate `analytics-pa
 |---|---|
 | `/analytics/overview`, `/users`, `/features` | Totals, growth, feature usage |
 | `/analytics/retention` | D1/7/14/30 cohorts, activation, stickiness |
-| `/analytics/discovery` | Funnel per `reason_type`: impression → open → save → start → finish → 4★ → 5★ → diary → share. North star is `love_rate` — recommended books that end at 4★+ |
+| `/analytics/discovery` | Funnel per `reason_type`: impression → open → save → start → finish → 4★ → 5★ → thought → share. North star is `love_rate` — recommended books that end at 4★+ |
 
 ---
 
@@ -462,7 +462,7 @@ Each third-party client lives in `internal/external` and is constructed once in 
 | **Google Books** | Secondary search, cover/metadata fill | Local Postgres results only |
 | **Hardcover** | Scan community reader/rating counts | Open Library counts |
 | **Brave Search** | Scan sentiment research | Skipped |
-| **Cohere** | Book, diary and query embeddings — recommendations, vibe search, Jazy | `NoopEmbedder` — vector paths off, recs fall back to social / popular |
+| **Cohere** | Book, thought and query embeddings — recommendations, vibe search, Jazy | `NoopEmbedder` — vector paths off, recs fall back to social / popular |
 | **Anthropic (Claude)** | Scan scoring and Jazy's voice (Sonnet 4.6), vibe match reasons, book-trait extraction (Haiku 4.5) | Scan disabled; Jazy and vibe search return decks with the engine's own reasons; traits not extracted |
 | **Cloudinary** | Avatar / banner upload (server-signed) | Upload endpoints 503 |
 | **Resend** | Transactional email (OTP) | `NoopMailer` — endpoints 200, no mail |
@@ -476,16 +476,16 @@ Book search is **local-first**: Postgres is queried before any external provider
 `internal/cron/nightly.go` starts a goroutine that runs once at boot and every 24h thereafter (non-blocking — no external scheduler needed). Five jobs, in order:
 
 - **`recomputeStaleProfiles`** — refreshes recommendation signal profiles (genre, author, velocity) that are missing or older than 24h, up to 100 users per run, so recommendations stay warm without recomputing on the request path.
-- **`recomputeStaleDiaryCentroids`** — rebuilds each diarist's diary embedding centroid. Enumerates from `diary_entries`, not `bookshelf`, so shelf-less diarists are included and a reader who made every entry private gets their centroid nulled.
+- **`recomputeStaleThoughtCentroids`** — rebuilds each diarist's thought embedding centroid. Enumerates from `thoughts`, not `bookshelf`, so shelf-less diarists are included and a reader who made every entry private gets their centroid nulled.
 - **`recomputeStaleTraitProfiles`** — rebuilds trait preferences *and* negative signals. It calls the superset (`ComputeAndSaveNegativeSignals`) on purpose — the narrower trait-only call would overwrite verdicts and abandonments every night.
 - **`recomputeTasteOverlaps`** — rebuilds the reader-pair table. Runs after trait profiles so the trait-distance term sees tonight's numbers.
-- **`purgeSoftDeletedUsers`** — hard-deletes accounts whose `deleted_at` is older than the 30-day retention window. This backs the privacy-policy commitment to erase data within 30 days of a deletion request. Because every user-owned table is `FK ... ON DELETE CASCADE`, a single `DELETE FROM users` removes the shelf, diary, reviews, lists, events, and tokens with it; the `account_deletions` audit row is intentionally *not* FK-linked and is retained for retention analysis.
+- **`purgeSoftDeletedUsers`** — hard-deletes accounts whose `deleted_at` is older than the 30-day retention window. This backs the privacy-policy commitment to erase data within 30 days of a deletion request. Because every user-owned table is `FK ... ON DELETE CASCADE`, a single `DELETE FROM users` removes the shelf, thought, reviews, lists, events, and tokens with it; the `account_deletions` audit row is intentionally *not* FK-linked and is retained for retention analysis.
 
 ---
 
 ## The MongoDB → PostgreSQL Migration
 
-The backend was migrated from MongoDB to PostgreSQL with **zero data loss**: 39 users, 4,129 books, plus shelves, likes, lists, diary entries, follows, and activities. The migration tool is `cmd/migrate-mongo-to-pg` (run via `make migrate-mongo-to-pg`, needs `MONGO_URI` + `POSTGRES_URL`), with a `preflight` check, an `idmap` to translate Mongo ObjectIDs to Postgres UUIDs, and a `verify` pass that asserts row counts match.
+The backend was migrated from MongoDB to PostgreSQL with **zero data loss**: 39 users, 4,129 books, plus shelves, likes, lists, thoughts, follows, and activities. The migration tool is `cmd/migrate-mongo-to-pg` (run via `make migrate-mongo-to-pg`, needs `MONGO_URI` + `POSTGRES_URL`), with a `preflight` check, an `idmap` to translate Mongo ObjectIDs to Postgres UUIDs, and a `verify` pass that asserts row counts match.
 
 Passwords were preserved so every user could log in immediately post-migration. Full details in [`docs/MIGRATION_REPORT.md`](docs/MIGRATION_REPORT.md) and the reflections in [`docs/LESSONS_LEARNED.md`](docs/LESSONS_LEARNED.md). Known, accepted limitations (float→int rating rounding, 314 ISBN-less books) are documented there.
 
