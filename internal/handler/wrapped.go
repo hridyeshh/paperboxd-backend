@@ -134,6 +134,7 @@ type WrappedTopRated struct {
 type WrappedAbandonedBook struct {
 	Title      string `json:"title"`
 	Author     string `json:"author"`
+	Cover      string `json:"cover"`
 	Page       int    `json:"page"`
 	Of         int    `json:"of"`
 	Started    string `json:"started"`
@@ -377,6 +378,7 @@ func (h *WrappedHandler) Get(w http.ResponseWriter, r *http.Request) {
 		ab := &WrappedAbandonedBook{
 			Title:  row.Title,
 			Author: firstAuthor(row.Authors),
+			Cover:  textOr(row.CoverUrl, ""),
 			Page:   page,
 			Of:     of,
 			Roast:  roastOf(page, of),

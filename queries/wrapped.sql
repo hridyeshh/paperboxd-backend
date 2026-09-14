@@ -162,6 +162,7 @@ LIMIT 1;
 SELECT
     b.title,
     b.authors,
+    b.cover_url,
     b.page_count,
     bs.current_page,
     bs.started_at,

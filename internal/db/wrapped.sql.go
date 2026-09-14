@@ -16,6 +16,7 @@ const wrappedAbandoned = `-- name: WrappedAbandoned :one
 SELECT
     b.title,
     b.authors,
+    b.cover_url,
     b.page_count,
     bs.current_page,
     bs.started_at,
@@ -46,6 +47,7 @@ type WrappedAbandonedParams struct {
 type WrappedAbandonedRow struct {
 	Title       string             `json:"title"`
 	Authors     []string           `json:"authors"`
+	CoverUrl    pgtype.Text        `json:"cover_url"`
 	PageCount   pgtype.Int4        `json:"page_count"`
 	CurrentPage pgtype.Int4        `json:"current_page"`
 	StartedAt   pgtype.Timestamptz `json:"started_at"`
@@ -61,6 +63,7 @@ func (q *Queries) WrappedAbandoned(ctx context.Context, arg WrappedAbandonedPara
 	err := row.Scan(
 		&i.Title,
 		&i.Authors,
+		&i.CoverUrl,
 		&i.PageCount,
 		&i.CurrentPage,
 		&i.StartedAt,
