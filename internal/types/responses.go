@@ -142,6 +142,22 @@ type BookResponse struct {
 	ISBNdbID       string         `json:"isbndbId,omitempty"`
 	OpenLibraryID  string         `json:"openLibraryId,omitempty"`
 	Slug           string         `json:"slug"`
+	// ReadLinks is set on single-book detail responses only; omitted from
+	// search, list and carousel items.
+	ReadLinks *ReadLinks `json:"read_links,omitempty"`
+}
+
+// ReadLinks is where a reader can get the text of a book. Every key is always
+// present; a store that doesn't carry the book is null.
+type ReadLinks struct {
+	GooglePlayBuyLink *string `json:"google_play_buy_link"`
+	AppleBooksURL     *string `json:"apple_books_url"`
+	AmazonSearchURL   string  `json:"amazon_search_url"`
+	WorldcatURL       string  `json:"worldcat_url"`
+	IsPublicDomain    bool    `json:"is_public_domain"`
+	GutenbergID       *int    `json:"gutenberg_id"`
+	GutenbergHTMLURL  *string `json:"gutenberg_html_url"`
+	GutenbergEPUBURL  *string `json:"gutenberg_epub_url"`
 }
 
 // BookListResponse matches Google Books API list format.

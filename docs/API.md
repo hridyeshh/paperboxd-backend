@@ -343,7 +343,26 @@ Books follow a Google Books–like envelope (`types.BookResponse`):
 
 Path `id` must be a **UUID** of a row in `books`.
 
-**Response:** `200 OK` — `BookResponse`.
+**Response:** `200 OK` — `BookResponse`, plus `read_links`.
+
+**`read_links`** ("Read Now") is on single-book detail responses only — this endpoint and `GET /api/v1/books/by-slug/{slug}` when the book is cached. Search, list and carousel items never carry it. Every key is always present; `null` means that store doesn't carry the book.
+
+```json
+"read_links": {
+  "google_play_buy_link": "https://play.google.com/store/books/details?id=...",
+  "apple_books_url": null,
+  "amazon_search_url": "https://www.amazon.in/s?i=digital-text&k=9780141439518",
+  "worldcat_url": "https://search.worldcat.org/isbn/9780141439518",
+  "is_public_domain": true,
+  "gutenberg_id": 345,
+  "gutenberg_html_url": "https://www.gutenberg.org/ebooks/345.html.images",
+  "gutenberg_epub_url": "https://www.gutenberg.org/ebooks/345.epub3.images"
+}
+```
+
+- `amazon_search_url` and `worldcat_url` are never null: they search by ISBN, or by title and author when the book has no ISBN.
+- `google_play_buy_link` and `apple_books_url` are India storefront lookups, each cached 30 days in `book_read_links` on first view. "Not carried" is cached; a lookup error or timeout is not (that store alone is retried next view). Apple's India store sells no paid books, so `apple_books_url` is null in practice.
+- `is_public_domain` and the `gutenberg_*` fields come from the nightly Gutenberg backfill (`internal/cron/nightly.go`, 300 books a night, most recently opened first; `go run ./cmd/backfill-read-links --limit N` for a manual pass), never from the request. They are `false`/`null` until it has checked the book. A match requires the same main title and author surname.
 
 **Errors:**
 

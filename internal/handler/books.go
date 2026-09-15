@@ -35,6 +35,8 @@ type BookHandler struct {
 	RecommendationService *service.RecommendationService
 	Enricher              *service.Enricher
 	EventSvc              *service.EventService
+	// ReadLinks is optional; nil leaves read_links off detail responses.
+	ReadLinks *service.ReadLinksService
 }
 
 // NewBookHandler creates a BookHandler with the given clients.
@@ -308,7 +310,17 @@ func (h *BookHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	types.WriteJSON(w, http.StatusOK, bookToResponse(book))
+	types.WriteJSON(w, http.StatusOK, h.detailResponse(r.Context(), book))
+}
+
+// detailResponse is bookToResponse plus read_links, for single-book detail
+// endpoints only — list and search items stay lightweight.
+func (h *BookHandler) detailResponse(ctx context.Context, b db.Book) types.BookResponse {
+	resp := bookToResponse(b)
+	if h.ReadLinks != nil {
+		resp.ReadLinks = h.ReadLinks.Links(ctx, b)
+	}
+	return resp
 }
 
 // resolveBookIDParam resolves an arbitrary book identifier (URL param or body
@@ -642,7 +654,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		go func(id uuid.UUID) {
 			_ = h.Queries.BumpBookAccess(context.Background(), id)
 		}(book.ID)
-		types.WriteJSON(w, http.StatusOK, bookToResponse(book))
+		types.WriteJSON(w, http.StatusOK, h.detailResponse(ctx, book))
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -659,7 +671,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 				go func(id uuid.UUID) {
 					_ = h.Queries.BumpBookAccess(context.Background(), id)
 				}(resolved.ID)
-				types.WriteJSON(w, http.StatusOK, bookToResponse(resolved))
+				types.WriteJSON(w, http.StatusOK, h.detailResponse(ctx, resolved))
 				return
 			}
 		}
@@ -677,7 +689,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 		go func(id uuid.UUID) {
 			_ = h.Queries.BumpBookAccess(context.Background(), id)
 		}(dbBooks[0].ID)
-		types.WriteJSON(w, http.StatusOK, bookToResponse(dbBooks[0]))
+		types.WriteJSON(w, http.StatusOK, h.detailResponse(ctx, dbBooks[0]))
 		return
 	}
 
@@ -692,7 +704,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 			}
 			if isbn != "" {
 				if cached, cacheErr := cacheBookFromISBNdb(ctx, h.Queries, h.ISBNdb, isbn, h.embedCallback()); cacheErr == nil {
-					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
+					types.WriteJSON(w, http.StatusOK, h.detailResponse(ctx, cached))
 					return
 				}
 			}
@@ -708,7 +720,7 @@ func (h *BookHandler) GetBySlug(w http.ResponseWriter, r *http.Request) {
 			gb := googleBooks[0]
 			if gb.ID != "" {
 				if cached, cacheErr := cacheBookFromGoogleBooks(ctx, h.Queries, h.GoogleBooks, gb.ID, h.embedCallback()); cacheErr == nil {
-					types.WriteJSON(w, http.StatusOK, bookToResponse(cached))
+					types.WriteJSON(w, http.StatusOK, h.detailResponse(ctx, cached))
 					return
 				}
 			}

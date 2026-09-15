@@ -70,6 +70,20 @@ type Book struct {
 	LastAccessedAt    pgtype.Timestamptz `json:"last_accessed_at"`
 }
 
+type BookReadLink struct {
+	BookID              uuid.UUID          `json:"book_id"`
+	GooglePlayBuyLink   pgtype.Text        `json:"google_play_buy_link"`
+	GooglePlayCheckedAt pgtype.Timestamptz `json:"google_play_checked_at"`
+	AppleBooksUrl       pgtype.Text        `json:"apple_books_url"`
+	AppleBooksCheckedAt pgtype.Timestamptz `json:"apple_books_checked_at"`
+	IsPublicDomain      bool               `json:"is_public_domain"`
+	GutenbergID         pgtype.Int4        `json:"gutenberg_id"`
+	GutenbergHtmlUrl    pgtype.Text        `json:"gutenberg_html_url"`
+	GutenbergEpubUrl    pgtype.Text        `json:"gutenberg_epub_url"`
+	GutenbergCheckedAt  pgtype.Timestamptz `json:"gutenberg_checked_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type BookTrait struct {
 	BookID              uuid.UUID          `json:"book_id"`
 	CharacterDriven     float32            `json:"character_driven"`

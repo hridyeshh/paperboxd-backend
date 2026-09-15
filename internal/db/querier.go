@@ -181,6 +181,7 @@ type Querier interface {
 	// three books so the card has covers. Saves first, then freshness.
 	GetPublicLists(ctx context.Context, limit int32) ([]GetPublicListsRow, error)
 	GetRandomBooks(ctx context.Context, limit int32) ([]Book, error)
+	GetReadLinksByBookID(ctx context.Context, bookID uuid.UUID) (BookReadLink, error)
 	// Per-day page totals across an inclusive date range, for the GitHub-style
 	// reading heatmap. Only days with at least one logged entry are returned; the
 	// handler fills the gaps with zeros.
@@ -251,6 +252,9 @@ type Querier interface {
 	// Likes
 	LikeThought(ctx context.Context, arg LikeThoughtParams) (ThoughtLike, error)
 	LinkAppleUserID(ctx context.Context, arg LinkAppleUserIDParams) error
+	// Most recently opened first, so a capped nightly run covers the books
+	// people actually look at.
+	ListBooksNeedingGutenbergCheck(ctx context.Context, limit int32) ([]ListBooksNeedingGutenbergCheckRow, error)
 	ListDeviceTokensByUser(ctx context.Context, userID uuid.UUID) ([]DeviceToken, error)
 	ListIncomingFollowRequests(ctx context.Context, arg ListIncomingFollowRequestsParams) ([]ListIncomingFollowRequestsRow, error)
 	LogReadingProgress(ctx context.Context, arg LogReadingProgressParams) error
@@ -347,6 +351,11 @@ type Querier interface {
 	// different account signs in on that device the row must change hands rather
 	// than accumulate a second owner. See migrations/000036 for the full rationale.
 	UpsertDeviceToken(ctx context.Context, arg UpsertDeviceTokenParams) (DeviceToken, error)
+	// Gutenberg half only; store links are left alone.
+	UpsertPublicDomain(ctx context.Context, arg UpsertPublicDomainParams) (BookReadLink, error)
+	// Writes only the stores whose lookup answered (google_checked /
+	// apple_checked); the others keep their link and checked_at untouched.
+	UpsertStoreLinks(ctx context.Context, arg UpsertStoreLinksParams) (BookReadLink, error)
 	// The viewer's finished books, for the "you both read X" signal. Capped: a
 	// heavy reader's whole shelf is not needed to find overlap worth naming.
 	UserReadBookIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)

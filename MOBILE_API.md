@@ -266,6 +266,10 @@ All endpoints below live under `/api/v1`. Auth requirement is per-route. Respons
 | `DELETE` | `/api/v1/books/{id}/like` | Required | Unlike |
 | `POST` | `/api/v1/books/{id}/share` | Required | Share event |
 
+**Read Now.** The two single-book endpoints (`/books/{id}`, `/books/by-slug/{slug}`) add `read_links`; search, list and carousel items never have it.
+
+`read_links`: `{google_play_buy_link, apple_books_url, amazon_search_url, worldcat_url, is_public_domain, gutenberg_id, gutenberg_html_url, gutenberg_epub_url}`. Every key is always present. `amazon_search_url` and `worldcat_url` are always strings; the rest are `null` when there is no link. Hide a button whose link is `null`. Show "Read free" only when `is_public_domain` is `true` (then `gutenberg_html_url` is set). Store links are India storefronts. Full shape: `docs/API.md` → Get book by ID.
+
 ### 3.4 Bookshelf
 
 | Method | Path | Auth | Notes |

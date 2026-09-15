@@ -12,26 +12,47 @@ import (
 
 // StartNightlyCron runs nightly jobs once at startup and then every 24 hours.
 // It is non-blocking: the ticker loop runs in a background goroutine.
-func StartNightlyCron(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
+func StartNightlyCron(pool *pgxpool.Pool, recSvc *service.RecommendationService, readLinks *service.ReadLinksService) {
 	go func() {
-		runNightlyJobs(pool, recSvc)
+		runNightlyJobs(pool, recSvc, readLinks)
 
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			runNightlyJobs(pool, recSvc)
+			runNightlyJobs(pool, recSvc, readLinks)
 		}
 	}()
 }
 
-func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService) {
+func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService, readLinks *service.ReadLinksService) {
 	slog.Info("nightly jobs: starting")
 	recomputeStaleProfiles(pool, recSvc)
 	recomputeStaleThoughtCentroids(pool, recSvc)
 	recomputeStaleTraitProfiles(pool, recSvc)
 	recomputeTasteOverlaps(recSvc)
 	purgeSoftDeletedUsers(pool)
+	refreshPublicDomainLinks(readLinks)
 	slog.Info("nightly jobs: done")
+}
+
+// nightlyGutenbergLimit caps one night's Gutendex lookups (~1/s, so a few
+// minutes plus Gutendex latency). Books already checked are skipped for 30
+// days, so the cap only bounds how fast a large new catalogue gets covered.
+const nightlyGutenbergLimit = 300
+
+// refreshPublicDomainLinks matches recently opened books against Project
+// Gutenberg for the "Read free" button. Last, because it is the slowest job
+// and the least urgent.
+func refreshPublicDomainLinks(readLinks *service.ReadLinksService) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	run, err := readLinks.BackfillPublicDomain(ctx, nightlyGutenbergLimit)
+	if err != nil {
+		slog.Error("nightly: gutenberg backfill", "error", err, "checked", run.Checked)
+		return
+	}
+	slog.Info("nightly: gutenberg backfill", "checked", run.Checked, "matched", run.Matched,
+		"no_match", run.NoMatch, "errored", run.Errored, "aborted", run.Aborted)
 }
 
 // recomputeTasteOverlaps rebuilds the reader-to-reader similarity table.

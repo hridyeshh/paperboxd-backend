@@ -36,6 +36,11 @@ type GoogleBook struct {
 			Identifier string `json:"identifier"`
 		} `json:"industryIdentifiers"`
 	} `json:"volumeInfo"`
+	// SaleInfo is only asked for a country by GetByIDForStore.
+	SaleInfo struct {
+		Saleability string `json:"saleability"`
+		BuyLink     string `json:"buyLink"`
+	} `json:"saleInfo"`
 }
 
 func NewGoogleBooksClient(apiKey string) *GoogleBooksClient {
@@ -84,7 +89,21 @@ func (c *GoogleBooksClient) GetByID(ctx context.Context, volumeID string) (*Goog
 	if c.apiKey != "" {
 		reqURL += "?key=" + c.apiKey
 	}
+	return c.getVolume(ctx, reqURL)
+}
 
+// GetByIDForStore is GetByID with saleInfo for the Read Now storefront
+// (storeCountry); without country Google uses the server's IP location. Kept
+// apart from GetByID so book caching sends exactly the request it always has.
+func (c *GoogleBooksClient) GetByIDForStore(ctx context.Context, volumeID string) (*GoogleBook, error) {
+	params := url.Values{"country": {storeCountry}}
+	if c.apiKey != "" {
+		params.Set("key", c.apiKey)
+	}
+	return c.getVolume(ctx, fmt.Sprintf("%s/volumes/%s?%s", c.baseURL, url.PathEscape(volumeID), params.Encode()))
+}
+
+func (c *GoogleBooksClient) getVolume(ctx context.Context, reqURL string) (*GoogleBook, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, err

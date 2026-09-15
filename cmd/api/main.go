@@ -185,6 +185,8 @@ func main() {
 
 	bookHandler := handler.NewBookHandler(queries, cfg, isbndbClient, googleBooksClient, eventSvc)
 	bookHandler.Cache = cacheClient
+	readLinksSvc := service.NewReadLinksService(queries, googleBooksClient, external.NewAppleBooksClient(), external.NewGutenbergClient())
+	bookHandler.ReadLinks = readLinksSvc
 	favoritesHandler := handler.NewFavoritesHandler(dbPool, queries, isbndbClient, googleBooksClient)
 	listsHandler := handler.NewListsHandler(queries, isbndbClient, googleBooksClient, eventSvc)
 	activitiesHandler := handler.NewActivitiesHandler(queries, cacheClient)
@@ -209,7 +211,7 @@ func main() {
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
 	fusionHandler := handler.NewFusionHandler(recommendationSvc)
 	bookHandler.RecommendationService = recommendationSvc
-	cron.StartNightlyCron(dbPool, recommendationSvc)
+	cron.StartNightlyCron(dbPool, recommendationSvc, readLinksSvc)
 
 	thoughtHandler := handler.NewThoughtHandler(queries, isbndbClient, googleBooksClient, recommendationSvc, eventSvc)
 	scanHandler := handler.NewScanHandler(dbPool, queries, cfg, isbndbClient, hardcoverClient)
