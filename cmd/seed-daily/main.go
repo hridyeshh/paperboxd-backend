@@ -81,7 +81,15 @@ func main() {
 		os.Exit(1)
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dbURL)
+	poolConfig, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		slog.Error("parse DATABASE_URL", "error", err)
+		os.Exit(1)
+	}
+	// Book lookups SELECT * over the embedding column; without the API's
+	// pgvector codecs every scan fails with "unsupported data type".
+	poolConfig.AfterConnect = db.RegisterPgvectorTypes
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		slog.Error("connect to postgres", "error", err)
 		os.Exit(1)

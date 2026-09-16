@@ -32,3 +32,19 @@ func TestCanRateEntry(t *testing.T) {
 		})
 	}
 }
+
+// Two Scribner editions of The Great Gatsby share the ISBN prefix "978074";
+// their slugs must still differ or the second insert fails on books.slug.
+func TestGenerateSlugKeepsWholeID(t *testing.T) {
+	a := generateSlug("The Great Gatsby", "9780743273565")
+	b := generateSlug("The Great Gatsby", "9780743246392")
+	if a == b {
+		t.Fatalf("editions collide on slug %q", a)
+	}
+	if want := "the-great-gatsby-9780743273565"; a != want {
+		t.Fatalf("got %q, want %q", a, want)
+	}
+	if got := generateSlug("Piranesi", ""); got != "piranesi" {
+		t.Fatalf("no id: got %q", got)
+	}
+}

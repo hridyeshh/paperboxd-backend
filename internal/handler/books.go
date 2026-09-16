@@ -783,12 +783,17 @@ func bookToEnrichable(b db.Book) service.EnrichableBook {
 
 var nonAlphanumRegex = regexp.MustCompile(`[^a-z0-9]+`)
 
-func generateSlug(title, googleBooksID string) string {
+// generateSlug builds a book's unique slug from its title and source id (a
+// Google Books volume id or an ISBN-13). The whole id is appended: a six-char
+// prefix of an ISBN-13 is "978" plus the publisher group, so two editions of
+// one title from the same publisher got the same slug and the second insert
+// failed on books.slug.
+func generateSlug(title, id string) string {
 	slug := strings.ToLower(title)
 	slug = nonAlphanumRegex.ReplaceAllString(slug, "-")
 	slug = strings.Trim(slug, "-")
-	if googleBooksID != "" && len(googleBooksID) >= 6 {
-		slug = slug + "-" + strings.ToLower(googleBooksID[:6])
+	if id != "" {
+		slug = slug + "-" + strings.ToLower(id)
 	}
 	return slug
 }
