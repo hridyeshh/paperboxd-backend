@@ -51,6 +51,14 @@ type Config struct {
 	// tokens' `aud` claim (the app's bundle ID). Same rationale as Google above.
 	AllowedAppleAudiences []string
 
+	// Plus subscriptions. Apple needs nothing beyond the bundle ID (already
+	// in AllowedAppleAudiences): receipts are verified against Apple's root
+	// certificate. Google needs a service account with the Play Developer
+	// API enabled, and a shared secret the Pub/Sub push carries as ?token=.
+	GooglePlayPackage            string
+	GooglePlayServiceAccountJSON string
+	GooglePlayRTDNToken          string
+
 	ResendAPIKey    string // POST https://api.resend.com/emails Bearer key. Empty → NoopMailer.
 	ResendFromEmail string // sender, e.g. "PaperBoxd <onboarding@resend.dev>"
 
@@ -132,6 +140,10 @@ func Load() (*Config, error) {
 		// system (a `scan_unlimited` capability).
 		ScanUnlimitedEmails:   getEnvAsStringSlice("SCAN_UNLIMITED_EMAILS", ""),
 		AllowedAppleAudiences: getEnvAsStringSlice("APPLE_ALLOWED_AUDIENCES", "com.paperboxd.PaperBoxd"),
+
+		GooglePlayPackage:            getEnv("GOOGLE_PLAY_PACKAGE", "in.paperboxd.app"),
+		GooglePlayServiceAccountJSON: getEnv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON", ""),
+		GooglePlayRTDNToken:          getEnv("GOOGLE_PLAY_RTDN_TOKEN", ""),
 
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "PaperBoxd <onboarding@resend.dev>"),

@@ -69,6 +69,20 @@ const (
 	EventListCreated     = "list_created"
 	EventListBookAdded   = "list_book_added"
 	EventListShared      = "list_shared"
+
+	// Plus. The client sends the first two with metadata.feature and
+	// metadata.surface; the subscription ones come from the link endpoints and
+	// store webhooks, so they reflect what the store said, not what the app
+	// hoped.
+	EventPaywallViewed         = "paywall_viewed"
+	EventPremiumCTAClicked     = "premium_cta_clicked"
+	EventPremiumFeatureViewed  = "premium_feature_viewed"
+	EventPremiumFeatureUsed    = "premium_feature_used"
+	EventSubscriptionStarted   = "subscription_started"
+	EventTrialStarted          = "trial_started"
+	EventSubscriptionRenewed   = "subscription_renewed"
+	EventSubscriptionCancelled = "subscription_cancelled"
+	EventSubscriptionExpired   = "subscription_expired"
 )
 
 // validEventTypes is the set ValidEventType checks against.
@@ -94,6 +108,10 @@ var validEventTypes = map[string]struct{}{
 
 	EventThoughtCreated: {}, EventThoughtLiked: {}, EventThoughtReposted: {},
 	EventListCreated: {}, EventListBookAdded: {}, EventListShared: {},
+
+	EventPaywallViewed: {}, EventPremiumCTAClicked: {}, EventPremiumFeatureViewed: {},
+	EventPremiumFeatureUsed: {}, EventSubscriptionStarted: {}, EventTrialStarted: {},
+	EventSubscriptionRenewed: {}, EventSubscriptionCancelled: {}, EventSubscriptionExpired: {},
 }
 
 // anonymousEventTypes may be written without a user_id. Everything else

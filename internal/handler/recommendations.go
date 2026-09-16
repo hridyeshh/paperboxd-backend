@@ -3,12 +3,14 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
@@ -17,6 +19,8 @@ import (
 // RecommendationHandler serves personalised book recommendations.
 type RecommendationHandler struct {
 	svc *service.RecommendationService
+	// Queries backs the Plus gate on taste twins and the full taste dashboard.
+	Queries *db.Queries
 }
 
 func NewRecommendationHandler(svc *service.RecommendationService) *RecommendationHandler {
@@ -246,6 +250,14 @@ func (h *RecommendationHandler) GetTasteTwins(w http.ResponseWriter, r *http.Req
 	userID, ok := reqctx.GetUserID(r.Context())
 	if !ok {
 		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		types.WriteError(w, http.StatusUnauthorized, types.ErrCodeUnauthorized, "Unauthorized")
+		return
+	}
+	if !requirePlus(w, r, h.Queries, uid, "Taste twins") {
 		return
 	}
 	limit := 10

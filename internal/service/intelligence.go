@@ -167,6 +167,17 @@ type TasteDashboard struct {
 	// Enough is false while the profile is too thin to show honestly. The
 	// client renders an invitation to rate more instead of empty bars.
 	Enough bool `json:"enough"`
+	// Plus is false when the reader is on the free tier: top_genres,
+	// top_authors and books_rated are still filled, the rest is emptied and
+	// the client renders a Plus lock in its place.
+	Plus bool `json:"plus"`
+}
+
+// FreeTier strips the Plus-only sections.
+func (d TasteDashboard) FreeTier() TasteDashboard {
+	d.Bars, d.Shifts, d.CurrentMood, d.Insights, d.Dislikes = nil, nil, nil, nil, nil
+	d.Plus = false
+	return d
 }
 
 // axisLabel is the dashboard's short name for an axis.

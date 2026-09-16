@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/go-chi/chi/v5"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -54,6 +55,14 @@ func (h *RecommendationHandler) GetTasteDashboard(w http.ResponseWriter, r *http
 		types.WriteInternalError(w)
 		return
 	}
+	// Free tier sees the summary; Plus sees the whole mirror.
+	d.Plus = false
+	if uid, err := uuid.Parse(userID); err == nil {
+		d.Plus = subscriptionActive(r.Context(), h.Queries, uid)
+	}
+	if !d.Plus {
+		d = d.FreeTier()
+	}
 	types.WriteJSON(w, http.StatusOK, d)
 }
 
@@ -87,4 +96,36 @@ func (h *RecommendationHandler) ContextDiscovery(w http.ResponseWriter, r *http.
 		return
 	}
 	types.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetSmartTBR handles GET /api/v1/users/me/tbr/smart — Plus-only.
+func (h *RecommendationHandler) GetSmartTBR(w http.ResponseWriter, r *http.Request) {
+	userID, ok := authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+	if !requirePlus(w, r, h.Queries, userID, "Smart TBR") {
+		return
+	}
+	out, err := h.svc.SmartTBR(r.Context(), userID.String())
+	if err != nil {
+		slog.Error("smart tbr", "error", err, "user_id", userID)
+		types.WriteInternalError(w)
+		return
+	}
+	types.WriteJSON(w, http.StatusOK, out)
+}
+
+// KeepTBR handles POST /api/v1/users/me/tbr/smart/{bookId}/keep — the
+// "still want it" answer on a stale book.
+func (h *RecommendationHandler) KeepTBR(w http.ResponseWriter, r *http.Request) {
+	userID, ok := authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.TouchTBR(r.Context(), userID.String(), chi.URLParam(r, "bookId")); err != nil {
+		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "invalid book id")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -195,6 +195,11 @@ func main() {
 	referralHandler := handler.NewReferralHandler(queries)
 	wrappedHandler := handler.NewWrappedHandler(queries)
 	deviceTokenHandler := handler.NewDeviceTokenHandler(queries)
+	playClient := external.NewPlayStoreClient(cfg.GooglePlayPackage, cfg.GooglePlayServiceAccountJSON)
+	if playClient == nil {
+		slog.Warn("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set; Google Play subscriptions will return 503")
+	}
+	subscriptionHandler := handler.NewSubscriptionHandler(dbPool, queries, cfg, external.NewAppleVerifier(), playClient, eventSvc)
 	eventsHandler := handler.NewEventsHandler(dbPool, eventSvc)
 	analyticsHandler := handler.NewAnalyticsHandler(dbPool, cacheClient)
 	newsletterHandler := handler.NewNewsletterHandler(dbPool)
@@ -209,6 +214,7 @@ func main() {
 	}
 	recommendationSvc := service.NewRecommendationService(dbPool, embedder, redisClient, eventSvc, cfg.AnthropicAPIKey)
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
+	recommendationHandler.Queries = queries
 	fusionHandler := handler.NewFusionHandler(recommendationSvc)
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc, readLinksSvc)
@@ -324,6 +330,18 @@ func main() {
 		// permits, so this is open to writes but not to arbitrary ones.
 		r.With(appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/events", eventsHandler.Track)
 
+		// Plus subscriptions: clients link store receipts, stores push renewals.
+		r.Route("/subscriptions", func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.Get("/me", subscriptionHandler.Me)
+			r.With(tightLimit(10)).Post("/apple", subscriptionHandler.LinkApple)
+			r.With(tightLimit(10)).Post("/google", subscriptionHandler.LinkGoogle)
+		})
+		// Webhooks authenticate themselves: Apple by signature, Google by the
+		// shared token in the push URL.
+		r.Post("/webhooks/apple", subscriptionHandler.AppleWebhook)
+		r.Post("/webhooks/google", subscriptionHandler.GoogleWebhook)
+
 		// Auth routes (no auth middleware)
 		r.Route("/auth", func(r chi.Router) {
 			// Credential guessing and OTP email-bombing both live here, and a
@@ -356,6 +374,9 @@ func main() {
 			r.Get("/users/me/referrals", referralHandler.GetMyReferrals)
 			r.Get("/users/me/wrapped", wrappedHandler.Get)
 			r.Get("/users/me/taste", recommendationHandler.GetTasteDashboard)
+			// Plus: what to read next, from the TBR the reader already built.
+			r.Get("/users/me/tbr/smart", recommendationHandler.GetSmartTBR)
+			r.Post("/users/me/tbr/smart/{bookId}/keep", recommendationHandler.KeepTBR)
 			r.Patch("/users/me/visibility", userHandler.UpdateVisibility)
 			r.Get("/users/me/follow-requests", userHandler.ListFollowRequests)
 			r.Post("/users/me/follow-requests/{username}", userHandler.AcceptFollowRequest)
@@ -466,7 +487,8 @@ func main() {
 		r.With(tightLimit(20), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/search", bookHandler.PersonalisedSearch)
 		// Jazy concierge: search with a voice, and permission to ask one
 		// question first. Tighter limit: every deck is a Claude completion.
-		r.With(tightLimit(10), appMiddleware.OptionalAuthenticate(cfg.JWTSecret)).Post("/jazy", bookHandler.Concierge)
+		// Plus-only — the handler returns 402 without an active subscription.
+		r.With(tightLimit(10), appMiddleware.Authenticate(cfg.JWTSecret)).Post("/jazy", bookHandler.Concierge)
 		// Context presets: a situation instead of a sentence. Same pipeline as
 		// /search, so the preset constraints and taste ranking both apply.
 		r.Get("/search/contexts", recommendationHandler.GetContextPresets)

@@ -27,6 +27,9 @@ const (
 	ErrCodeInvalidToken   = "INVALID_TOKEN"
 	ErrCodeExpiredToken   = "EXPIRED_TOKEN"
 	ErrCodePrivateProfile = "PRIVATE_PROFILE"
+	// ErrCodeSubscriptionRequired goes with 402: the caller is signed in but
+	// has no active Plus subscription. Clients open the paywall on it.
+	ErrCodeSubscriptionRequired = "SUBSCRIPTION_REQUIRED"
 )
 
 // AppError is kept for backwards source-compatibility with code that previously

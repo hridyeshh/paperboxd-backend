@@ -193,6 +193,7 @@ type Querier interface {
 	// Books being shelved faster this week than last. Momentum, not volume: a
 	// steady bestseller does not qualify, a book three people just discovered does.
 	GetRisingBooks(ctx context.Context, limit int32) ([]GetRisingBooksRow, error)
+	GetSubscription(ctx context.Context, userID uuid.UUID) (Subscription, error)
 	GetThoughtByID(ctx context.Context, id uuid.UUID) (Thought, error)
 	GetThoughtEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetThoughtEmbeddingsForUserRow, error)
 	GetThoughtLikes(ctx context.Context, thoughtID uuid.UUID) ([]GetThoughtLikesRow, error)
@@ -333,6 +334,10 @@ type Querier interface {
 	UpdateList(ctx context.Context, arg UpdateListParams) (List, error)
 	UpdateReadingProgress(ctx context.Context, arg UpdateReadingProgressParams) (Bookshelf, error)
 	UpdateRefreshTokenLastUsed(ctx context.Context, id uuid.UUID) error
+	// Webhook path: the store tells us about a receipt, not a user. Returns the
+	// owner so the analytics event can be attributed; ErrNoRows when nobody has
+	// linked this receipt yet.
+	UpdateSubscriptionByStoreID(ctx context.Context, arg UpdateSubscriptionByStoreIDParams) (uuid.UUID, error)
 	UpdateTBRNotes(ctx context.Context, arg UpdateTBRNotesParams) (Bookshelf, error)
 	UpdateThought(ctx context.Context, arg UpdateThoughtParams) (Thought, error)
 	// Embeddings
@@ -356,6 +361,11 @@ type Querier interface {
 	// Writes only the stores whose lookup answered (google_checked /
 	// apple_checked); the others keep their link and checked_at untouched.
 	UpsertStoreLinks(ctx context.Context, arg UpsertStoreLinksParams) (BookReadLink, error)
+	// Client path: a signed-in reader hands us a receipt. Conflict on user_id so a
+	// plan change or a second store simply replaces what backs the entitlement.
+	// The (store, store_id) unique index is deliberately NOT a conflict target:
+	// a receipt already linked to another account must fail, not move.
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error)
 	// The viewer's finished books, for the "you both read X" signal. Capped: a
 	// heavy reader's whole shelf is not needed to find overlap worth naming.
 	UserReadBookIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)

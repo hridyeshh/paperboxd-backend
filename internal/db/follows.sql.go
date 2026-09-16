@@ -168,7 +168,7 @@ func (q *Queries) FollowUser(ctx context.Context, arg FollowUserParams) (Follow,
 }
 
 const getFollowers = `-- name: GetFollowers :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id, u.scan_period FROM follows f
 JOIN users u ON f.follower_id = u.id
 WHERE f.following_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
@@ -234,6 +234,7 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 			&i.BannerUrl,
 			&i.ScanUsesRemaining,
 			&i.AppleUserID,
+			&i.ScanPeriod,
 		); err != nil {
 			return nil, err
 		}
@@ -246,7 +247,7 @@ func (q *Queries) GetFollowers(ctx context.Context, arg GetFollowersParams) ([]U
 }
 
 const getFollowing = `-- name: GetFollowing :many
-SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id FROM follows f
+SELECT u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id, u.scan_period FROM follows f
 JOIN users u ON f.following_id = u.id
 WHERE f.follower_id = $1 AND u.deleted_at IS NULL
 ORDER BY f.created_at DESC
@@ -312,6 +313,7 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]U
 			&i.BannerUrl,
 			&i.ScanUsesRemaining,
 			&i.AppleUserID,
+			&i.ScanPeriod,
 		); err != nil {
 			return nil, err
 		}
@@ -324,7 +326,7 @@ func (q *Queries) GetFollowing(ctx context.Context, arg GetFollowingParams) ([]U
 }
 
 const listIncomingFollowRequests = `-- name: ListIncomingFollowRequests :many
-SELECT fr.id AS request_id, fr.created_at AS requested_at, u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id
+SELECT fr.id AS request_id, fr.created_at AS requested_at, u.id, u.username, u.email, u.password_hash, u.name, u.avatar_url, u.bio, u.pronouns, u.is_public, u.favorite_genres, u.settings, u.followers_count, u.following_count, u.books_read_count, u.created_at, u.updated_at, u.last_active, u.deleted_at, u.mongo_id, u.birthday, u.gender, u.links, u.total_pages_read, u.favorites_count, u.lists_count, u.thoughts_count, u.reading_goal_year, u.reading_goal_target, u.reading_goal_current, u.total_xp, u.level, u.current_streak, u.longest_streak, u.last_activity_date, u.show_on_leaderboard, u.referral_code, u.referred_by, u.referral_count, u.referral_rewards_claimed, u.onboarding_completed, u.banner_url, u.scan_uses_remaining, u.apple_user_id, u.scan_period
 FROM follow_requests fr
 JOIN users u ON u.id = fr.requester_id
 WHERE fr.target_id = $1 AND u.deleted_at IS NULL
@@ -399,6 +401,7 @@ func (q *Queries) ListIncomingFollowRequests(ctx context.Context, arg ListIncomi
 			&i.User.BannerUrl,
 			&i.User.ScanUsesRemaining,
 			&i.User.AppleUserID,
+			&i.User.ScanPeriod,
 		); err != nil {
 			return nil, err
 		}

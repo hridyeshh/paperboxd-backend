@@ -20,9 +20,18 @@ import (
 // clarifying question and its options. A client that gets a question sends
 // the same query back with the chosen option as "answer".
 //
-// The vibe endpoint is unchanged for shipped clients; this is what the Ask Jazy
-// surface should move to.
+// Plus-only: the route requires auth and the caller must hold an active
+// subscription, else 402 SUBSCRIPTION_REQUIRED. Every deck is a Claude
+// completion, so the check runs before any work.
 func (h *BookHandler) Concierge(w http.ResponseWriter, r *http.Request) {
+	callerID, ok := authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+	if !requirePlus(w, r, h.Queries, callerID, "Ask Jazy") {
+		return
+	}
+
 	var req struct {
 		Query     string `json:"query"`
 		SessionID string `json:"session_id"`

@@ -353,6 +353,18 @@ type ScanCommunityCache struct {
 	RatingsAverage   float64            `json:"ratings_average"`
 }
 
+type Subscription struct {
+	UserID      uuid.UUID          `json:"user_id"`
+	Store       string             `json:"store"`
+	StoreID     string             `json:"store_id"`
+	ProductID   string             `json:"product_id"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	AutoRenew   bool               `json:"auto_renew"`
+	Environment string             `json:"environment"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type TasteOverlap struct {
 	UserA       uuid.UUID          `json:"user_a"`
 	UserB       uuid.UUID          `json:"user_b"`
@@ -437,6 +449,7 @@ type User struct {
 	BannerUrl              pgtype.Text        `json:"banner_url"`
 	ScanUsesRemaining      int32              `json:"scan_uses_remaining"`
 	AppleUserID            pgtype.Text        `json:"apple_user_id"`
+	ScanPeriod             pgtype.Date        `json:"scan_period"`
 }
 
 type UserAuthorsRead struct {

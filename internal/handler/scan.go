@@ -76,6 +76,32 @@ func (h *ScanHandler) refundScan(userID uuid.UUID) {
 	}
 }
 
+// freeScansPerMonth is the Scan & Know allowance without Plus. The count
+// lives in users.scan_uses_remaining and is topped back up on the first scan
+// of each calendar month (users.scan_period).
+const freeScansPerMonth = 3
+
+// scanQuota returns the reader's remaining free scans for this month (after
+// rolling the month over if needed) and whether they are exempt from the
+// quota altogether: Plus subscribers and the SCAN_UNLIMITED_EMAILS allowlist.
+func scanQuota(ctx context.Context, pool *pgxpool.Pool, q *db.Queries, cfg *config.Config, userID uuid.UUID) (remaining int32, unlimited bool, err error) {
+	if _, err = pool.Exec(ctx,
+		`UPDATE users SET scan_uses_remaining = $2, scan_period = date_trunc('month', now())::date
+		 WHERE id = $1 AND scan_period < date_trunc('month', now())::date`,
+		userID, freeScansPerMonth,
+	); err != nil {
+		return 0, false, err
+	}
+	var email string
+	if err = pool.QueryRow(ctx,
+		"SELECT scan_uses_remaining, email FROM users WHERE id = $1", userID,
+	).Scan(&remaining, &email); err != nil {
+		return 0, false, err
+	}
+	unlimited = subscriptionActive(ctx, q, userID) || scanAllowlisted(cfg, email)
+	return remaining, unlimited, nil
+}
+
 // BookSummary is a compact book representation used inside UserReadingProfile.
 type BookSummary struct {
 	Title  string  `json:"title"`
@@ -130,12 +156,14 @@ type scanBookMeta struct {
 // set — it used to be an email hardcoded in this file, which meant the owner's
 // account behaved differently from every other account in production with no
 // way to change it without a deploy.
-func (h *ScanHandler) isScanUnlimited(email string) bool {
+func (h *ScanHandler) isScanUnlimited(email string) bool { return scanAllowlisted(h.Config, email) }
+
+func scanAllowlisted(cfg *config.Config, email string) bool {
 	needle := strings.ToLower(strings.TrimSpace(email))
-	if needle == "" || h.Config == nil {
+	if needle == "" || cfg == nil {
 		return false
 	}
-	for _, allowed := range h.Config.ScanUnlimitedEmails {
+	for _, allowed := range cfg.ScanUnlimitedEmails {
 		if strings.ToLower(strings.TrimSpace(allowed)) == needle {
 			return true
 		}
@@ -169,19 +197,12 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var scansRemaining int32
-	var userEmail string
-	err = h.Pool.QueryRow(r.Context(),
-		"SELECT scan_uses_remaining, email FROM users WHERE id = $1",
-		userID,
-	).Scan(&scansRemaining, &userEmail)
+	scansRemaining, unlimited, err := scanQuota(r.Context(), h.Pool, h.Queries, h.Config, userID)
 	if err != nil {
-		slog.Error("query scan_uses_remaining", "error", err, "user_id", userID)
+		slog.Error("query scan quota", "error", err, "user_id", userID)
 		types.WriteInternalError(w)
 		return
 	}
-
-	unlimited := h.isScanUnlimited(userEmail)
 
 	if scansRemaining == 0 && !unlimited {
 		types.WriteJSON(w, http.StatusForbidden, map[string]any{
@@ -446,6 +467,7 @@ func (h *ScanHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			"friends": len(profile.FollowedUsersWithBook),
 		},
 		"scans_remaining": newRemaining,
+		"scans_unlimited": unlimited,
 	}
 
 	types.WriteJSON(w, http.StatusOK, resp)
