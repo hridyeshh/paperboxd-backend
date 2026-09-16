@@ -381,6 +381,12 @@ func resolveBookIDParam(
 	return uuid.UUID{}, errors.New("could not resolve book: send a Postgres UUID, Google Books volume ID, or ISBN")
 }
 
+// ResolveBookID is resolveBookIDParam for command-line tools (cmd/seed-daily):
+// a UUID, Google Books id or ISBN, caching a missing book on the way.
+func ResolveBookID(ctx context.Context, q *db.Queries, gb *external.GoogleBooksClient, isbndb *external.ISBNdbClient, raw string) (uuid.UUID, error) {
+	return resolveBookIDParam(ctx, q, gb, isbndb, raw)
+}
+
 // resolveBookID resolves the {id} URL param using the shared helper.
 func (h *BookHandler) resolveBookID(ctx context.Context, raw string) (uuid.UUID, error) {
 	return resolveBookIDParam(ctx, h.Queries, h.GoogleBooks, h.ISBNdb, raw)

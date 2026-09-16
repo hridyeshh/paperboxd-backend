@@ -444,6 +444,8 @@ func main() {
 		// Activity feed
 		// Public community snapshot (trending, activity, lists, readers).
 		r.Get("/community", communityHandler.Get)
+		// Paperboxd Daily atom detail — public so shared links open logged out.
+		r.Get("/daily/{slug}", recommendationHandler.GetDailyAtom)
 
 		r.Route("/activities", func(r chi.Router) {
 			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))

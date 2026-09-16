@@ -1,0 +1,130 @@
+[
+  {
+    "slug": "why-we-trust-liars",
+    "kind": "question",
+    "title": "Why do we keep trusting narrators who lie to us?",
+    "dek": "Three books that turn the reader into the person being fooled.",
+    "read_seconds": 150,
+    "source_kind": "editorial",
+    "topics": ["mystery", "thriller", "literary"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780062073565", "note": "The narrator helps the detective the whole way through, and never tells you the one thing that matters." },
+      { "ref": "9780307588364", "note": "Two narrators, alternating, each building a case against the other." },
+      { "ref": "9780679731726", "note": "A butler who is not lying to you so much as to himself." }
+    ],
+    "body": "A first-person narrator gets something no other character gets: the benefit of the doubt. We hear their voice before anyone else’s, and we make a quiet deal to believe them unless we’re given a reason not to.\n\nThe books that break that deal work because we made it in the first place.\n\n**Agatha Christie** built *The Murder of Roger Ackroyd* on the assumption that the person telling a detective story is on the reader’s side. Readers were furious when it came out, and the argument about whether she played fair has never quite ended.\n\n**Gillian Flynn** splits the job between two voices in *Gone Girl*. Each is persuasive on its own. The discomfort comes from realising how quickly you took a side, and how little evidence it took.\n\n**Kazuo Ishiguro**’s Stevens, in *The Remains of the Day*, is a subtler case. He rarely says anything false. What he leaves out — and the dignity with which he leaves it out — is where the novel lives. You end up reading past him, toward the life he didn’t let himself have.\n\nSo why do we keep falling for it? Partly because trust is the price of entry to any story. And partly because seeing through a narrator is one of the few moments reading makes us notice ourselves reading: what we assumed, who we believed, and why."
+  },
+  {
+    "slug": "people-who-reinvent-themselves",
+    "kind": "question",
+    "title": "Why are we fascinated by people who reinvent themselves?",
+    "dek": "A new name, a new past, a new life — and the bill that always arrives.",
+    "read_seconds": 120,
+    "source_kind": "editorial",
+    "topics": ["literary", "classics", "historical"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780743273565", "note": "James Gatz invents Jay Gatsby, and very nearly makes it true." },
+      { "ref": "9780393332148", "note": "Tom Ripley doesn’t invent a self. He takes one." },
+      { "ref": "9781455563937", "note": "Across generations, the cost of passing as someone the world will accept." }
+    ],
+    "body": "Most of us can’t change who we are, so we read about people who try.\n\n*The Great Gatsby* is the purest version. James Gatz, a farm boy from North Dakota, becomes Jay Gatsby — the house, the parties, the shirts, the past. What makes the book ache is that the invention nearly works. The one thing he can’t buy is the thing he built it all for.\n\nPatricia Highsmith turns the fantasy inside out in *The Talented Mr. Ripley*. Tom doesn’t dream up a better self; he studies someone else’s and steps into it. The unsettling part is how much of the novel you spend hoping he gets away with it.\n\n*Pachinko* makes reinvention less glamorous and more necessary. For Min Jin Lee’s Korean family in Japan, becoming someone else is not ambition but survival, and the price of passing is paid in private.\n\nPut them side by side and a pattern shows. Reinvention is thrilling to read because it’s a bet that the self is something you make, not something you’re born into. Fiction lets us watch someone place that bet — and see what it costs to collect."
+  },
+  {
+    "slug": "nostalgia-for-a-past-that-never-was",
+    "kind": "idea",
+    "title": "Nostalgia is often for a past that never happened",
+    "dek": "Why remembering good things can still hurt.",
+    "read_seconds": 150,
+    "source_kind": "editorial",
+    "topics": ["literary", "romance", "classics"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780743273565", "note": "“Can’t repeat the past? Why of course you can!”" },
+      { "ref": "9780375704024", "note": "A song on a plane pulls Toru back eighteen years, into a memory he has to keep rebuilding." },
+      { "ref": "9781400078776", "note": "Kathy remembers her school tenderly — and slowly, so do we, until we understand what it was." }
+    ],
+    "body": "Nostalgia hurts even when the memory is happy. That seems backwards until you notice what nostalgia is usually about: not the past as it was, but the past as it has been remembered, retold and quietly improved.\n\nGatsby says it out loud. When Nick tells him he can’t repeat the past, he answers, incredulous: *“Why of course you can!”* The Daisy he wants back is partly a woman and partly five years of his own imagination.\n\nIn *Norwegian Wood*, Toru Watanabe hears an orchestral version of the Beatles song as his plane lands in Hamburg and is thrown back eighteen years. The novel that follows is his memory — and he admits early on that the details are already fading, that he has to work to hold on to them.\n\nKazuo Ishiguro’s Kathy H., in *Never Let Me Go*, looks back on Hailsham with real warmth. The book’s slow horror is that her fondness and her situation don’t cancel out. She can love the place, and it can still have been what it was.\n\nWhat these books suggest is that nostalgia isn’t a record of the past. It’s a relationship with it — and like any relationship, it’s partly invented by the person who needs it."
+  },
+  {
+    "slug": "short-books-that-feel-big",
+    "kind": "idea",
+    "title": "Why some short books feel bigger than long ones",
+    "dek": "Scale isn’t page count. It’s how much life fits through the door.",
+    "read_seconds": 120,
+    "source_kind": "editorial",
+    "topics": ["literary", "classics"],
+    "status": "draft",
+    "books": [
+      { "ref": "9781590171998", "note": "An entire, quiet life — and it never feels small." },
+      { "ref": "9780156628709", "note": "One June day in London, with decades inside it." },
+      { "ref": "9780684801224", "note": "An old man, a great fish, a few days on the water." }
+    ],
+    "body": "Some long novels feel slight, and some short ones feel enormous. Page count is a poor measure of how big a book is.\n\nJohn Williams’s *Stoner* covers a whole life — a childhood on a farm, a career teaching at one university, a difficult marriage, a late love — with almost no drama on the surface. The largeness comes from attention: nothing in William Stoner’s life is treated as too small to matter.\n\n*Mrs Dalloway* does the opposite trick. Virginia Woolf takes a single day in June and opens it outward, moving between minds so that a party in the evening carries decades of memory, regret and war.\n\nHemingway’s *The Old Man and the Sea* is shorter still: an old fisherman, a great fish, a few days at sea. It reads like a parable because so little is in the way.\n\nWhat these books share is compression. They choose a narrow door — one life, one day, one struggle — and let everything else press in behind it. A long book can show you a world. A short one sometimes makes you feel the weight of one."
+  },
+  {
+    "slug": "beautiful-surfaces-dark-interiors",
+    "kind": "rabbit_hole",
+    "title": "Beautiful surfaces, dark interiors",
+    "dek": "Outsiders who get inside glamorous worlds — and what they do there.",
+    "read_seconds": 240,
+    "source_kind": "editorial",
+    "topics": ["literary", "thriller", "mystery", "classics"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780743273565", "note": "Start here. A man builds a self to belong to a world of old money." },
+      { "ref": "9780393332148", "note": "Then here. A man who wants in so badly he takes someone else’s place." },
+      { "ref": "9781400031702", "note": "Go deeper. An outsider joins a gilded circle, and tells you on page one that they killed someone." }
+    ],
+    "body": "**Start with *The Great Gatsby*.** Nick Carraway is a Midwesterner on the edge of Long Island money, watching his neighbour spend a fortune to be let in. It’s the template: the outsider narrator, the glittering circle, and the sense that something underneath is rotten.\n\n**Then *The Talented Mr. Ripley*.** Patricia Highsmith moves the glamour to Italy and removes the conscience. Tom Ripley isn’t watching the rich from the edge. He wants their life so completely that he’s willing to take it.\n\n**Then *The Secret History*.** Donna Tartt sends Richard Papen from California to a small Vermont college, where he falls in with a group of classics students who seem to live in another century. The first pages tell you they killed one of their own. The rest of the book is about how beauty made that possible.\n\n**What connects them:** each is seen from the position of someone who wasn’t born into the world they describe. That’s why the glamour is so vivid — and why the damage is, too. The outsider sees everything, including what the insiders have stopped noticing.\n\n**Want to go deeper?** Evelyn Waugh’s *Brideshead Revisited* runs the same current through an English country house."
+  },
+  {
+    "slug": "memory-and-the-self",
+    "kind": "rabbit_hole",
+    "title": "Memory, identity and the lives we imagine",
+    "dek": "Three narrators who are not quite who they think they are.",
+    "read_seconds": 240,
+    "source_kind": "editorial",
+    "topics": ["literary", "fantasy", "science fiction"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780679731726", "note": "Start here. A butler reviews his life, and edits as he goes." },
+      { "ref": "9781400078776", "note": "Then here. A woman remembers her childhood, and her future comes through the gaps." },
+      { "ref": "9781635575637", "note": "Go deeper. A man keeps meticulous journals — and finds entries he doesn’t remember writing." }
+    ],
+    "body": "**Start with *The Remains of the Day*.** Stevens, an English butler, takes a motoring trip in 1956 and spends it reviewing decades of service. He is careful, courteous and almost never wrong on the facts — and still his memory keeps rearranging itself around what he can bear to know.\n\n**Then *Never Let Me Go*.** Ishiguro again, and the same method turned darker. Kathy H. recalls her school days at Hailsham in patient detail. What she knows, and what she has chosen not to dwell on, comes through slowly, the way it did for her.\n\n**Then *Piranesi*.** Susanna Clarke’s narrator lives in a vast House of halls, tides and statues, and records everything in his journals. When he finds entries he doesn’t remember writing, the book becomes a question about what a self is if its memories can be lost — and whether the self that remains is any less real.\n\n**What connects them:** in all three, the narrator’s memory is the setting. You aren’t only learning what happened; you’re learning how a person survives by deciding what to remember.\n\n**Want to go deeper?** Julian Barnes’s *The Sense of an Ending* is short, and asks what happens when someone else’s record contradicts yours."
+  },
+  {
+    "slug": "boats-against-the-current",
+    "kind": "passage",
+    "title": "Borne back ceaselessly into the past",
+    "dek": "The last lines of The Great Gatsby, and why they still land.",
+    "read_seconds": 90,
+    "source_kind": "public_domain",
+    "source_note": "F. Scott Fitzgerald, The Great Gatsby (1925). Public domain in the United States.",
+    "source_url": "https://www.gutenberg.org/ebooks/64317",
+    "topics": ["classics", "literary"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780743273565", "note": "The novel these lines close." }
+    ],
+    "body": "> Gatsby believed in the green light, the orgastic future that year by year recedes before us. It eluded us then, but that’s no matter—to-morrow we will run faster, stretch out our arms farther. . . . And one fine morning——\n>\n> So we beat on, boats against the current, borne back ceaselessly into the past.\n\nThe green light is the lamp at the end of Daisy’s dock, which Gatsby watches from across the bay. By the last page Nick has stopped talking about Gatsby alone. The pronoun shifts to *us*: the future we reach for, the current we row against.\n\nThat shift is why the ending travels so well out of context. It isn’t a verdict on one man’s foolishness. It’s a description of how anyone who hopes behaves — rowing forward, carried back."
+  },
+  {
+    "slug": "whatever-our-souls-are-made-of",
+    "kind": "passage",
+    "title": "Whatever our souls are made of",
+    "dek": "Catherine explains Heathcliff to Nelly — and herself to no one.",
+    "read_seconds": 90,
+    "source_kind": "public_domain",
+    "source_note": "Emily Brontë, Wuthering Heights (1847). Public domain.",
+    "source_url": "https://www.gutenberg.org/ebooks/768",
+    "topics": ["classics", "romance", "gothic"],
+    "status": "draft",
+    "books": [
+      { "ref": "9780141439556", "note": "The novel this speech breaks open." }
+    ],
+    "body": "> It would degrade me to marry Heathcliff now; so he shall never know how I love him: and that, not because he’s handsome, Nelly, but because he’s more myself than I am. Whatever our souls are made of, his and mine are the same; and Linton’s is as different as a moonbeam from lightning, or frost from fire.\n\nCatherine says this to Nelly, the housekeeper, on the night she has agreed to marry Edgar Linton. Heathcliff overhears the first part — that marrying him would degrade her — and leaves before the rest.\n\nThe line is quoted as one of fiction’s great declarations of love. In the novel it’s closer to a confession of a mistake, made to the wrong person, in the wrong room. Emily Brontë lets both readings stand, and the rest of the book is what happens when they collide."
+  }
+]

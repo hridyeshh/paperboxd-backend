@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
+	"github.com/jackc/pgx/v5"
 )
 
 // RecommendationHandler serves personalised book recommendations.
@@ -243,6 +245,24 @@ func (h *RecommendationHandler) GetFeed(w http.ResponseWriter, r *http.Request) 
 		feed.Modules = []service.FeedModule{}
 	}
 	types.WriteJSON(w, http.StatusOK, feed)
+}
+
+// GetDailyAtom handles GET /api/v1/daily/{slug} — one published Daily atom
+// with its full body. Public: a shared link has to open for someone who has
+// never heard of Paperboxd.
+func (h *RecommendationHandler) GetDailyAtom(w http.ResponseWriter, r *http.Request) {
+	atom, err := h.svc.GetDailyAtom(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, pgx.ErrNoRows) {
+		types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Not found")
+		return
+	}
+	if err != nil {
+		slog.Error("get daily atom", "error", err)
+		types.WriteInternalError(w)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	types.WriteJSON(w, http.StatusOK, atom)
 }
 
 // GetTasteTwins handles GET /api/v1/recommendations/twins?limit=10.

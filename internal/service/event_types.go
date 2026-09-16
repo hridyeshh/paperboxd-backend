@@ -47,6 +47,10 @@ const (
 	EventTbrNudgeClicked         = "tbr_nudge_clicked"
 	EventSuggestedReaderFollowed = "suggested_reader_followed"
 
+	// Paperboxd Daily. metadata.kind and metadata.slug say which atom.
+	EventDailyOpened = "daily_opened"
+	EventDailyShared = "daily_shared"
+
 	// Recommendation feedback. rec_impression/click/dismiss are the three the
 	// clients already sent under other names; the rest arrive with R2.
 	EventRecImpression  = "rec_impression"
@@ -99,6 +103,7 @@ var validEventTypes = map[string]struct{}{
 
 	EventFeedViewed: {}, EventSearchPerformed: {}, EventVibeSearch: {},
 	EventProfileViewed: {}, EventTbrNudgeClicked: {}, EventSuggestedReaderFollowed: {},
+	EventDailyOpened: {}, EventDailyShared: {},
 
 	EventRecImpression: {}, EventRecClick: {}, EventRecDismiss: {},
 	EventRecLoved: {}, EventRecMaybe: {}, EventRecNotForMe: {},

@@ -36,7 +36,10 @@ type FeedModule struct {
 type FeedResponse struct {
 	Greeting string       `json:"greeting"`
 	Modules  []FeedModule `json:"modules"`
-	Source   string       `json:"source"`
+	// Daily is today's finite editorial package (see daily.go). Absent while
+	// the "daily" flag is off or nothing is published.
+	Daily  []DailyAtom `json:"daily,omitempty"`
+	Source string      `json:"source"`
 }
 
 // Module kinds. Order in the page is decided per reader below.
@@ -95,6 +98,11 @@ func (s *RecommendationService) GetFeed(ctx context.Context, userID string, loc 
 			}
 		}
 		return out
+	}
+
+	// 0. Daily — built first so its pick is taken out of the modules below.
+	if s.flags.Bool(ctx, "daily") {
+		resp.Daily = s.buildDaily(ctx, uid, time.Now().In(loc), profile, byType, take)
 	}
 
 	// 1. Continue reading — the reader's own book comes before any suggestion.
