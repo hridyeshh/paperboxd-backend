@@ -468,3 +468,49 @@ func (q *Queries) MarkActivitiesRead(ctx context.Context, targetUserID pgtype.UU
 	_, err := q.db.Exec(ctx, markActivitiesRead, targetUserID)
 	return err
 }
+
+const mergeRecentFinishMetadata = `-- name: MergeRecentFinishMetadata :execrows
+UPDATE activities
+SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+WHERE user_id = $1 AND book_id = $2 AND activity_type = 'finished_reading'
+  AND created_at > NOW() - INTERVAL '1 day'
+`
+
+type MergeRecentFinishMetadataParams struct {
+	UserID uuid.UUID   `json:"user_id"`
+	BookID pgtype.UUID `json:"book_id"`
+	Patch  []byte      `json:"patch"`
+}
+
+// The finish sheet writes rating and thought after the finish itself. Fold them
+// into the day-old finished_reading row so followers see one event
+// ("finished Pachinko ★★★★★ + note"), not three.
+func (q *Queries) MergeRecentFinishMetadata(ctx context.Context, arg MergeRecentFinishMetadataParams) (int64, error) {
+	result, err := q.db.Exec(ctx, mergeRecentFinishMetadata, arg.UserID, arg.BookID, arg.Patch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const userActivityTypeExistsRecent = `-- name: UserActivityTypeExistsRecent :one
+SELECT EXISTS(
+    SELECT 1 FROM activities
+    WHERE user_id = $1 AND activity_type = $2
+      AND created_at > NOW() - INTERVAL '1 day'
+)
+`
+
+type UserActivityTypeExistsRecentParams struct {
+	UserID       uuid.UUID `json:"user_id"`
+	ActivityType string    `json:"activity_type"`
+}
+
+// Per-user dedupe for events not tied to a book (milestones): a Goodreads
+// import finishing 300 books in a minute must announce at most one.
+func (q *Queries) UserActivityTypeExistsRecent(ctx context.Context, arg UserActivityTypeExistsRecentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userActivityTypeExistsRecent, arg.UserID, arg.ActivityType)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

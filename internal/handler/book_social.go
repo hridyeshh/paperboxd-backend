@@ -11,6 +11,7 @@ import (
 	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/reqctx"
 	"github.com/hridyesh/paperboxd-backend/internal/types"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // BookReaderStats is what Paperboxd's own readers did with a book. Every number
@@ -62,6 +63,8 @@ type BookSocialResponse struct {
 	FriendsReading int32        `json:"friends_reading"`
 	FriendsTBR     int32        `json:"friends_tbr"`
 	Lists          []BookList   `json:"lists"`
+	// ThoughtsCount: public, top-level thoughts about this book.
+	ThoughtsCount int64 `json:"thoughts_count"`
 }
 
 // bookSocialCacheTTL: reader stats and lists change slowly, and a book page is
@@ -161,6 +164,10 @@ func (h *BookHandler) buildBookSocial(ctx context.Context, bookID uuid.UUID) (Bo
 	if stats.RatingsCount > 0 {
 		rounded := float64(int(stats.Rating*10+0.5)) / 10
 		resp.Readers.Rating = &rounded
+	}
+
+	if n, err := h.Queries.CountBookThoughts(ctx, pgtype.UUID{Bytes: bookID, Valid: true}); err == nil {
+		resp.ThoughtsCount = n
 	}
 
 	if lists, err := h.Queries.GetListsContainingBook(ctx, db.GetListsContainingBookParams{

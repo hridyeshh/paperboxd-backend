@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/hridyesh/paperboxd-backend/internal/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -50,6 +53,22 @@ var exemptFromDailyCap = map[string]bool{
 	"referral_30day":  true,
 	"goal_milestone":  true,
 	"goal_completed":  true,
+}
+
+// notActivity is XP a reader receives without acting that day: something
+// another reader did (a like, a follow, a referral) or a bonus. It still pays
+// out but never counts as an activity day, so only the reader's own actions
+// keep their streak alive.
+var notActivity = map[string]bool{
+	"thought_liked":   true,
+	"follow_gained":   true,
+	"referral_signup": true,
+	"referral_book":   true,
+	"referral_30day":  true,
+	"streak_7":        true,
+	"streak_30":       true,
+	"streak_100":      true,
+	"streak_365":      true,
 }
 
 type XPService struct {
@@ -104,7 +123,25 @@ func (s *XPService) AwardXP(ctx context.Context, userID uuid.UUID, actionType st
 		return err
 	}
 
-	return s.queries.UpdateUserStreak(ctx, userID)
+	if notActivity[actionType] {
+		return nil
+	}
+	streak, err := s.queries.UpdateUserStreak(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // today already counted
+	}
+	if err != nil {
+		return err
+	}
+	// First activity of the day: the streak just moved. Bonus XP re-enters
+	// AwardXP, which stops at notActivity above.
+	if err := s.CheckAndAwardStreakBonus(ctx, userID, int(streak.Int32)); err != nil {
+		slog.Warn("award streak bonus", "user_id", userID, "streak", streak.Int32, "error", err)
+	}
+	if _, err := s.queries.RebuildUserLeaderboardStats(ctx, userID); err != nil {
+		slog.Warn("rebuild leaderboard stats after streak", "user_id", userID, "error", err)
+	}
+	return nil
 }
 
 // GetXPForAction returns the base XP for a given action type.

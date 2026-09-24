@@ -273,3 +273,21 @@ WHERE lb.book_id = $1
   AND u.is_public = true
 ORDER BY save_count DESC, l.updated_at DESC
 LIMIT $2;
+
+-- name: GetRisingList :one
+-- Right Now: the public list saved by the most readers this week.
+SELECT
+    l.id,
+    l.title,
+    u.username,
+    u.name,
+    COUNT(sl.id)::int AS saves_7d
+FROM lists l
+JOIN users u ON u.id = l.user_id
+JOIN saved_lists sl ON sl.list_id = l.id AND sl.saved_at > NOW() - INTERVAL '7 days'
+WHERE l.is_private = false
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+GROUP BY l.id, u.username, u.name
+ORDER BY saves_7d DESC, l.updated_at DESC
+LIMIT 1;

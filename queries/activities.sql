@@ -155,3 +155,21 @@ WHERE u.deleted_at IS NULL
   AND (a.thought_id IS NULL OR de.is_private = false)
 ORDER BY a.created_at DESC
 LIMIT $1;
+
+-- name: MergeRecentFinishMetadata :execrows
+-- The finish sheet writes rating and thought after the finish itself. Fold them
+-- into the day-old finished_reading row so followers see one event
+-- ("finished Pachinko ★★★★★ + note"), not three.
+UPDATE activities
+SET metadata = COALESCE(metadata, '{}'::jsonb) || sqlc.arg(patch)::jsonb
+WHERE user_id = $1 AND book_id = $2 AND activity_type = 'finished_reading'
+  AND created_at > NOW() - INTERVAL '1 day';
+
+-- name: UserActivityTypeExistsRecent :one
+-- Per-user dedupe for events not tied to a book (milestones): a Goodreads
+-- import finishing 300 books in a minute must announce at most one.
+SELECT EXISTS(
+    SELECT 1 FROM activities
+    WHERE user_id = $1 AND activity_type = $2
+      AND created_at > NOW() - INTERVAL '1 day'
+);

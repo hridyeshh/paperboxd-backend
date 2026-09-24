@@ -25,6 +25,9 @@ type Querier interface {
 	// ============================================================================
 	// USER XP AND LEVEL MANAGEMENT
 	// ============================================================================
+	// last_activity_date is UpdateUserStreak's to set: AwardXP calls it right after
+	// this. Setting it here first made every streak update read "already active
+	// today", so the streak never advanced.
 	AddXP(ctx context.Context, arg AddXPParams) error
 	BlockUser(ctx context.Context, arg BlockUserParams) error
 	BumpBookAccess(ctx context.Context, id uuid.UUID) error
@@ -51,6 +54,9 @@ type Querier interface {
 	// user data and must survive. NOT EXISTS rather than NOT IN so a NULL book_id
 	// in the nullable tables can never make the predicate unknown.
 	CleanupStaleBooks(ctx context.Context) (int64, error)
+	// Book-page headline count, cached for every viewer.
+	// ponytail: ignores blocks (viewer-independent); the list itself filters them.
+	CountBookThoughts(ctx context.Context, bookID pgtype.UUID) (int64, error)
 	CountFollowers(ctx context.Context, followingID uuid.UUID) (int64, error)
 	CountFollowing(ctx context.Context, followerID uuid.UUID) (int64, error)
 	// Counts friends actively reading this book right now.
@@ -148,6 +154,8 @@ type Querier interface {
 	// three raters, but not yet widely read. The upper bound is what makes it a
 	// gem rather than a hit.
 	GetHiddenGems(ctx context.Context, limit int32) ([]GetHiddenGemsRow, error)
+	// Right Now: the public thought with the most likes in the last two days.
+	GetHotThought(ctx context.Context) (GetHotThoughtRow, error)
 	GetLastLoggedBook(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookRow, error)
 	GetLastLoggedBookToday(ctx context.Context, userID uuid.UUID) (GetLastLoggedBookTodayRow, error)
 	GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) ([]Book, error)
@@ -163,6 +171,8 @@ type Querier interface {
 	// owner + public list only; the viewer's own private lists are not surfaced
 	// here (they already appear in the add-to-list dialog).
 	GetListsContainingBook(ctx context.Context, arg GetListsContainingBookParams) ([]GetListsContainingBookRow, error)
+	// Right Now: the book the most readers opened in the last 24 hours.
+	GetMostStartedToday(ctx context.Context) (GetMostStartedTodayRow, error)
 	// Most added to a TBR in the last week — intent to read, distinct from reads.
 	GetMostTBRBooks(ctx context.Context, limit int32) ([]GetMostTBRBooksRow, error)
 	GetOTPByEmail(ctx context.Context, email string) (OtpCode, error)
@@ -193,6 +203,8 @@ type Querier interface {
 	// Books being shelved faster this week than last. Momentum, not volume: a
 	// steady bestseller does not qualify, a book three people just discovered does.
 	GetRisingBooks(ctx context.Context, limit int32) ([]GetRisingBooksRow, error)
+	// Right Now: the public list saved by the most readers this week.
+	GetRisingList(ctx context.Context) (GetRisingListRow, error)
 	GetSubscription(ctx context.Context, userID uuid.UUID) (Subscription, error)
 	GetThoughtByID(ctx context.Context, id uuid.UUID) (Thought, error)
 	GetThoughtEmbeddingsForUser(ctx context.Context, userID uuid.UUID) ([]GetThoughtEmbeddingsForUserRow, error)
@@ -271,6 +283,10 @@ type Querier interface {
 	MarkOTPUsed(ctx context.Context, id uuid.UUID) error
 	MarkPasswordResetTokenUsed(ctx context.Context, id uuid.UUID) error
 	MarkReferralRewardClaimed(ctx context.Context, arg MarkReferralRewardClaimedParams) error
+	// The finish sheet writes rating and thought after the finish itself. Fold them
+	// into the day-old finished_reading row so followers see one event
+	// ("finished Pachinko ★★★★★ + note"), not three.
+	MergeRecentFinishMetadata(ctx context.Context, arg MergeRecentFinishMetadataParams) (int64, error)
 	// Candidates followed by people the viewer already follows.
 	MutualFollowCounts(ctx context.Context, arg MutualFollowCountsParams) ([]MutualFollowCountsRow, error)
 	RebuildAllLeaderboardStats(ctx context.Context) error
@@ -349,7 +365,10 @@ type Querier interface {
 	// ============================================================================
 	// STREAK MANAGEMENT
 	// ============================================================================
-	UpdateUserStreak(ctx context.Context, id uuid.UUID) error
+	// Counts today as an activity day. Only the first call of a UTC day matches
+	// (pgx.ErrNoRows after that), so the caller knows when the streak moved; the
+	// row lock makes that true for exactly one of two concurrent calls.
+	UpdateUserStreak(ctx context.Context, id uuid.UUID) (pgtype.Int4, error)
 	UpdateUsername(ctx context.Context, arg UpdateUsernameParams) (User, error)
 	UpsertAuthorRead(ctx context.Context, arg UpsertAuthorReadParams) (UserAuthorsRead, error)
 	// Conflict target is `token` alone: a push token belongs to a device, so when a
@@ -366,6 +385,9 @@ type Querier interface {
 	// The (store, store_id) unique index is deliberately NOT a conflict target:
 	// a receipt already linked to another account must fail, not move.
 	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) (Subscription, error)
+	// Per-user dedupe for events not tied to a book (milestones): a Goodreads
+	// import finishing 300 books in a minute must announce at most one.
+	UserActivityTypeExistsRecent(ctx context.Context, arg UserActivityTypeExistsRecentParams) (bool, error)
 	// The viewer's finished books, for the "you both read X" signal. Capped: a
 	// heavy reader's whole shelf is not needed to find overlap worth naming.
 	UserReadBookIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)

@@ -17,7 +17,7 @@ import (
 // five minutes is plenty and keeps the four aggregate queries off the hot path.
 const communityCacheTTL = 5 * time.Minute
 
-const communityCacheKey = "community:v1"
+const communityCacheKey = "community:v2"
 
 // CommunityHandler serves GET /api/v1/community — the public "what is
 // happening on Paperboxd" snapshot used by the landing page, the logged-in
@@ -76,7 +76,10 @@ type CommunityResponse struct {
 	Activity      []types.ActivityResponse `json:"activity"`
 	Lists         []CommunityList          `json:"lists"`
 	Readers       []CommunityReader        `json:"readers"`
-	GeneratedAt   time.Time                `json:"generated_at"`
+	// Now is "Right Now on Paperboxd": empty when too little is happening,
+	// in which case clients show Activity instead.
+	Now         []NowCard `json:"now"`
+	GeneratedAt time.Time `json:"generated_at"`
 }
 
 // Get handles GET /api/v1/community.
@@ -118,6 +121,7 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 		Activity:      []types.ActivityResponse{},
 		Lists:         []CommunityList{},
 		Readers:       []CommunityReader{},
+		Now:           []NowCard{},
 		GeneratedAt:   time.Now().UTC(),
 	}
 
@@ -143,7 +147,8 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 	// Discovery shelves. Each is allowed to come back empty — a quiet week
 	// should render fewer shelves, not invented ones — so a failure here logs
 	// and leaves the shelf out rather than failing the whole snapshot.
-	if rising, err := h.Queries.GetRisingBooks(ctx, 12); err != nil {
+	rising, err := h.Queries.GetRisingBooks(ctx, 12)
+	if err != nil {
 		slog.Error("get rising books", "error", err)
 	} else {
 		for _, row := range rising {
@@ -183,6 +188,7 @@ func (h *CommunityHandler) build(ctx context.Context) (CommunityResponse, error)
 		return resp, err
 	}
 	resp.Activity = collapsePublicActivity(activityRows, 24)
+	resp.Now = buildNow(h.loadNowSignals(ctx, rising, activityRows))
 
 	lists, err := h.Queries.GetPublicLists(ctx, 12)
 	if err != nil {

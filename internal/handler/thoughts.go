@@ -374,6 +374,10 @@ func (h *ThoughtHandler) CreateThought(w http.ResponseWriter, r *http.Request) {
 					BookID:       thought.BookID,
 					ThoughtID:    uuidToPgtype(thoughtID),
 				})
+				// A note written from the finish sheet rides on the finish event.
+				if isBookSpecific {
+					mergeIntoFinish(context.Background(), h.Queries, userID, thought.BookID.Bytes, map[string]any{"thought_id": thoughtID.String()})
+				}
 			}
 			xpSvc := service.NewXPService(h.Queries)
 			xpAmount := service.XPThought

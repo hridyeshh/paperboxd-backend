@@ -222,5 +222,5 @@ func (h *UserHandler) UpdateVisibility(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(user))
+	types.WriteJSON(w, http.StatusOK, selfUserResponse(user))
 }

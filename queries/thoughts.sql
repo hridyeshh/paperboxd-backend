@@ -273,3 +273,32 @@ FROM thoughts de
 LEFT JOIN books b ON de.book_id = b.id
 WHERE de.embedding IS NULL
 ORDER BY de.created_at DESC;
+
+-- name: CountBookThoughts :one
+-- Book-page headline count, cached for every viewer.
+-- ponytail: ignores blocks (viewer-independent); the list itself filters them.
+SELECT COUNT(*) FROM thoughts
+WHERE book_id = $1 AND is_private = false AND thread_root_id IS NULL;
+
+-- name: GetHotThought :one
+-- Right Now: the public thought with the most likes in the last two days.
+SELECT
+    t.id,
+    t.title,
+    t.content,
+    t.book_id,
+    u.username,
+    u.name,
+    b.title AS book_title,
+    COUNT(tl.id)::int AS likes_48h
+FROM thoughts t
+JOIN users u ON u.id = t.user_id
+JOIN thought_likes tl ON tl.thought_id = t.id AND tl.created_at > NOW() - INTERVAL '48 hours'
+LEFT JOIN books b ON b.id = t.book_id
+WHERE t.is_private = false
+  AND t.thread_root_id IS NULL
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+GROUP BY t.id, u.username, u.name, b.title
+ORDER BY likes_48h DESC, t.created_at DESC
+LIMIT 1;

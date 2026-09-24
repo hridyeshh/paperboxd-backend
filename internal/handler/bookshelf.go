@@ -57,7 +57,48 @@ func (h *UserHandler) recordBookActivity(ctx context.Context, userID, bookID uui
 	if metadata != nil {
 		params.Metadata, _ = json.Marshal(metadata)
 	}
-	_, _ = h.Queries.CreateActivity(ctx, params)
+	if _, err := h.Queries.CreateActivity(ctx, params); err != nil || activityType != "finished_reading" {
+		return
+	}
+	h.recordMilestone(ctx, userID, bID)
+}
+
+// isReadMilestone: the read counts worth announcing to followers.
+func isReadMilestone(n int64) bool {
+	switch n {
+	case 10, 25, 50, 100, 250, 500, 1000:
+		return true
+	}
+	return false
+}
+
+// recordMilestone posts "finished their 100th book" when this finish crossed a
+// milestone. At most one a day, so a bulk import announces nothing spammy.
+func (h *UserHandler) recordMilestone(ctx context.Context, userID uuid.UUID, bID pgtype.UUID) {
+	count, err := h.Queries.CountUserBooks(ctx, db.CountUserBooksParams{UserID: userID, Status: "read"})
+	if err != nil || !isReadMilestone(count) {
+		return
+	}
+	recent, err := h.Queries.UserActivityTypeExistsRecent(ctx, db.UserActivityTypeExistsRecentParams{
+		UserID: userID, ActivityType: "milestone",
+	})
+	if err != nil || recent {
+		return
+	}
+	meta, _ := json.Marshal(map[string]any{"books_read": count})
+	_, _ = h.Queries.CreateActivity(ctx, db.CreateActivityParams{
+		UserID: userID, ActivityType: "milestone", BookID: bID, Metadata: meta,
+	})
+}
+
+// mergeIntoFinish folds a follow-up write (rating, thought) into today's
+// finished_reading row. Reports whether one existed.
+func mergeIntoFinish(ctx context.Context, q *db.Queries, userID, bookID uuid.UUID, patch map[string]any) bool {
+	b, _ := json.Marshal(patch)
+	n, err := q.MergeRecentFinishMetadata(ctx, db.MergeRecentFinishMetadataParams{
+		UserID: userID, BookID: pgtype.UUID{Bytes: bookID, Valid: true}, Patch: b,
+	})
+	return err == nil && n > 0
 }
 
 // MinPagesToRate is how far into a book a reader must be before they can rate
@@ -199,19 +240,28 @@ func (h *UserHandler) AddToBookshelf(w http.ResponseWriter, r *http.Request) {
 
 	bID := bookID
 	status := req.Status
+	// XP (and with it the streak) synchronously: clients re-read /streak right
+	// after this responds to decide on the streak celebration.
+	xpSvc := service.NewXPService(h.Queries)
+	xpCtx := context.WithoutCancel(r.Context())
+	var xpErr error
+	switch status {
+	case "read":
+		xpErr = xpSvc.AwardXP(xpCtx, userID, "book_read", service.XPBookRead, &bID)
+	case "to-read":
+		xpErr = xpSvc.AwardXP(xpCtx, userID, "add_to_tbr", service.XPAddToTBR, &bID)
+	}
+	if xpErr != nil {
+		slog.Warn("award shelf xp", "user_id", userID, "status", status, "error", xpErr)
+	}
 	go func() {
 		var meta map[string]any
 		if params.Rating.Valid {
 			meta = map[string]any{"rating": params.Rating.Int32}
 		}
 		h.recordBookActivity(context.Background(), userID, bID, shelfActivityType(status), meta)
-		xpSvc := service.NewXPService(h.Queries)
-		switch status {
-		case "read":
-			_ = xpSvc.AwardXP(context.Background(), userID, "book_read", service.XPBookRead, &bID)
+		if status == "read" {
 			_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
-		case "to-read":
-			_ = xpSvc.AwardXP(context.Background(), userID, "add_to_tbr", service.XPAddToTBR, &bID)
 		}
 		if h.RecommendationService != nil {
 			h.RecommendationService.InvalidateUserPool(context.Background(), userID.String())
@@ -402,7 +452,12 @@ func (h *UserHandler) UpdateBookshelfRating(w http.ResponseWriter, r *http.Reque
 	// A new or changed star rating is feed-worthy; review-only edits are not.
 	if entry.Rating.Valid && entry.Rating.Int32 != prevRating {
 		bID, rating := bookID, entry.Rating.Int32
-		go h.recordBookActivity(context.Background(), userID, bID, "rated", map[string]any{"rating": rating})
+		go func() {
+			// Rated from the finish sheet: one "finished ★★★★★" event, not two.
+			if !mergeIntoFinish(context.Background(), h.Queries, userID, bID, map[string]any{"rating": rating}) {
+				h.recordBookActivity(context.Background(), userID, bID, "rated", map[string]any{"rating": rating})
+			}
+		}()
 	}
 
 	var ratingPtr *int
@@ -1148,11 +1203,12 @@ func (h *UserHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// Synchronous: clients re-read /streak right after this responds to decide
+	// on the streak celebration, so the day must already be counted.
 	bID := bookID
-	go func() {
-		xpSvc := service.NewXPService(h.Queries)
-		_ = xpSvc.AwardXP(context.Background(), userID, "read_progress", service.XPReadProgress, &bID)
-	}()
+	if err := service.NewXPService(h.Queries).AwardXP(context.WithoutCancel(r.Context()), userID, "read_progress", service.XPReadProgress, &bID); err != nil {
+		slog.Warn("award read_progress xp", "user_id", userID, "error", err)
+	}
 
 	go func() {
 		bIDCopy := bID
@@ -1231,14 +1287,17 @@ func (h *UserHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bID := bookID
+	// Synchronous, like AddToBookshelf: clients re-read /streak right after.
+	xpSvc := service.NewXPService(h.Queries)
+	if err := xpSvc.AwardXP(context.WithoutCancel(r.Context()), userID, "book_read", service.XPBookRead, &bID); err != nil {
+		slog.Warn("award book_read xp", "user_id", userID, "error", err)
+	}
 	go func() {
 		var meta map[string]any
 		if entry.Rating.Valid {
 			meta = map[string]any{"rating": entry.Rating.Int32}
 		}
 		h.recordBookActivity(context.Background(), userID, bID, "finished_reading", meta)
-		xpSvc := service.NewXPService(h.Queries)
-		_ = xpSvc.AwardXP(context.Background(), userID, "book_read", service.XPBookRead, &bID)
 		_, _ = h.Queries.RebuildUserLeaderboardStats(context.Background(), userID)
 		count, _ := h.Queries.CountUserBooks(context.Background(), db.CountUserBooksParams{UserID: userID, Status: "read"})
 		if count == 1 {

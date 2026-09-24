@@ -637,6 +637,63 @@ func (q *Queries) GetLatestBooks(ctx context.Context, arg GetLatestBooksParams) 
 	return items, nil
 }
 
+const getMostStartedToday = `-- name: GetMostStartedToday :one
+SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, COUNT(*)::int AS started
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id
+    AND bs.status = 'reading'
+    AND bs.started_at > NOW() - INTERVAL '24 hours'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY started DESC, b.view_count DESC
+LIMIT 1
+`
+
+type GetMostStartedTodayRow struct {
+	Book    Book  `json:"book"`
+	Started int32 `json:"started"`
+}
+
+// Right Now: the book the most readers opened in the last 24 hours.
+func (q *Queries) GetMostStartedToday(ctx context.Context) (GetMostStartedTodayRow, error) {
+	row := q.db.QueryRow(ctx, getMostStartedToday)
+	var i GetMostStartedTodayRow
+	err := row.Scan(
+		&i.Book.ID,
+		&i.Book.Title,
+		&i.Book.Slug,
+		&i.Book.Authors,
+		&i.Book.Isbn13,
+		&i.Book.GoogleBooksID,
+		&i.Book.Metadata,
+		&i.Book.ViewCount,
+		&i.Book.LikeCount,
+		&i.Book.CreatedAt,
+		&i.Book.UpdatedAt,
+		&i.Book.Description,
+		&i.Book.PublishedDate,
+		&i.Book.PageCount,
+		&i.Book.Language,
+		&i.Book.CoverUrl,
+		&i.Book.Categories,
+		&i.Book.Subtitle,
+		&i.Book.Publisher,
+		&i.Book.IsbndbID,
+		&i.Book.OpenLibraryID,
+		&i.Book.AverageRating,
+		&i.Book.RatingsCount,
+		&i.Book.PreviewLink,
+		&i.Book.TotalReadsCount,
+		&i.Book.TotalTbrCount,
+		&i.Book.Embedding,
+		&i.Book.EmbeddingText,
+		&i.Book.DescriptionSource,
+		&i.Book.LastAccessedAt,
+		&i.Started,
+	)
+	return i, err
+}
+
 const getMostTBRBooks = `-- name: GetMostTBRBooks :many
 SELECT b.id, b.title, b.slug, b.authors, b.isbn_13, b.google_books_id, b.metadata, b.view_count, b.like_count, b.created_at, b.updated_at, b.description, b.published_date, b.page_count, b.language, b.cover_url, b.categories, b.subtitle, b.publisher, b.isbndb_id, b.open_library_id, b.average_rating, b.ratings_count, b.preview_link, b.total_reads_count, b.total_tbr_count, b.embedding, b.embedding_text, b.description_source, b.last_accessed_at, COUNT(*)::int AS tbr_7d
 FROM books b

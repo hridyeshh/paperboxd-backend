@@ -32,8 +32,7 @@ SET
     WHEN (total_xp + $2) >= 500 THEN 6 + ((total_xp + $2 - 500) / 200)
     -- Level 1-5: 0-500 XP (100 XP per level)
     ELSE 1 + ((total_xp + $2) / 100)
-  END,
-  last_activity_date = CURRENT_DATE
+  END
 WHERE id = $1
 `
 
@@ -45,6 +44,9 @@ type AddXPParams struct {
 // ============================================================================
 // USER XP AND LEVEL MANAGEMENT
 // ============================================================================
+// last_activity_date is UpdateUserStreak's to set: AwardXP calls it right after
+// this. Setting it here first made every streak update read "already active
+// today", so the streak never advanced.
 func (q *Queries) AddXP(ctx context.Context, arg AddXPParams) error {
 	_, err := q.db.Exec(ctx, addXP, arg.ID, arg.TotalXp)
 	return err
@@ -400,7 +402,9 @@ SELECT
   COALESCE(array_length(u.favorite_genres, 1), 0),
   u.total_xp,
   u.level,
-  u.current_streak
+  -- users.current_streak is never decayed; a run whose last day is older than
+  -- yesterday is already broken (same rule as activeStreak in reading_log.go).
+  CASE WHEN u.last_activity_date >= CURRENT_DATE - 1 THEN u.current_streak ELSE 0 END
 FROM users u
 ON CONFLICT (user_id)
 DO UPDATE SET
@@ -444,7 +448,9 @@ SELECT
   COALESCE(array_length(u.favorite_genres, 1), 0) as genres_explored,
   u.total_xp,
   u.level,
-  u.current_streak
+  -- users.current_streak is never decayed; a run whose last day is older than
+  -- yesterday is already broken (same rule as activeStreak in reading_log.go).
+  CASE WHEN u.last_activity_date >= CURRENT_DATE - 1 THEN u.current_streak ELSE 0 END
 FROM users u
 WHERE u.id = $1
 ON CONFLICT (user_id)
@@ -514,34 +520,38 @@ func (q *Queries) UpdateLeaderboardRankings(ctx context.Context) error {
 	return err
 }
 
-const updateUserStreak = `-- name: UpdateUserStreak :exec
+const updateUserStreak = `-- name: UpdateUserStreak :one
 
 UPDATE users
 SET
   current_streak = CASE
     -- Continued streak (activity yesterday)
-    WHEN last_activity_date = CURRENT_DATE - INTERVAL '1 day' THEN current_streak + 1
-    -- Same day activity (no change)
-    WHEN last_activity_date = CURRENT_DATE THEN current_streak
-    -- Broken streak (more than 1 day gap)
+    WHEN last_activity_date = CURRENT_DATE - 1 THEN COALESCE(current_streak, 0) + 1
+    -- Broken streak (more than 1 day gap) or first ever activity
     ELSE 1
   END,
   longest_streak = GREATEST(
-    longest_streak,
+    COALESCE(longest_streak, 0),
     CASE
-      WHEN last_activity_date = CURRENT_DATE - INTERVAL '1 day' THEN current_streak + 1
-      WHEN last_activity_date = CURRENT_DATE THEN current_streak
+      WHEN last_activity_date = CURRENT_DATE - 1 THEN COALESCE(current_streak, 0) + 1
       ELSE 1
     END
   ),
   last_activity_date = CURRENT_DATE
 WHERE id = $1
+  AND last_activity_date IS DISTINCT FROM CURRENT_DATE
+RETURNING current_streak
 `
 
 // ============================================================================
 // STREAK MANAGEMENT
 // ============================================================================
-func (q *Queries) UpdateUserStreak(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, updateUserStreak, id)
-	return err
+// Counts today as an activity day. Only the first call of a UTC day matches
+// (pgx.ErrNoRows after that), so the caller knows when the streak moved; the
+// row lock makes that true for exactly one of two concurrent calls.
+func (q *Queries) UpdateUserStreak(ctx context.Context, id uuid.UUID) (pgtype.Int4, error) {
+	row := q.db.QueryRow(ctx, updateUserStreak, id)
+	var current_streak pgtype.Int4
+	err := row.Scan(&current_streak)
+	return current_streak, err
 }

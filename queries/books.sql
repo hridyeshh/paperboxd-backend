@@ -211,3 +211,15 @@ GROUP BY b.id
 HAVING COUNT(bs.rating) >= 3 AND COUNT(bs.rating) <= 25 AND AVG(bs.rating) >= 4.0
 ORDER BY AVG(bs.rating) DESC, COUNT(bs.rating) DESC
 LIMIT $1;
+
+-- name: GetMostStartedToday :one
+-- Right Now: the book the most readers opened in the last 24 hours.
+SELECT sqlc.embed(b), COUNT(*)::int AS started
+FROM books b
+JOIN bookshelf bs ON bs.book_id = b.id
+    AND bs.status = 'reading'
+    AND bs.started_at > NOW() - INTERVAL '24 hours'
+JOIN users u ON u.id = bs.user_id AND u.deleted_at IS NULL
+GROUP BY b.id
+ORDER BY started DESC, b.view_count DESC
+LIMIT 1;

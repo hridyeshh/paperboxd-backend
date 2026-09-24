@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/hridyesh/paperboxd-backend/internal/db"
 	"github.com/hridyesh/paperboxd-backend/internal/service"
 )
 
@@ -31,8 +32,27 @@ func runNightlyJobs(pool *pgxpool.Pool, recSvc *service.RecommendationService, r
 	recomputeStaleTraitProfiles(pool, recSvc)
 	recomputeTasteOverlaps(recSvc)
 	purgeSoftDeletedUsers(pool)
+	rebuildLeaderboard(pool)
 	refreshPublicDomainLinks(readLinks)
 	slog.Info("nightly jobs: done")
+}
+
+// rebuildLeaderboard refreshes leaderboard_stats for everyone. Per-user rows are
+// otherwise rebuilt only when that reader acts, so a streak that broke while
+// they were away kept showing (and ranking) until their next action.
+// ponytail: 24h ticker from boot, not UTC midnight, so a broken streak can
+// linger on the leaderboard up to a day; schedule at 00:05 UTC if that matters.
+func rebuildLeaderboard(pool *pgxpool.Pool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	q := db.New(pool)
+	if err := q.RebuildAllLeaderboardStats(ctx); err != nil {
+		slog.Error("nightly: rebuild leaderboard stats", "error", err)
+		return
+	}
+	if err := q.UpdateLeaderboardRankings(ctx); err != nil {
+		slog.Error("nightly: update leaderboard rankings", "error", err)
+	}
 }
 
 // nightlyGutenbergLimit caps one night's Gutendex lookups (~1/s, so a few

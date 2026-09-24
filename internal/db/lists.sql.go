@@ -607,6 +607,46 @@ func (q *Queries) GetPublicLists(ctx context.Context, limit int32) ([]GetPublicL
 	return items, nil
 }
 
+const getRisingList = `-- name: GetRisingList :one
+SELECT
+    l.id,
+    l.title,
+    u.username,
+    u.name,
+    COUNT(sl.id)::int AS saves_7d
+FROM lists l
+JOIN users u ON u.id = l.user_id
+JOIN saved_lists sl ON sl.list_id = l.id AND sl.saved_at > NOW() - INTERVAL '7 days'
+WHERE l.is_private = false
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+GROUP BY l.id, u.username, u.name
+ORDER BY saves_7d DESC, l.updated_at DESC
+LIMIT 1
+`
+
+type GetRisingListRow struct {
+	ID       uuid.UUID   `json:"id"`
+	Title    string      `json:"title"`
+	Username string      `json:"username"`
+	Name     pgtype.Text `json:"name"`
+	Saves7d  int32       `json:"saves_7d"`
+}
+
+// Right Now: the public list saved by the most readers this week.
+func (q *Queries) GetRisingList(ctx context.Context) (GetRisingListRow, error) {
+	row := q.db.QueryRow(ctx, getRisingList)
+	var i GetRisingListRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Username,
+		&i.Name,
+		&i.Saves7d,
+	)
+	return i, err
+}
+
 const getUserLists = `-- name: GetUserLists :many
 SELECT
     l.id,

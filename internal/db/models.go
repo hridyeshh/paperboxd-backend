@@ -124,6 +124,24 @@ type Bookshelf struct {
 	ReviewEdited        bool               `json:"review_edited"`
 }
 
+type DailyAtom struct {
+	ID          uuid.UUID          `json:"id"`
+	Slug        string             `json:"slug"`
+	Kind        string             `json:"kind"`
+	Title       string             `json:"title"`
+	Dek         pgtype.Text        `json:"dek"`
+	Body        string             `json:"body"`
+	ReadSeconds int32              `json:"read_seconds"`
+	SourceKind  string             `json:"source_kind"`
+	SourceNote  pgtype.Text        `json:"source_note"`
+	SourceUrl   pgtype.Text        `json:"source_url"`
+	Books       []byte             `json:"books"`
+	Topics      []string           `json:"topics"`
+	Status      string             `json:"status"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type DeviceToken struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`

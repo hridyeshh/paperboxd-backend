@@ -63,6 +63,20 @@ func (q *Queries) CheckThoughtReposted(ctx context.Context, arg CheckThoughtRepo
 	return exists, err
 }
 
+const countBookThoughts = `-- name: CountBookThoughts :one
+SELECT COUNT(*) FROM thoughts
+WHERE book_id = $1 AND is_private = false AND thread_root_id IS NULL
+`
+
+// Book-page headline count, cached for every viewer.
+// ponytail: ignores blocks (viewer-independent); the list itself filters them.
+func (q *Queries) CountBookThoughts(ctx context.Context, bookID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countBookThoughts, bookID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countThoughtLikes = `-- name: CountThoughtLikes :one
 SELECT COUNT(*) FROM thought_likes
 WHERE thought_id = $1
@@ -302,6 +316,57 @@ func (q *Queries) GetBookThoughts(ctx context.Context, arg GetBookThoughtsParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const getHotThought = `-- name: GetHotThought :one
+SELECT
+    t.id,
+    t.title,
+    t.content,
+    t.book_id,
+    u.username,
+    u.name,
+    b.title AS book_title,
+    COUNT(tl.id)::int AS likes_48h
+FROM thoughts t
+JOIN users u ON u.id = t.user_id
+JOIN thought_likes tl ON tl.thought_id = t.id AND tl.created_at > NOW() - INTERVAL '48 hours'
+LEFT JOIN books b ON b.id = t.book_id
+WHERE t.is_private = false
+  AND t.thread_root_id IS NULL
+  AND u.deleted_at IS NULL
+  AND u.is_public = true
+GROUP BY t.id, u.username, u.name, b.title
+ORDER BY likes_48h DESC, t.created_at DESC
+LIMIT 1
+`
+
+type GetHotThoughtRow struct {
+	ID        uuid.UUID   `json:"id"`
+	Title     pgtype.Text `json:"title"`
+	Content   string      `json:"content"`
+	BookID    pgtype.UUID `json:"book_id"`
+	Username  string      `json:"username"`
+	Name      pgtype.Text `json:"name"`
+	BookTitle pgtype.Text `json:"book_title"`
+	Likes48h  int32       `json:"likes_48h"`
+}
+
+// Right Now: the public thought with the most likes in the last two days.
+func (q *Queries) GetHotThought(ctx context.Context) (GetHotThoughtRow, error) {
+	row := q.db.QueryRow(ctx, getHotThought)
+	var i GetHotThoughtRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Content,
+		&i.BookID,
+		&i.Username,
+		&i.Name,
+		&i.BookTitle,
+		&i.Likes48h,
+	)
+	return i, err
 }
 
 const getThoughtByID = `-- name: GetThoughtByID :one

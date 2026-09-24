@@ -105,6 +105,8 @@ func (h *UserHandler) GetByUsername(w http.ResponseWriter, r *http.Request) {
 		if viewerID, err := uuid.Parse(viewerIDStr); err == nil {
 			if viewerID == user.ID {
 				isSelf = true
+				resp.Email = user.Email
+				resp.Birthday = privateBirthday(user)
 			} else {
 				if following, err := h.Queries.CheckFollowing(r.Context(), db.CheckFollowingParams{
 					FollowerID:  viewerID,
@@ -248,7 +250,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 				types.WriteInternalError(w)
 				return
 			}
-			types.WriteJSON(w, http.StatusOK, userToResponse(refreshed))
+			types.WriteJSON(w, http.StatusOK, selfUserResponse(refreshed))
 			return
 		}
 	}
@@ -288,7 +290,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+	types.WriteJSON(w, http.StatusOK, selfUserResponse(updated))
 }
 
 // SaveOnboarding handles POST /api/v1/users/me/onboarding
@@ -651,10 +653,7 @@ func (h *UserHandler) RecordDailyOpen(w http.ResponseWriter, r *http.Request) {
 			types.WriteInternalError(w)
 			return
 		}
-		// Check streak milestone bonus
-		go func() {
-			_ = xpSvc.CheckAndAwardStreakBonus(r.Context(), userID, int(info.CurrentStreak.Int32))
-		}()
+		// Streak milestone bonus is awarded inside AwardXP.
 	}
 
 	types.WriteJSON(w, http.StatusOK, map[string]any{
@@ -702,7 +701,7 @@ func (h *UserHandler) UpdateAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+	types.WriteJSON(w, http.StatusOK, selfUserResponse(updated))
 }
 
 // UploadAvatar handles POST /api/v1/users/me/avatar/upload
@@ -778,7 +777,7 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+	types.WriteJSON(w, http.StatusOK, selfUserResponse(updated))
 }
 
 // UploadBanner handles POST /api/v1/users/me/banner/upload
@@ -852,17 +851,36 @@ func (h *UserHandler) UploadBanner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	types.WriteJSON(w, http.StatusOK, userToResponse(updated))
+	types.WriteJSON(w, http.StatusOK, selfUserResponse(updated))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// selfUserResponse is userToResponse plus the private fields only the account
+// owner may see. Use it only on endpoints that act on the caller's own account.
+func selfUserResponse(u db.User) types.UserResponse {
+	resp := userToResponse(u)
+	resp.Email = u.Email
+	resp.Birthday = privateBirthday(u)
+	return resp
+}
+
+// privateBirthday is the owner-only birthday, or nil when unset.
+func privateBirthday(u db.User) *string {
+	if !u.Birthday.Valid {
+		return nil
+	}
+	s := u.Birthday.Time.Format("2006-01-02")
+	return &s
+}
+
+// userToResponse is the public view of a user: never the email or birthday, which go out
+// on profiles, search, and follower lists to anyone (see selfUserResponse).
 func userToResponse(u db.User) types.UserResponse {
 	resp := types.UserResponse{
 		ID:             u.ID.String(),
 		MongoID:        u.ID.String(),
 		Username:       u.Username,
-		Email:          u.Email,
 		IsPublic:       u.IsPublic,
 		BooksReadCount: u.BooksReadCount.Int32,
 		TotalPagesRead: u.TotalPagesRead.Int32,
@@ -896,10 +914,6 @@ func userToResponse(u db.User) types.UserResponse {
 	}
 	if u.Bio.Valid {
 		resp.Bio = &u.Bio.String
-	}
-	if u.Birthday.Valid {
-		s := u.Birthday.Time.Format("2006-01-02")
-		resp.Birthday = &s
 	}
 	if u.Gender.Valid {
 		resp.Gender = &u.Gender.String
