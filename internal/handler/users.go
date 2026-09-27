@@ -40,6 +40,7 @@ type UserHandler struct {
 	Enricher              *service.Enricher
 	Cloudinary            *external.CloudinaryClient
 	EventSvc              *service.EventService
+	Messages              *service.MessageService
 }
 
 // embedCallback returns a fire-and-forget func for newly cached books, or nil if embedding is disabled.

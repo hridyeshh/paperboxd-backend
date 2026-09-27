@@ -216,6 +216,8 @@ func main() {
 	recommendationHandler := handler.NewRecommendationHandler(recommendationSvc)
 	recommendationHandler.Queries = queries
 	fusionHandler := handler.NewFusionHandler(recommendationSvc)
+	messageSvc := service.NewMessageService(dbPool, eventSvc)
+	messageHandler := handler.NewMessageHandler(messageSvc, queries, googleBooksClient, isbndbClient)
 	bookHandler.RecommendationService = recommendationSvc
 	cron.StartNightlyCron(dbPool, recommendationSvc, readLinksSvc)
 
@@ -231,6 +233,7 @@ func main() {
 		RecommendationService: recommendationSvc,
 		Cloudinary:            cloudinaryClient,
 		EventSvc:              eventSvc,
+		Messages:              messageSvc,
 	}
 
 	// ── Router ─────────────────────────────────────────────────────────────────
@@ -438,6 +441,25 @@ func main() {
 				r.With(tightLimit(10)).Post("/invites/{token}/accept", fusionHandler.AcceptInvite)
 				r.Get("/{id}", fusionHandler.Get)
 				r.Delete("/{id}", fusionHandler.Delete)
+			})
+		})
+
+		// Messages (DMs). Delivery is polling for now: clients ask a chat for
+		// ?after=<id> and the badge on foreground. See docs/MESSAGES.md.
+		r.Group(func(r chi.Router) {
+			r.Use(appMiddleware.Authenticate(cfg.JWTSecret))
+			r.With(tightLimit(30)).Post("/messages", messageHandler.Send)
+			r.Delete("/messages/{id}", messageHandler.Unsend)
+			r.Route("/conversations", func(r chi.Router) {
+				r.Get("/", messageHandler.List)
+				r.Get("/badge", messageHandler.Badge)
+				r.Get("/with/{username}", messageHandler.With)
+				r.Get("/{id}/messages", messageHandler.Messages)
+				r.Get("/{id}/shared", messageHandler.Shared)
+				r.Post("/{id}/read", messageHandler.Read)
+				r.Post("/{id}/accept", messageHandler.Accept)
+				r.Patch("/{id}", messageHandler.Update)
+				r.Delete("/{id}", messageHandler.Clear)
 			})
 		})
 

@@ -376,6 +376,39 @@ A one-time link pairs two readers. Links open `https://paperboxd.in/fusion/{toke
 
 Accepting adds a `fusion_joined` activity addressed to the inviter (`target_user_id`, `metadata.fusion_id`); it appears only in their notifications, never on profiles or followers' feeds.
 
+
+### 3.13 Messages (DMs)
+
+1:1 conversations; Paperboxd objects ride along as attachments. No push yet: poll `?after=<last id>` every ~4s while a chat is open, and the badge on foreground / every ~30s. Full design: `docs/MESSAGES.md`.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `POST` | `/api/v1/messages` | Required | `{conversation_id \| to: [username ≤5], body ≤2000, attachments: [{kind, ref_id}] ≤10, client_id: uuid}`. 201 `{sent: [Message], failed: [{username, error}]}`. A single `to` returns its error directly. 30/min |
+| `DELETE` | `/api/v1/messages/{id}` | Required | Unsend your own. 204 |
+| `GET` | `/api/v1/conversations?box=accepted\|request&before=` | Required | `{conversations: [{id, state, muted, them, last_message: {text, from_me, created_at}, unread_count}], next_cursor}` |
+| `GET` | `/api/v1/conversations/badge` | Required | `{unread, requests}` |
+| `GET` | `/api/v1/conversations/with/{username}` | Required | `{conversation_id ("" if none yet), them}`. 403 blocked |
+| `GET` | `/api/v1/conversations/{id}/messages?before=\|after=` | Required | `{id, state, muted, them, their_last_read_id, messages (oldest first), has_more}` |
+| `GET` | `/api/v1/conversations/{id}/shared?kind=&before=` | Required | `{counts: {kind: n}, items: [{message_id, kind, ref_id, snapshot, from_me, created_at}], next_cursor}` |
+| `POST` | `/api/v1/conversations/{id}/read` | Required | Read up to the latest. 204 |
+| `POST` | `/api/v1/conversations/{id}/accept` | Required | Request → inbox. 204 |
+| `PATCH` | `/api/v1/conversations/{id}` | Required | `{muted}`. 204 |
+| `DELETE` | `/api/v1/conversations/{id}` | Required | Delete chat for you only. 204 |
+
+`Message` = `{id (int64), conversation_id, sender_id, from_me, body, created_at, unsent, attachments: [{kind, ref_id, snapshot}]}`. Kinds and their snapshots:
+
+| kind | ref_id | snapshot |
+|------|--------|----------|
+| `book` | any book id (normalised to the Paperboxd UUID) | `title, authors, cover_url, slug` |
+| `list` | list UUID | `title, owner_username, owner_name, book_count, covers[≤3], is_private` |
+| `thought` | thought UUID | `excerpt, author_username, author_name, rating, book_id, book_title, book_cover_url` |
+| `profile` | user UUID or username (normalised to UUID) | `username, name, avatar_url, is_public` |
+| `fusion` | fusion UUID | `score \| null, readers: [{username, name, avatar_url} ×2]` |
+
+Render cards from `snapshot`; tapping opens the live object, which may since be gone (show "no longer available"). Sharing someone else's list or thought needs their account public; your own private list grants the recipient access. Fusions: only its two readers can send it, and only they can open it.
+
+Errors: 403 blocked · 404 not found · 422 attachment unavailable · 429 request cap (3 messages until accepted) or 20 new conversations/day. Report a message with `POST /api/v1/reports {content_type: "message", content_id: "<message id>", reason}`; block via the existing block endpoint.
+
 ---
 
 ## 4. Things mobile MUST NOT call

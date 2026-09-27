@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -382,6 +383,7 @@ var validReportContentTypes = map[string]bool{
 	"list":    true,
 	"user":    true,
 	"book":    true,
+	"message": true,
 }
 
 // CreateReport handles POST /api/v1/reports
@@ -424,6 +426,27 @@ func (h *UserHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 	if len(req.Details) > 2000 {
 		types.WriteError(w, http.StatusBadRequest, types.ErrCodeValidation, "Details too long (max 2000 chars)")
 		return
+	}
+
+	// A DM can be unsent after it is reported, so the report keeps a copy.
+	// This also checks the reporter is in the conversation.
+	if req.ContentType == "message" {
+		messageID, err := strconv.ParseInt(req.ContentID, 10, 64)
+		if err != nil || h.Messages == nil {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Message not found")
+			return
+		}
+		msgCopy, err := h.Messages.ReportContext(r.Context(), messageID, userIDStr)
+		if errors.Is(err, service.ErrMessageNotFound) {
+			types.WriteError(w, http.StatusNotFound, types.ErrCodeNotFound, "Message not found")
+			return
+		}
+		if err != nil {
+			slog.Error("create report: message context", "error", err)
+			types.WriteInternalError(w)
+			return
+		}
+		req.Details = strings.TrimSpace(req.Details + "\n\n" + msgCopy)
 	}
 
 	details := pgtype.Text{}

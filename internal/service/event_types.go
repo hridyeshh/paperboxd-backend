@@ -74,6 +74,9 @@ const (
 	EventListBookAdded   = "list_book_added"
 	EventListShared      = "list_shared"
 
+	// Messages. Emitted server side once per send, whatever the recipient count.
+	EventMessageSent = "message_sent"
+
 	// Plus. The client sends the first two with metadata.feature and
 	// metadata.surface; the subscription ones come from the link endpoints and
 	// store webhooks, so they reflect what the store said, not what the app
@@ -113,6 +116,7 @@ var validEventTypes = map[string]struct{}{
 
 	EventThoughtCreated: {}, EventThoughtLiked: {}, EventThoughtReposted: {},
 	EventListCreated: {}, EventListBookAdded: {}, EventListShared: {},
+	EventMessageSent: {},
 
 	EventPaywallViewed: {}, EventPremiumCTAClicked: {}, EventPremiumFeatureViewed: {},
 	EventPremiumFeatureUsed: {}, EventSubscriptionStarted: {}, EventTrialStarted: {},
